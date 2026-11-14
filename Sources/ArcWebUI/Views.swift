@@ -270,7 +270,23 @@ extension AppState {
     /// The one confirmation dialog. Chat and profile deletes arm their original
     /// state fields; newer guards (workspaces) arm `pendingConfirm` — so every
     /// destructive action gets the same dialog, the same Cancel/Delete pair, a
-    /// real dialog role, and (via the overlay) the same focus + Escape handling.
+    /// real dialog role, and (via no-webui 2.14.0) the same focus + Escape
+    /// handling.
+    ///
+    /// Focus is the ENGINE's now — arc emits two attributes and keeps no code:
+    ///  - `data-focus-return` on Cancel names the control focus goes back to when
+    ///    the dialog's removal patch lands (the engine's opener memo is keyed by
+    ///    element id, so the target must be a visible, focusable control — see
+    ///    `confirmOpenerID`);
+    ///  - `autofocus` on Cancel is the entry path: the dialog is inserted by a
+    ///    patch, and the HTML autofocus flush puts focus on its first control.
+    ///    no-webui has no "focus this dialog" behavior of its own (F3).
+    /// `data-dismiss` is still the engine's Escape contract: `escape` fires the
+    /// layer's first `[data-dismiss]` control, so Cancel is that control and
+    /// Delete never is. All three ride `extraAttributes` (the stored-property
+    /// seam) rather than view modifiers: `modalHTML()` sits on a render-stack
+    /// cliff, and ONE more view modifier anywhere in this function overflows it
+    /// (see the row 1.4 defect).
     func modalHTML() -> some WebUI.View {
         Group {
             if let req = activeConfirm {
@@ -280,16 +296,9 @@ extension AppState {
                             .id("modal-title")
                         Paragraph(req.body)
                         Div(class: .modalActions) {
-                            // `data-dismiss` is the engine's Escape contract: `escape`
-                            // fires the layer's first `[data-dismiss]` control
-                            // (`webui-engine.js:1917-1924`). Cancel is that control —
-                            // Delete must never be the one Escape presses. It rides
-                            // `extraAttributes` (the stored-property seam) rather than
-                            // `.behavior(DismissStack())`: `modalHTML()` sits on a
-                            // render-stack cliff, and ONE more view modifier anywhere
-                            // in this function overflows it (see the row 1.4 defect).
                             ArcButton("Cancel", id: "modal-cancel", component: nil, class: .ghostBtn,
-                                      extraAttributes: DismissStack().attribute().attributeText)
+                                      extraAttributes: DismissStack().attribute().attributeText
+                                          + confirmFocusReturn(req) + " autofocus")
                             ArcButton("Delete", id: "modal-confirm", component: nil, class: .dangerBtn)
                         }
                         .wire("modal")
@@ -299,6 +308,33 @@ extension AppState {
                     .aria(.labelledby("modal-title"))
                 }
             }
+        }
+    }
+
+    /// ` data-focus-return="<opener id>"` for the dialog's Cancel control, or
+    /// `""` when the armed request has no focus-return opener.
+    private func confirmFocusReturn(_ req: ConfirmRequest) -> String {
+        let opener = confirmOpenerID(req)
+        return opener.isEmpty ? "" : FocusReturn(id: opener).attribute().attributeText
+    }
+
+    /// The id of the control focus returns to when the dialog closes, per
+    /// confirmation kind: the control the user activated — except for a chat,
+    /// where the activated item is the row menu's Delete entry and the whole
+    /// menu closes on that same click, leaving the item with no layout and no
+    /// focus. The chat's target is therefore the row's ⋮ button (`s-menu-`,
+    /// which owns the menu and stays visible), and `sm-del-` names the dialog
+    /// itself so the pairing is stated on both ends.
+    /// A kind with no known opener returns `""` — no attribute, no guessing.
+    private func confirmOpenerID(_ req: ConfirmRequest) -> String {
+        switch req.kind {
+        case "chat": return "s-menu-\(enc(req.id))"
+        case "profile": return "pr-del-\(enc(req.id))"
+        case "skill": return "sk-delete"
+        case "workspace": return "ws-del-\(enc(req.id))"
+        case "mcp": return "mcp-del-\(enc(req.id))"
+        case "empty-drafts": return "chat-clear-empty"
+        default: return ""
         }
     }
 
@@ -451,7 +487,9 @@ extension AppState {
                 Div(id: "ctx-pane-overlay", class: .modalOverlay) {
                     Div(id: "ctx-pane-card", class: .ctxPaneCard) {
                         ArcButton(id: "ctx-pane-close", component: nil, class: ClassName(.ghostBtn, .ctxPaneClose),
-                                  extraAttributes: DismissStack().attribute().attributeText) {
+                                  extraAttributes: DismissStack().attribute().attributeText
+                                      + FocusReturn(id: "ctx-chip-summary").attribute().attributeText
+                                      + " autofocus") {
                             WebUIIcon(.x, size: .small)
                         }
                         Heading("Context breakdown", level: .h3)
@@ -648,7 +686,8 @@ extension AppState {
                 }
             }
             if !todos && !showArchived && clearableDrafts > 0 {
-                ArcButton(id: "chat-clear-empty", component: "chat-clear-empty", class: .archLink) {
+                ArcButton(id: "chat-clear-empty", component: "chat-clear-empty", class: .archLink,
+                          extraAttributes: FocusReturn(id: "modal-overlay").attribute().attributeText) {
                     Span(class: "arch-ico") { WebUIIcon(.trash, size: .small) }
                     Span { Text(" Clear \(clearableDrafts) empty chat\(clearableDrafts == 1 ? "" : "s")") }
                 }
@@ -955,7 +994,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 }
                                 ArcButton("Duplicate conversation", id: "sm-dup-\(encID)", class: "")
                                     .data("sid", s.id)
-                                ArcButton("Delete conversation", id: "sm-del-\(encID)", class: .danger)
+                                ArcButton("Delete conversation", id: "sm-del-\(encID)", class: .danger,
+                                          extraAttributes: FocusReturn(id: "modal-overlay").attribute().attributeText)
                                     .data("sid", s.id)
                             }
                             // "Move to Category" swaps this menu's items for a
@@ -1267,7 +1307,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             // `main` has no delete control: the default workspace
                             // cannot be removed, and the absence is the contract.
                             if !isMain {
-                                ArcButton(id: "ws-del-\(encWS)", class: ClassName(.iconMini, .danger), type: .button) {
+                                ArcButton(id: "ws-del-\(encWS)", class: ClassName(.iconMini, .danger), type: .button,
+                                          extraAttributes: FocusReturn(id: "modal-overlay").attribute().attributeText) {
                                     WebUIIcon(.x, size: .small)
                                 }
                                 .title("Delete")
@@ -2570,7 +2611,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     // The tooltip is the details' SIBLING rather than its body:
                     // a closed `<details>` renders no content, and the breakdown
                     // must still appear on hover.
-                    ArcDisclosure(summaryTitle: "Context window usage — click for the breakdown",
+                    ArcDisclosure(summaryID: "ctx-chip-summary",
+                                  summaryTitle: "Context window usage — click for the breakdown",
                                   summaryLabel: "Context window usage — click for the breakdown") {
                         Span(class: ClassName("ctx-indicator\(level)")) {
                             Span(class: .ctxRing) {
@@ -3192,7 +3234,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                     WebUIIcon(.edit, size: .small)
                                 }
                                 .title("Edit skill")
-                                ArcButton(id: "sk-delete", component: "skill-delete", class: ClassName(.iconMini, .danger), type: .button) {
+                                ArcButton(id: "sk-delete", component: "skill-delete", class: ClassName(.iconMini, .danger), type: .button,
+                                          extraAttributes: FocusReturn(id: "modal-overlay").attribute().attributeText) {
                                     WebUIIcon(.trash, size: .small)
                                 }
                                 .title("Delete skill")
@@ -3412,7 +3455,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 }
                                 .title("Select profile for this chat")
                                 if !isDefault {
-                                    ArcButton(id: "pr-del-\(encName)", class: ClassName(.iconMini, .danger), type: .button) {
+                                    ArcButton(id: "pr-del-\(encName)", class: ClassName(.iconMini, .danger), type: .button,
+                                              extraAttributes: FocusReturn(id: "modal-overlay").attribute().attributeText) {
                                         WebUIIcon(.trash, size: .medium)
                                     }
                                     .title("Delete profile")
@@ -3900,7 +3944,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 Div(class: ClassName(.rowActions, .rowActionsInline)) {
                     ArcButton("Test", id: "mcp-test-\(enc(name))", class: "btn")
                     ArcButton("Edit", id: "mcp-edit-\(enc(name))", class: "btn")
-                    ArcButton(id: "mcp-del-\(enc(name))", class: ClassName(.iconMini, .danger)) {
+                    ArcButton(id: "mcp-del-\(enc(name))", class: ClassName(.iconMini, .danger),
+                              extraAttributes: FocusReturn(id: "modal-overlay").attribute().attributeText) {
                         WebUIIcon(.x, size: .small)
                     }
                     .title("Delete")

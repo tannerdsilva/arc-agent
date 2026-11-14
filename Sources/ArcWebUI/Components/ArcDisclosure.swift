@@ -18,6 +18,10 @@ public struct ArcDisclosure<Summary: WebUI.View, Content: WebUI.View>: WebUI.Vie
 	public let isOpen: Bool
 	/// the head's class token; `nil` leaves the summary unclassed.
 	public let summaryClass: ClassName?
+	/// the head's id. A `<details>` itself is not focusable — only its summary
+	/// is — so a layer that must return focus to this disclosure names THIS id
+	/// (`FocusReturn`); the details' own id would silently no-op.
+	public let summaryID: String?
 	/// the head's tab stop. `-1` keeps a quiet utility out of the tab order
 	/// exactly as `tabIndex: -1` does on `ArcButton`.
 	public let summaryTabIndex: Int?
@@ -31,6 +35,7 @@ public struct ArcDisclosure<Summary: WebUI.View, Content: WebUI.View>: WebUI.Vie
 	public init(
 		open: Bool = false,
 		summaryClass: ClassName? = nil,
+		summaryID: String? = nil,
 		summaryTabIndex: Int? = nil,
 		summaryTitle: String? = nil,
 		summaryLabel: String? = nil,
@@ -39,6 +44,7 @@ public struct ArcDisclosure<Summary: WebUI.View, Content: WebUI.View>: WebUI.Vie
 	) {
 		self.isOpen = open
 		self.summaryClass = summaryClass
+		self.summaryID = summaryID
 		self.summaryTabIndex = summaryTabIndex
 		self.summaryTitle = summaryTitle
 		self.summaryLabel = summaryLabel
@@ -48,6 +54,9 @@ public struct ArcDisclosure<Summary: WebUI.View, Content: WebUI.View>: WebUI.Vie
 
 	public func render(into buffer: inout HTMLBuffer) {
 		var summaryAttributes = ""
+		if let summaryID, !summaryID.isEmpty {
+			summaryAttributes += " id=\"\(htmlEscape(summaryID))\""
+		}
 		if let summaryClass, !summaryClass.value.isEmpty {
 			summaryAttributes += " class=\"\(htmlEscape(summaryClass.value))\""
 		}

@@ -18,13 +18,13 @@ extension ArcWebUITestRoot {
 	@Suite("Client asset budget", .serialized)
 	struct ClientAssetBudgetTests {
 
-		/// measured 48,701 bytes / 1,076 lines in the merged tree.
-		/// this commit: the engine follows the scroll and owns the reading keys.
-		/// the local line measured 77,120: the -28,419-byte delta is the
-		/// upstream composer-attachment, workspace-delete and popover blocks this
-		/// program has not retired yet.
+		/// measured 39,808 bytes / 893 lines in the merged tree.
+		/// this commit: the engine returns focus — the modal block retires, and its
+		/// own deletion lands in full. the local line landed at 38,695; the
+		/// 1,113-byte residue above it is upstream's staged-chip and popover
+		/// surface, which this program has not retired.
 		/// one byte of headroom, which is the ratchet working as intended.
-		private static let ceiling = 48_702
+		private static let ceiling = 39_809
 
 		private static let sourcePath = "Sources/ArcWebUI/Assets/overlay.js"
 

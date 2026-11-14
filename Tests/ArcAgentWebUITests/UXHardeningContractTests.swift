@@ -3,6 +3,7 @@ import Testing
 
 import ArcTheme
 import ArcAgentCore
+import WebUI
 @testable import ArcWebUI
 
 extension ArcWebUITestRoot {
@@ -381,24 +382,43 @@ extension ArcWebUITestRoot {
 
         // MARK: - UX-33 focus survives the fragment patch (T26)
 
-        @Test("the overlay restores focus to the control the patch just replaced")
+        @Test("focus survives a replaced control through the engine's by-id memo")
         func focusRestoredAfterPatch() {
-            let overlay = Self.overlay
             // The regression (steps-w2f-i): activating a settings chip with Enter
             // or Space toggled it correctly but the server re-render replaced the
-            // node, so `document.activeElement` fell back to <body>. The overlay
-            // must remember the control that blurred and re-focus its replacement
-            // (matched by id, or data-sid for roving session rows) inside the
-            // post-patch seam.
-            #expect(overlay.contains("lastFocusedControl"), "the overlay must remember the control that had focus")
-            #expect(overlay.contains("document.getElementById(rec.id)"),
-                    "focus must be restored by id — the node was replaced, a cached reference is stale")
-            #expect(overlay.contains("restoreFocusAfterPatch();"),
-                    "the restore must run in the post-patch seam (enhancePatched)")
-            #expect(overlay.contains("rec.el.isConnected"),
-                    "restore must be skipped when the focused node survived or focus moved on purpose")
-            #expect(overlay.contains("nu.focus({ preventScroll: true })"),
-                    "the re-focused control must not scroll the page")
+            // node, so `document.activeElement` fell back to <body>. T26 is
+            // no-webui 2.14.0's now. `capture` records the focused control and the
+            // `data-focus-return` region around it; `restore` re-queries that
+            // target by id after the patch (a cached element reference is stale —
+            // the node was replaced) and skips the restore while the focused node
+            // survived, so focus the user moved on purpose is never yanked back.
+            // Arc's half is the declaration: `FocusReturn(id:)` is the typed
+            // spelling of the one attribute the engine reads, and it is emitted
+            // on the dialog's openers and its close controls (the round trip is
+            // pinned on rendered bytes in `ModalFocusContractTests`).
+            let engine = WebUIAssets.engine
+            #expect(
+                engine.contains("focusMemo = decl ? { active: active, target: decl.getAttribute('data-focus-return') || decl.id } : null;"),
+                "the engine no longer captures the focused control's `data-focus-return` region — T26 then has no owner on either side"
+            )
+            #expect(
+                engine.contains("var target = document.getElementById(memo.target);"),
+                "the engine no longer re-queries the return target by id: the focused node was replaced, so a cached reference is stale"
+            )
+            #expect(
+                engine.contains("if (memo.active && memo.active.isConnected) { return; }"),
+                "the restore must be skipped while the focused node survived, or it yanks focus from where the user moved it"
+            )
+            #expect(
+                FocusReturn(id: "some-control").attribute().attributeText == " data-focus-return=\"some-control\"",
+                "`FocusReturn` must serialize to the attribute the engine reads — a renamed attribute leaves every declaration inert"
+            )
+            // the REGION form of T26 (a `data-focus-return` wrapper around a
+            // control a patch replaces) is measured live in
+            // `ux-gates.mjs --only=focus`: no arc surface declares one yet — the
+            // dialog's openers and close controls are the only declarations this
+            // slice ships — so that row names the surface it tried and reports a
+            // SKIP with the reason until a surface declares one.
         }
 
         // MARK: - B2/F45 dropdown dismissal
@@ -1117,21 +1137,27 @@ extension ArcWebUITestRoot {
             #expect(html.contains("id=\"modal-title\""), "the label target must exist")
             #expect(html.contains("id=\"modal-cancel\""), "the cancel button renders")
             #expect(html.contains("id=\"modal-confirm\""), "the confirm button renders")
-            #expect(Self.overlay.contains("function syncModalFocus()"))
-            // Escape with focus INSIDE the dialog is the ENGINE's at 2.7.0: Cancel
-            // carries `data-dismiss`, the control its `escape` fires
-            // (`webui-engine.js:1917-1924`). The overlay itself cannot be a
-            // dismissible LAYER yet — one more modifier inside `modalHTML()`
-            // overflows the render stack (row 1.4 defect) — so arc keeps only the
-            // focus-OUTSIDE-the-card branch.
             let cancelTag = html.range(of: #"<button [^>]*id="modal-cancel"[^>]*>"#,
                                        options: .regularExpression).map { String(html[$0]) }
             #expect(cancelTag?.contains("data-dismiss") == true,
                     "Cancel must be the [data-dismiss] control the engine's Escape fires — never Delete")
-            #expect(Self.overlay.contains("if (e.key === 'Escape') {"),
-                    "the focus-outside-the-card Escape branch must stay while no overlay can be a layer")
-            #expect(Self.overlay.contains("card.contains(document.activeElement)"),
-                    "Tab escaped the dialog to a control behind the scrim")
+            // focus ENTERS and RETURNS by emission at 2.14.0: `autofocus` is the
+            // HTML flush on insertion (F3 — no behavior moves focus into a patched
+            // dialog), and `data-focus-return` names the opener the engine focuses
+            // once the dialog's removal patch lands. Neither is the overlay's.
+            #expect(cancelTag?.contains("autofocus") == true,
+                    "without `autofocus` the patched-in dialog gets no focus at all")
+            #expect(cancelTag?.contains("data-focus-return=") == true,
+                    "Cancel must name the control focus returns to — the engine's opener memo stays empty without it")
+            // Escape with focus INSIDE the dialog and the Tab wrap are the
+            // engine's at 2.14.0; arc keeps neither, so both are pinned in the
+            // engine it serves.
+            let engine = WebUIAssets.engine
+            #expect(engine.contains("var control = overlay.querySelector('[data-dismiss]');"),
+                    "Escape inside `.modal-overlay` must still fire the layer's dismiss control")
+            #expect(engine.contains("var modal = e.target.closest('.modal-overlay');") &&
+                    engine.contains("if (e.shiftKey && e.target === f[0])"),
+                    "the Tab wrap inside `.modal-overlay` must be the engine's — arc's block that held the trap is deleted")
         }
 
         // MARK: - A15/F27/F58/F60 the guarded deletes
@@ -1837,18 +1863,14 @@ extension ArcWebUITestRoot {
         /// <body> because the modal's own focus moves overwrote the generic
         /// patch-restore's memory.
         ///
-        /// The focus fix is pinned at the mechanism, not the symptom: the very
-        /// patch that OPENS the dialog re-renders the chat header and disconnects
-        /// the focused trigger, so the trigger has to be snapshotted by a
-        /// capture-phase click listener BEFORE that patch (focus-time recording
-        /// already sees <body>), and restore has to resolve the snapshot through
-        /// the session row's data-sid because the trigger's node gets replaced.
-        ///
-        /// Wave-2: the close round-trip delivers several fragment patches in one
-        /// batch, so restore is keyed to syncModalFocus's open→closed transition
-        /// (modalWasOpen) — it fires exactly on the pass where the card is first
-        /// gone, and no early-clear guard may wipe the memory while an earlier
-        /// fragment still has the dialog in the DOM.
+        /// Both halves are the engine's now. The table carries the typed
+        /// `data-table-enhance="sort filter"` and a named filter field; the dialog
+        /// returns focus by ID — the trigger names the dialog it opens, the
+        /// dialog's close names the control focus goes back to, and the engine
+        /// re-queries that id after the patch. Pinned on the round trip the CHAT
+        /// delete actually takes: the menu entry is gone with the menu that the
+        /// same click closed, so the return target is the row's ⋮ button, which
+        /// owns the menu and stays rendered.
         @Test("table sort/filter controls are named and the modal returns focus to its trigger")
         func tableControlsNamedAndModalRestoresFocus() async {
             let overlay = Self.overlay
@@ -1873,47 +1895,39 @@ extension ArcWebUITestRoot {
             let plain = await app.mdBox("| a |\n|---|\n| 1 |")
             #expect(!plain.contains("data-table-enhance"),
                     "surfaces that did not opt in keep the inert wrapper")
-            // The modal block: state, pointer capture, sync, restore, then the
-            // Escape/Tab trap. Scoped so the pins cannot match lookalike code
-            // elsewhere in the overlay (six other document click listeners).
-            guard let m0 = overlay.range(of: "var modalReturnFocus = null;"),
-                  let m1 = overlay.range(of: "document.addEventListener('keydown', function (e) {",
-                                         range: m0.upperBound..<overlay.endIndex) else {
-                #expect(Bool(false), "the modal focus block (state + capture + sync + restore) must exist (UX-08)")
-                return
+            // The chat-delete round trip, both ends on rendered bytes: the menu
+            // entry names the dialog it opens, and the dialog's Cancel names the
+            // control focus returns to. For a chat that target is the row's ⋮
+            // button — the entry is gone with the menu the same click closed, so
+            // naming it would leave focus on <body> with nowhere to go back to.
+            func openTag(_ html: String, _ id: String) -> String? {
+                html.range(of: "<[a-z]+[^>]* id=\"\(id)\"[^>]*>", options: .regularExpression)
+                    .map { String(html[$0]) }
             }
-            let modal = overlay[m0.lowerBound..<m1.lowerBound]
-            #expect(modal.contains("document.addEventListener('click', function (e) {") &&
-                    modal.contains("closest('[id]')") &&
-                    modal.contains("}, true);"),
-                    "the trigger must be snapshotted by a capture-phase click listener, before the patch that adds the dialog replaces it (UX-08)")
-            #expect(modal.contains("modalReturnFocus = { id: (t.id || '').trim(), sid: rowSidOf(t) };"),
-                    "the snapshot must remember the activated control by id and session-row sid (UX-08)")
-            #expect(modal.contains("card.contains(e.target)"),
-                    "clicks inside the dialog itself must not overwrite the remembered trigger (UX-08)")
-            #expect(modal.contains("!modalReturnFocus && document.activeElement") &&
-                    !modal.contains("document.activeElement !== document.body &&"),
-                    "when the modal patch has already dropped focus to <body>, syncModalFocus must keep/proceed with the pointer snapshot instead of skipping — the old body-excluding gate is what lost the trigger (UX-08)")
-            #expect(modal.contains("rowSidOf(document.activeElement)"),
-                    "a live non-body trigger is still recorded by sid as a fallback (UX-08)")
-            #expect(modal.contains("var modalWasOpen = false;") && modal.contains("modalWasOpen = true;"),
-                    "syncModalFocus must track the open/closed transition so the restore fires only after the removal patch lands (UX-08)")
-            #expect(modal.contains("if (modalWasOpen) {") &&
-                    modal.contains("restoreFocusToTrigger();") &&
-                    modal.contains("modalWasOpen = false;"),
-                    "the restore must run exactly once, on the pass where the card is first gone (UX-08)")
-            #expect(!modal.contains("document.activeElement !== document.body) { modalReturnFocus = null"),
-                    "no early-clear guard may wipe the trigger memory while the dialog is still present in the DOM (UX-08)")
-            #expect(modal.contains("function restoreFocusToTrigger()"),
-                    "a restore path for the dialog's trigger must exist (UX-08)")
-            #expect(modal.contains(".sess-row[data-sid]") && modal.contains("getAttribute('data-sid') === sid"),
-                    "restore must resolve the trigger's replacement through the session row's data-sid (UX-08)")
-            #expect(modal.contains("nu.setAttribute('tabindex', '0')"),
-                    "a re-focused session row must become keyboard-focusable (UX-08)")
-            #expect(modal.contains("if (!nu) return;"),
-                    "an unresolvable trigger (the session was actually deleted) must no-op, not throw (UX-08)")
-            #expect(!overlay.contains("restoreModalFocus();"),
-                    "the restore must ride syncModalFocus's transition — no separate post-patch call that could double-fire (UX-08)")
+            var fixture = AppState.RenderFixture()
+            fixture.sessions = [
+                Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                        updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Chat A",
+                        messageCount: 2, messages: [Message(role: .user, content: "hi")]),
+            ]
+            fixture.activeSessionID = "sess-a"
+            let panel = await AppState(renderFixture: fixture).chatPanel().markup.html
+            let entry = openTag(panel, "sm-del-\(enc("sess-a"))")
+            #expect(entry?.contains("data-focus-return=\"modal-overlay\"") == true,
+                    "the row menu's Delete must name the dialog it opens — without the declaration the engine records no opener for this dialog (UX-08)")
+            #expect(openTag(panel, "s-menu-\(enc("sess-a"))") != nil,
+                    "the return target must exist in the render the dialog returns to: the chat's target is the row's ⋮ button (UX-08)")
+
+            var armed = fixture
+            armed.pendingConfirm = ConfirmRequest(
+                kind: "chat", id: "sess-a",
+                title: "Delete conversation?",
+                body: "The chat “A” will be deleted.")
+            let cancel = openTag(await AppState(renderFixture: armed).modalHTML().markup.html, "modal-cancel")
+            #expect(cancel?.contains("data-focus-return=\"s-menu-\(enc("sess-a"))\"") == true,
+                    "a chat delete must return focus to the row's ⋮ button, not the menu entry it was armed from (UX-08)")
+            #expect(cancel?.contains("autofocus") == true,
+                    "the dialog must carry its entry path (`autofocus`) — the patch that inserts it moves no focus by itself (UX-08)")
         }
 
         // MARK: - UX-07 (2026-10-18 wave 2) collapse the rail on narrow widths

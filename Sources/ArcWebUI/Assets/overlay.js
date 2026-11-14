@@ -333,136 +333,11 @@
     if (el.value !== want) el.value = want;
   }
 
-  // ---- Confirmation dialog: focus, and the one Tab guard the engine lacks.
-  // the dialog is patched in: no focus lands in it. the engine traps Tab on
-  // `.modal-overlay` and closes a layer through its `[data-dismiss]` control,
-  // but it holds a raw element ref for the opener, so a patch-replaced
-  // trigger's `focus()` no-ops. arc re-queries by `id`/`data-sid`,
-  // deliberately; no upstream limitation is the reason, and never was.
-  // `ModalFocusContractTests` pins both halves.
-  function modalCard() {
-    return document.querySelector('.modal-overlay .modal-card') ||
-      document.querySelector('.modal-overlay .ctx-pane-card');
-  }
-
-  // UX-08: remember the control whose activation opened the confirmation
-  // dialog. Closing it (Cancel/confirm/Escape) is a fragment patch that
-  // removes #modal-overlay and the browser drops focus to <body> — the
-  // generic patch-restore alone cannot help because its lastFocusedControl is
-  // overwritten by the modal's own focus moves (Cancel/Delete take focus
-  // inside the dialog). Restoring from THIS memory puts the keyboard user
-  // back on the trigger (or its re-rendered replacement).
-  //
-  // The trigger must be captured at POINTER time, not focus time: the very
-  // fragment patch that ADDS the dialog also re-renders the chat header,
-  // which disconnects the focused control, so by the time syncModalFocus
-  // runs the browser has already dropped focus to <body> and there is
-  // nothing left to record. A document-level capture-phase click listener
-  // snapshots the activated control (its id plus the data-sid of the
-  // sess-row that owns it) BEFORE the patch, and syncModalFocus adopts that
-  // snapshot whenever it finds no live focus to record. Clicks inside the
-  // dialog itself never overwrite the remembered trigger. The snapshots stay
-  // keyed by id + data-sid because the patch replaces the trigger's node.
-  //
-  // The restore is keyed to a TRANSITION, not to the snapshot alone: the close
-  // round-trip delivers several fragment patches in one batch and the runtime
-  // calls enhancePatched for each. arc's old `restoreModalFocus` began with an
-  // early guard (activeElement !== body → forget the trigger), and the very
-  // first patch in the batch ran while the dialog was STILL in the DOM — with
-  // focus on #modal-cancel — so the guard wiped the memory before the removal
-  // patch arrived. syncModalFocus therefore tracks whether the dialog was open
-  // on the previous pass (modalWasOpen) and performs the restore exactly once,
-  // on the pass where the card is first gone — right after the DOM actually
-  // reflects the removal. No other code path restores.
-  var modalReturnFocus = null;
-  var modalWasOpen = false;
-  document.addEventListener('click', function (e) {
-    var card = modalCard();
-    if (card && card.contains(e.target)) return;
-    var t = e.target && e.target.closest ? e.target.closest('[id]') : null;
-    if (!t || !t.id) return;
-    modalReturnFocus = { id: (t.id || '').trim(), sid: rowSidOf(t) };
-  }, true);
-
-  // Runs after every patch. While the dialog is present: adopt the pointer
-  // snapshot if none is live, and land focus on Cancel. On the pass where the
-  // dialog has just been removed, hand focus back to the trigger that opened
-  // it — this is the single restore seam, and it fires only after the DOM
-  // reflects the removal, so no earlier fragment in the batch can clear the
-  // memory before it is used.
-  function syncModalFocus() {
-    var card = modalCard();
-    if (!card) {
-      if (modalWasOpen) {
-        modalWasOpen = false;
-        restoreFocusToTrigger();
-      }
-      return;
-    }
-    modalWasOpen = true;
-    if (card.contains(document.activeElement)) return;
-    // activeElement is usually <body> here (the modal patch just disconnected
-    // the focused trigger) — fall back to the pointer-time snapshot. When a
-    // live focus target does survive (programmatic open), record it directly.
-    if (!modalReturnFocus && document.activeElement &&
-        document.activeElement !== document.body) {
-      modalReturnFocus = {
-        id: (document.activeElement.id || '').trim(),
-        sid: rowSidOf(document.activeElement)
-      };
-    }
-    var target = card.querySelector('#modal-cancel') || card.querySelector('button');
-    if (target) target.focus();
-  }
-
-  // The dialog is gone and was open on the previous pass: hand focus back to
-  // the remembered trigger — re-queried by id (or by its session row's
-  // data-sid) because the fragment patch may have replaced the node. The
-  // memory is consumed once so the next open records a fresh trigger, and it
-  // is never cleared while a card is present (this is the only caller and it
-  // only ever runs with the card gone). A trigger that no longer resolves
-  // (e.g. the session was actually deleted) leaves focus alone — no throw, no
-  // jump.
-  function restoreFocusToTrigger() {
-    if (!modalReturnFocus) return;
-    var mem = modalReturnFocus;
-    modalReturnFocus = null;
-    var id = (mem && mem.id) ? String(mem.id).trim() : '';
-    var sid = (mem && mem.sid) ? String(mem.sid) : '';
-    var nu = null;
-    if (id) nu = document.getElementById(id);
-    if (!nu && sid) {
-      var rows = document.querySelectorAll('.sess-row[data-sid]');
-      for (var i = 0; i < rows.length; i++) {
-        if (rows[i].getAttribute('data-sid') === sid) { nu = rows[i]; break; }
-      }
-    }
-    if (!nu) return;
-    if (sid) nu.setAttribute('tabindex', '0');
-    if (nu.disabled || nu.getAttribute('aria-hidden') === 'true') return;
-    if (getComputedStyle ? getComputedStyle(nu).display === 'none' : false) return;
-    nu.focus({ preventScroll: true });
-  }
-
-  // The in-dialog Escape and the Tab wrap are the engine's (`:1917-1924`,
-  // `:1477-1486`); focus OUTSIDE the card is the case it cannot serve, kept here.
-  document.addEventListener('keydown', function (e) {
-    var card = modalCard();
-    if (!card || card.contains(document.activeElement)) return;
-    if (e.key === 'Escape') {
-      var c = card.querySelector('#modal-cancel') || card.querySelector('#ctx-pane-close');
-      if (c) c.click();
-      return;
-    }
-    if (e.key !== 'Tab') return;
-    var f = card.querySelectorAll(
-      'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
-    if (!f.length) return;
-    e.preventDefault();
-    f[0].focus();
-  });
-
+  // ---- Confirmation dialog. Focus is the ENGINE's (no-webui 2.14.0):
+  // `autofocus` on the dialog's Cancel control enters it, `data-focus-return`
+  // on Cancel names the opener focus goes back to when the removal patch
+  // lands, and the `.modal-overlay` Tab trap is the engine's. arc emits the
+  // attributes (`Views.modalHTML`) and keeps no client code.
   // ---- Dismiss the composer dropdowns on Escape or an outside click.
   // The panels are SERVER state (`wsSelectOpen`, `profileSelectOpen`, …) and
   // the server already has the close path: the `dd-dismiss` handler in
@@ -612,55 +487,6 @@
     });
   })();
 
-  // ---- T26 (UX-33): keep focus on the control you just activated. A settings
-  // chip / segment / toggle is a server round-trip: the engine's fragment
-  // patch REPLACES the control's node, and the browser drops focus to <body>,
-  // so a keyboard user loses their place after every single change. This
-  // overlay records the control that held focus when it blurred; if a later
-  // patch removed that specific node (focus lost to <body> as a side effect of
-  // replacement, not of intentional navigation) it re-focuses the equivalent
-  // node — same id for settings controls, same data-sid for roving session
-  // rows. Re-querying by id after the patch is mandatory: the cached element
-  // reference is frozen/stale, the node was replaced.
-  function rowSidOf(el) {
-    if (!el || !el.closest) return null;
-    var row = el.closest('.sess-row');
-    return row && row.getAttribute ? row.getAttribute('data-sid') : null;
-  }
-  var lastFocusedControl = null;
-  document.addEventListener('focusout', function (e) {
-    var t = e.target;
-    if (!t || t === document.body || t === document.documentElement) return;
-    var id = (t.id || '').trim();
-    var sid = rowSidOf(t);
-    if (!id && !sid) return;
-    lastFocusedControl = { el: t, id: id, sid: sid };
-  }, true);
-
-  function restoreFocusAfterPatch() {
-    var rec = lastFocusedControl;
-    if (!rec || !rec.el) return;
-    // Only when focus actually fell back to <body> (target removed), and the
-    // recorded node is genuinely gone — never yank focus from somewhere the
-    // user moved it to on purpose.
-    if (document.activeElement !== document.body) return;
-    if (rec.el.isConnected) return;
-    var nu = null;
-    if (rec.id) nu = document.getElementById(rec.id);
-    else if (rec.sid) {
-      var rows = document.querySelectorAll('.sess-row[data-sid]');
-      for (var i = 0; i < rows.length; i++) {
-        if (rows[i].getAttribute('data-sid') === rec.sid) { nu = rows[i]; break; }
-      }
-    }
-    if (!nu) return;
-    // Never leap focus onto something that just became inert.
-    if (nu.disabled || nu.getAttribute('aria-hidden') === 'true') return;
-    if (getComputedStyle ? getComputedStyle(nu).display === 'none' : false) return;
-    if (rec.sid) nu.setAttribute('tabindex', '0');
-    nu.focus({ preventScroll: true });
-  }
-
   // the theme switch has two sources of truth: the engine keeps the
   // device-local choice in localStorage, the panel is rendered from the
   // server's saved mode. aria-pressed is the engine's (press() re-runs on
@@ -678,7 +504,6 @@
 
   function enhanceAll() {
     syncComposerDraft();
-    syncModalFocus();
     syncThemePickers();
     // UX-06: the server stages a resolved copy URL as a `#pending-copy` marker
     // inside the toasts fragment; this pass is its only consumer. The engine
@@ -689,16 +514,8 @@
   function enhancePatched(changed) {
     clearRestoredComposer();
     syncComposerDraft();
-    syncModalFocus();
     syncThemePickers();
     copyFromServerMarker();
-    // T26: a fragment patch may have just replaced the control the user
-    // activated — return focus to its equivalent so the keyboard trail does
-    // not reset to <body>.
-    restoreFocusAfterPatch();
-    // UX-08: focus return for the confirmation dialog rides syncModalFocus's
-    // open→closed transition (above), which fires exactly when the removal
-    // patch lands in the DOM — one restore path, no double-fire.
     // UX-45: `+` (new chat) leaves focus on the button; the app asked for the
     // composer and the new chat's fragment just landed — put the caret in it.
     if (focusComposerWanted) {
