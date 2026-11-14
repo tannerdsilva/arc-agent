@@ -1,6 +1,6 @@
 // ux-gates.mjs — one-command UX gate suite for the arc web UI.
 //
-//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|scroll|focus|drawer|motion|regression|round4|schemes]
+//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|scroll|focus|drawer|draft|motion|regression|round4|schemes]
 //
 // Zero-dependency: native fetch + WebSocket via Scripts/ux-drive.mjs.
 // Assertions LIVE IN THE PAGE (Scripts/ux-contrast.js, ux-gates.js,
@@ -72,6 +72,7 @@ const RUN = {
   scroll: !opts.only || opts.only.includes('scroll'),
   focus: !opts.only || opts.only.includes('focus'),
   drawer: !opts.only || opts.only.includes('drawer'),
+  draft: !opts.only || opts.only.includes('draft'),
   motion: !opts.only || opts.only.includes('motion'),
   regression: !opts.only || opts.only.includes('regression'),
   round4: !opts.only || opts.only.includes('round4'),
@@ -1619,6 +1620,141 @@ async function runFocus() {
 // ---------------------------------------------------------------------------
 // T16 — reduced-motion gate (driver emulates prefers-reduced-motion: reduce)
 
+// ---------------------------------------------------------------------------
+// A14 — the composer draft is the ENGINE's (no-webui 2.16.0)
+//
+// `data-draft-id` names the per-chat store and `data-draft-value` is the text
+// the server says the field held. the engine's `syncDrafts()` is the precedence
+// rule: an identity CHANGE writes the seed and rewrites
+// `webui-draft:<identity>` (the server wins — the chat that was left keeps its
+// unsubmitted text to itself), while the SAME identity leaves the reader's
+// keystrokes alone. arc ships no client code for any of it; every assertion
+// below reads a consequence off the live page.
+
+/// type into the composer like a reader: the value setter plus the input frame
+/// the engine's autosave listens for.
+async function typeComposer(text) {
+  return ev(`(() => {
+    const t = document.getElementById('composer-input');
+    if (!t) return false;
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(t, ${JSON.stringify(text)});
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+    t.focus();
+    return true;
+  })()`);
+}
+
+async function runDraft() {
+  console.log('\n— gate: draft (identity + seed, no model turns) —');
+  await chatView();
+  await settle(300);
+  const startSid = await ev(`uxGates.sessions().activeSid`);
+
+  // (a) the control states its identity and its seed, and the identity is the
+  // conversation the page is showing.
+  const boot = await ev(`uxGates.draft()`);
+  if (!boot.present) {
+    record('draft', 'the composer carries the active draft identity and a seed', false, { reason: 'no #composer-input on the page' });
+    return;
+  }
+  const bootOk = boot.id === boot.activeSid && boot.session === boot.activeSid && boot.seed !== null;
+  record('draft', 'the composer carries the active draft identity and a seed', bootOk, boot);
+
+  // A is the harness's own conversation (removed at the end). B is any other
+  // row: the gate touches only B's DOM — its store is read, and the identity
+  // change writes it — so the owner's stored draft is what the server renders
+  // and what a switch back would show.
+  const A = await ensureProbeSession();
+  await settle(400);
+  const B = await ev(`(() => {
+    const rows = [...document.querySelectorAll('.sess-row')];
+    const o = rows.filter((r) => r.getAttribute('data-sid') !== ${JSON.stringify(A)}).pop();
+    return o ? o.getAttribute('data-sid') : null;
+  })()`);
+  if (!B) {
+    record('draft', 'a switch reads the landing chat\'s seed', 'skip', { skipped: 'fewer than two conversations to switch between' });
+    if (startSid) await openSessionRow(startSid);
+    return;
+  }
+
+  // (a, cont.) the seed is the SERVER's copy: the input frame stores the draft
+  // and pushes no patch of its own, so the seed moves on the next RENDER of the
+  // form. a selector toggle is that render — alternated, because re-arming the
+  // popover that is already open moves no bytes and would ship no patch.
+  await openSessionRow(A);
+  await settle(500);
+  const seedA = 'UXGATE-DRAFT-A-' + (Date.now() % 100000);
+  await typeComposer(seedA);
+  let sawSeed = false;
+  for (let i = 0; i < 8 && !sawSeed; i++) {
+    await settle(600);
+    await ev(`document.getElementById('cb-ws-toggle')?.click()`);
+    sawSeed = await waitTrue(`uxGates.draft().seed === ${JSON.stringify(seedA)}`, 1600);
+    if (!sawSeed) {
+      await ev(`document.getElementById('cb-think-toggle')?.click()`);
+      sawSeed = await waitTrue(`uxGates.draft().seed === ${JSON.stringify(seedA)}`, 1600);
+    }
+  }
+  await driver.pressEscape().catch(() => {});
+  await settle(300);
+  const a1 = await ev(`uxGates.draft()`);
+  const aOk = sawSeed && a1.id === A && a1.session === A && a1.seed === seedA && a1.value === seedA;
+  record('draft', 'the seed is the server-rendered draft of that identity', aOk, a1);
+
+  // (b) leave A holding text the server never heard (no input frame), then
+  // switch: the field must read B's SEED, not A's text, and the store for B
+  // must hold that seed.
+  const typedA = seedA + '-typed';
+  await ev(`uxGates.draftSilentSet(${JSON.stringify(typedA)})`);
+  const aTyped = await ev(`uxGates.draft()`);
+  await openSessionRow(B);
+  const landedB = await waitTrue(`uxGates.draft().id === ${JSON.stringify(B)}`, 9000);
+  await settle(250);
+  const b1 = await ev(`uxGates.draft()`);
+  const bOk = landedB && b1.id === B && b1.value === b1.seed && b1.value !== typedA && b1.store === b1.seed;
+  record('draft', "a switch reads the landing chat's seed, not the chat left behind", bOk,
+    { left: aTyped, landed: b1, typedA });
+
+  // (c) a patch of B that keeps the identity must keep the reader's keystrokes:
+  // the field holds text the server has not seen, a composer patch lands (a
+  // selector toggle — `sel-open` moves the form's bytes, so #composer-input is
+  // replaced), and the field still holds it. the DOM-only mark proves the
+  // element really was replaced, so the survival is the engine's restore, not a
+  // patch that never landed.
+  const typedB = 'UXGATE-TYPED-B-' + (Date.now() % 100000);
+  await ev(`uxGates.draftSilentSet(${JSON.stringify(typedB)})`);
+  await ev(`uxGates.draftMark()`);
+  // arm the popover the server does NOT already have open, so the click is a
+  // real state change and the form (with #composer-input in it) ships.
+  const armed = await ev(`uxGates.armedPopover()`);
+  const target = armed === 'cb-ws-toggle' ? 'cb-think-toggle' : 'cb-ws-toggle';
+  await ev(`document.getElementById('${target}')?.click()`);
+  const replaced = await waitTrue(`!uxGates.draftMarkIntact()`, 7000);
+  await settle(300);
+  const c1 = await ev(`uxGates.draft()`);
+  const cOk = replaced && c1.id === B && c1.value === typedB && c1.seed === b1.seed;
+  record('draft', "a same-identity patch keeps the reader's keystrokes", cOk,
+    { elementReplaced: replaced, typedB, seedWas: b1.seed, after: c1 });
+  await driver.pressEscape().catch(() => {});
+  await settle(400);
+
+  // (d) back to A: A's seed wins over a store that says otherwise, and it
+  // rewrites that store (the stale value is what a client that trusted
+  // sessionStorage would have restored instead).
+  const STALE = 'UXGATE-STALE-' + (Date.now() % 100000);
+  await ev(`uxGates.draftPlantStore(${JSON.stringify(A)}, ${JSON.stringify(STALE)})`);
+  await openSessionRow(A);
+  const landedA = await waitTrue(`uxGates.draft().id === ${JSON.stringify(A)}`, 9000);
+  await settle(250);
+  const d1 = await ev(`uxGates.draft()`);
+  const dOk = landedA && d1.id === A && d1.value === seedA && d1.value !== typedA && d1.value !== STALE && d1.store === seedA;
+  record('draft', 'switching back writes the seed over a stale store', dOk,
+    { planted: STALE, typedA, returned: d1 });
+
+  // leave the owner's conversation active, as found.
+  if (startSid) await openSessionRow(startSid);
+}
+
 async function runMotion() {
   console.log('\n— gate: motion (prefers-reduced-motion: reduce) —');
   const out = { reducedMotion: 'emulated (Emulation.setEmulatedMedia)', checks: [] };
@@ -2095,6 +2231,7 @@ async function main() {
     if (RUN.scroll) await runScroll();
     if (RUN.focus) await runFocus();
     if (RUN.drawer) await runDrawer();
+    if (RUN.draft) await runDraft();
     if (RUN.motion) await runMotion();
     if (RUN.regression) await runRegression();
     if (RUN.round4) await runRound4();
@@ -2111,6 +2248,8 @@ async function main() {
       upload: results.filter((r) => r.gate === 'upload'),
       scroll: results.filter((r) => r.gate === 'scroll'),
       focus: results.filter((r) => r.gate === 'focus'),
+      drawer: results.filter((r) => r.gate === 'drawer'),
+      draft: results.filter((r) => r.gate === 'draft'),
       motion: results.filter((r) => r.gate === 'motion'),
       regression: results.filter((r) => r.gate === 'regression'),
       round4: results.filter((r) => r.gate === 'round4'),

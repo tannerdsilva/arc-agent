@@ -468,6 +468,74 @@
       return { ok: true };
     },
 
+    // ---- draft identity + seed (a14) ---------------------------------------
+    // no-webui 2.16.0 owns the composer draft: `data-draft-id` names the
+    // per-chat store and `data-draft-value` is the server-rendered text the
+    // control starts from. the engine's `syncDrafts()` writes the seed when the
+    // identity CHANGED and leaves the reader's keystrokes alone when it did
+    // not. these helpers only read the consequence — never a client behaviour
+    // of arc's own.
+
+    /// the composer's draft contract, as the engine states it.
+    draft: () => {
+      const t = document.getElementById('composer-input');
+      if (!t) return { present: false };
+      const id = t.getAttribute('data-draft-id');
+      let store = null;
+      try { store = id === null ? null : sessionStorage.getItem('webui-draft:' + id); } catch (e) { store = 'unavailable'; }
+      return {
+        present: true,
+        id,
+        seed: t.getAttribute('data-draft-value'),
+        session: t.getAttribute('data-session'),
+        value: t.value,
+        store,
+        activeSid: (function () { const a = $('.sess-row.active'); return a ? a.getAttribute('data-sid') : null; })(),
+      };
+    },
+
+    /// the composer selector the SERVER has armed: `sel-open` on the form names
+    /// an open popover and `data-open` rides the popover itself, so this is
+    /// server state, not the engine's DOM consequence of a dismiss.
+    armedPopover: () => {
+      const form = document.getElementById('composer-form');
+      if (!form) return null;
+      const pop = form.querySelector('.dd-pop[data-open]');
+      if (!pop) return null;
+      const dd = pop.closest('.dd');
+      const trig = dd ? dd.querySelector('.dd-trigger') : null;
+      return trig ? (trig.id || null) : null;
+    },
+
+    /// put `text` in the composer WITHOUT an input frame: the server never hears
+    /// it, so the seed on the next patch is still the stored draft. this is how
+    /// the gate separates "what the reader typed" from "what the server says".
+    draftSilentSet: (text) => {
+      const t = document.getElementById('composer-input');
+      if (!t) return { ok: false, reason: 'no composer' };
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(t, text);
+      return { ok: true, value: t.value };
+    },
+
+    /// plant a store value, so a later identity change has something to overwrite.
+    draftPlantStore: (id, text) => {
+      try { sessionStorage.setItem('webui-draft:' + id, text); return { ok: true }; } catch (e) { return { ok: false, reason: String(e) }; }
+    },
+
+    /// stamp the live textarea, so a patch that replaces it can be told apart
+    /// from one that never touched it. the mark is DOM-only: the server never
+    /// renders it, so it cannot survive a replacement.
+    draftMark: () => {
+      const t = document.getElementById('composer-input');
+      if (!t) return { ok: false };
+      t.setAttribute('data-gate-mark', 'a14');
+      return { ok: true };
+    },
+    draftMarkIntact: () => {
+      const t = document.getElementById('composer-input');
+      return !!t && t.getAttribute('data-gate-mark') === 'a14';
+    },
+
     // ---- focus contract (a12) ----------------------------------------------
     // no-webui 2.14.0 owns focus. `autofocus` is the entry flush on a
     // patched-in dialog, `data-focus-return` names where focus goes when the
