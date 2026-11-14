@@ -231,23 +231,26 @@ extension ArcWebUITestRoot {
                     "the batch crossed the door, not the socket — the server has nothing to write")
         }
 
-        /// The upload refresh seam (d-y): an HTTP upload returns no
-        /// `FragmentUpdate`, so the client sends this event after a 200. It must
-        /// be registered, carry no payload work, and ask the door for exactly one
+        /// The upload repaint seam: an HTTP upload returns no `FragmentUpdate`,
+        /// and 2.11.0's zone dispatches `upload-complete` on the workspace-panel
+        /// zone (`ws-drop`) or on the composer form. The panel handler must be
+        /// registered, carry no payload work, and ask the door for exactly one
         /// render — the tree is re-rendered by the server, never by the client.
-        @Test("workspace-refresh asks the door for a render and writes nothing on the socket")
-        func workspaceRefreshAsksForRender() async throws {
+        @Test("ws-drop asks the door for a render and writes nothing on the socket")
+        func workspaceUploadAsksForRender() async throws {
             let door = Door()
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: door.push)
             await controller.wireAll(router)
 
             let outcome = await router.dispatch(
-                EventData(component: ComponentID("workspace-refresh"), event: "click", data: [:]))
+                EventData(component: ComponentID("ws-drop"),
+                          event: .custom("upload-complete"),
+                          data: ["path": .string("notes.txt"), "bytes": .string("3")]))
             #expect(outcome.fragments.isEmpty,
                     "the refresh crosses the door, not the originating socket")
             #expect(await door.batches == [[]],
-                    "workspace-refresh must ask for exactly one render and do nothing else")
+                    "a landed panel upload must ask for exactly one render and do nothing else")
         }
     }
 }

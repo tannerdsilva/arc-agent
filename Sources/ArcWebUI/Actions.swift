@@ -3371,18 +3371,23 @@ extension Controller {
         return await self.changed()
     }
 
-    @Wired("workspace", events: [.click])
+    // the dock is an upload zone whose only routing anchor is `workspace` (the
+    // collapse tab's click), so its `upload-complete` arrives here: the file is
+    // already on disk — the tree cache was cleared by the route — and the server
+    // has only to render.
+    @Wired("workspace", events: [.click, .custom("upload-complete")])
     func handleWorkspace(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "upload-complete" { return await self.changed() }
         guard let tid = event.string("targetId") else { return [] }
         return await self.workspaceAction(tid)
     }
 
-    /// A streamed upload writes the file and clears the tree cache, but an HTTP
-    /// route returns no `FragmentUpdate`, so nothing repaints on its own. The
-    /// client sends this event after a 200; the handler carries no payload and
-    /// does nothing but ask the door for a fresh render.
-    @Wired("workspace-refresh", events: [.click])
-    func handleWorkspaceRefresh(_ event: EventData) async -> [FragmentUpdate] {
+    /// A workspace-panel upload landed (`data-upload-into` on `#ws-panel`). The
+    /// route wrote the file and cleared the tree cache; an HTTP route returns no
+    /// `FragmentUpdate`, so the zone's `upload-complete` is the only thing that
+    /// repaints the panel. No payload work, one render.
+    @Wired("ws-drop", events: [.custom("upload-complete")])
+    func handleWsDrop(_ event: EventData) async -> [FragmentUpdate] {
         return await self.changed()
     }
 

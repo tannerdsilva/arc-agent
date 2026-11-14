@@ -18,13 +18,13 @@ extension ArcWebUITestRoot {
 	@Suite("Client asset budget", .serialized)
 	struct ClientAssetBudgetTests {
 
-		/// measured 68,874 bytes / 1,544 lines in the merged tree.
-		/// this commit: the engine owns composer upload (drop, paste, tray) — its
-		/// own deletion lands in full. the local line landed at 67,733; the
-		/// 1,141-byte residue above it is upstream's workspace-panel upload,
-		/// staged-chip and popover surface, which this program has not retired.
+		/// measured 55,956 bytes / 1,230 lines in the merged tree.
+		/// this commit: the engine owns workspace upload (panel + dock zones) — its
+		/// own deletion lands in full. the local line landed at 54,843; the
+		/// 1,113-byte residue above it is upstream's staged-chip and popover
+		/// surface, which this program has not retired.
 		/// one byte of headroom, which is the ratchet working as intended.
-		private static let ceiling = 68_875
+		private static let ceiling = 55_957
 
 		private static let sourcePath = "Sources/ArcWebUI/Assets/overlay.js"
 

@@ -6129,7 +6129,14 @@ extension AppState {
         // When open the tab is hidden, but the anchored wrapper keeps its
         // `data-component-id` — the engine's routing anchor is stable in both
         // states (UX-03); when closed the dock returns as the open handle.
-        return Div(id: "ws-dock") {
+        // 2.11.0's upload zone: a drop lands in the active workspace root (an
+        // empty destination composes the bare filename) and the engine's tray
+        // reports progress. The dock keeps its `workspace` routing anchor — the
+        // collapse tab's click is what that component id serves — so its
+        // `upload-complete` is handled on `workspace` rather than a second id on
+        // one element (a second component attribute would shadow the anchor).
+        return UploadZone(id: "ws-dock", destination: .folder(path: ""),
+                          component: "workspace", event: .click) {
             ArcButton(id: "w-dock", component: nil,
                       class: ClassName(open ? "ws-dock-btn ws-dock-open" : "ws-dock-btn"),
                       type: .button, hidden: open) {
@@ -6141,7 +6148,6 @@ extension AppState {
             }
             .title(title)
         }
-        .wire(ComponentID("workspace"))
     }
 
     /// The right-hand workspace panel (same width as the left panel).
@@ -6155,7 +6161,14 @@ extension AppState {
         // hides the panel with `.ws-panel.hidden`, which an attribute could not
         // win against (`.ws-panel` sets `display: flex`).
         let cls = "ws-panel" + (workspaceOpen ? "" : " hidden") + anim
-        return Div(id: "ws-panel", class: ClassName(cls)) {
+        // 2.11.0's upload zone: the panel root had no routing anchor of its own
+        // (its rows, tools and tree carry `workspace`), so the zone declares
+        // `upload-complete` as its only event — a click on the panel's own
+        // background routes nowhere — and an empty destination composes the bare
+        // filename, which is the workspace root the old client drop wrote to.
+        return UploadZone(id: "ws-panel", className: ClassName(cls),
+                          destination: .folder(path: ""),
+                          component: "ws-drop", event: .custom("upload-complete")) {
             Div(class: "panel-head ws-head") {
                 PanelTitle { Text("Workspace") }
                 Div(class: .wsTools) {
