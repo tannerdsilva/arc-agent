@@ -324,6 +324,9 @@ export class UxDriver {
       ArrowRight: { code: 'ArrowRight', key: 'ArrowRight', vk: 39 },
       Backspace: { code: 'Backspace', key: 'Backspace', vk: 8 },
       Home: { code: 'Home', key: 'Home', vk: 36 },
+      End: { code: 'End', key: 'End', vk: 35 },
+      PageUp: { code: 'PageUp', key: 'PageUp', vk: 33 },
+      PageDown: { code: 'PageDown', key: 'PageDown', vk: 34 },
     };
     const k = keyMap[key];
     if (!k) throw new Error(`pressKey: unknown key ${key}`);

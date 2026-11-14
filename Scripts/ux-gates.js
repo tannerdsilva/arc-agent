@@ -327,6 +327,110 @@
       const tree = document.getElementById('ws-tree');
       return tree ? tree.getAttribute('data-root') : null;
     },
+
+    // ---- scroll follow / reading keys (a11) --------------------------------
+    // the engine owns all of it: `data-follow` (policy), `data-follow-state`
+    // (its output), `data-reading-keys` (the keyboard region) and
+    // `data-scroll-key` (the per-session offset). these helpers only read the
+    // consequence, plus two fixtures: `scrollPad` gives the transcript room so
+    // a follow test is not a no-op on an empty chat, and `scrollDelta` drives
+    // the engine's OWN patch funnel (`capture` → DOM change → `restore`, the
+    // same calls the socket patch path makes) so a text delta needs no model
+    // turn.
+
+    scrollState: () => {
+      const s = document.getElementById('chat-scroll');
+      if (!s) return { present: false };
+      const btn = document.getElementById('scroll-to-bottom');
+      const cs = btn ? getComputedStyle(btn) : null;
+      const max = Math.max(0, s.scrollHeight - s.clientHeight);
+      return {
+        present: true,
+        top: Math.round(s.scrollTop),
+        max: Math.round(max),
+        gap: Math.round(Math.max(0, s.scrollHeight - s.scrollTop - s.clientHeight)),
+        away: s.getAttribute('data-follow-state'),
+        follow: s.getAttribute('data-follow'),
+        readingKeys: s.hasAttribute('data-reading-keys'),
+        key: s.getAttribute('data-scroll-key'),
+        tabindex: s.getAttribute('tabindex'),
+        btnPresent: !!btn,
+        btnDisplay: cs ? cs.display : null,
+        btnVisible: !!(btn && cs && cs.display !== 'none' && btn.getClientRects().length > 0),
+        active: (document.activeElement || {}).id || (document.activeElement || {}).tagName || null,
+      };
+    },
+
+    /// pad `#chat-inner` until the scroller has `want` px of room. a gate
+    /// fixture, not app state: the next server patch replaces the transcript,
+    /// and the gate reloads before it hands the page back.
+    scrollPad: (want) => {
+      const s = document.getElementById('chat-scroll');
+      const inner = document.getElementById('chat-inner');
+      if (!s || !inner) return { ok: false, reason: 'no scroller' };
+      let made = 0;
+      for (let i = 0; i < 200 && (s.scrollHeight - s.clientHeight) < want; i++) {
+        const p = document.createElement('p');
+        p.className = 'msg gate-pad';
+        p.textContent = `gate padding ${i + 1} — lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.`;
+        inner.appendChild(p);
+        made++;
+      }
+      return { ok: true, made, room: Math.round(s.scrollHeight - s.clientHeight) };
+    },
+
+    /// one text delta through the engine's patch funnel. `capture` records the
+    /// pre-patch follow memo, `restore` re-applies behaviors and runs
+    /// `syncFollow` — exactly what a `{op:"text"}` frame does, without a
+    /// websocket and without a model.
+    scrollDelta: (label) => {
+      const engine = window.WebUIEngine && window.WebUIEngine._getInstance ? window.WebUIEngine._getInstance() : null;
+      const s = document.getElementById('chat-scroll');
+      const inner = document.getElementById('chat-inner');
+      if (!engine || !engine.behaviors || !s || !inner) return { ok: false, reason: 'no engine/scroller' };
+      engine.behaviors.capture([{ op: 'text', id: 'chat-inner' }]);
+      const p = document.createElement('p');
+      p.className = 'msg gate-delta';
+      p.textContent = `delta ${label || ''} — ${'streamed text '.repeat(12)}`;
+      inner.appendChild(p);
+      engine.behaviors.restore([p]);
+      return {
+        ok: true,
+        top: Math.round(s.scrollTop),
+        gap: Math.round(Math.max(0, s.scrollHeight - s.scrollTop - s.clientHeight)),
+        away: s.getAttribute('data-follow-state'),
+      };
+    },
+
+    /// arm a real, on-screen `[data-dismiss]` element through the engine's own
+    /// binder, so `topLayer()` is exercised with focus still on the reader.
+    /// arc's dropdowns take `data-dismiss` in A13; until then no persistent
+    /// layer exists, and this is the engine's documented registration path
+    /// (a visible element carrying the attribute, bound by `apply`).
+    armLayer: () => {
+      const engine = window.WebUIEngine && window.WebUIEngine._getInstance ? window.WebUIEngine._getInstance() : null;
+      if (!engine || !engine.behaviors) return { ok: false, reason: 'no engine' };
+      let el = document.getElementById('gate-layer');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'gate-layer';
+        el.setAttribute('data-dismiss', '');
+        el.style.cssText = 'position:fixed;left:8px;bottom:8px;width:60px;height:30px;background:rgba(0,0,0,.6);z-index:99999';
+        // a real layer closes through its own dismiss control; the engine
+        // fires a click on the first `[data-dismiss]` child (or the layer
+        // itself), so the layer removes itself exactly as a server-rendered
+        // panel would on its close patch.
+        el.onclick = () => el.remove();
+        document.body.appendChild(el);
+      }
+      engine.behaviors.apply(document);
+      return { ok: true, onScreen: el.getClientRects().length > 0 };
+    },
+    disarmLayer: () => {
+      const el = document.getElementById('gate-layer');
+      if (el) el.remove();
+      return { ok: true };
+    },
   };
   window.uxGates = api;
   return 'uxGates installed — helpers on window.uxGates';

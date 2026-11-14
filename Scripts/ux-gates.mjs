@@ -1,6 +1,6 @@
 // ux-gates.mjs — one-command UX gate suite for the arc web UI.
 //
-//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|motion|regression|round4|schemes]
+//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|scroll|motion|regression|round4|schemes]
 //
 // Zero-dependency: native fetch + WebSocket via Scripts/ux-drive.mjs.
 // Assertions LIVE IN THE PAGE (Scripts/ux-contrast.js, ux-gates.js,
@@ -69,6 +69,7 @@ const RUN = {
   contrast: !opts.only || opts.only.includes('contrast'),
   interactions: !opts.only || opts.only.includes('interactions'),
   upload: !opts.only || opts.only.includes('upload'),
+  scroll: !opts.only || opts.only.includes('scroll'),
   motion: !opts.only || opts.only.includes('motion'),
   regression: !opts.only || opts.only.includes('regression'),
   round4: !opts.only || opts.only.includes('round4'),
@@ -1075,6 +1076,223 @@ async function runUpload() {
 }
 
 // ---------------------------------------------------------------------------
+// a11 — scroll: follow across a delta, release, the jump control, the reading
+// keys, and Escape's layer guard. The engine owns every consequence
+// (`data-follow`, `data-follow-state`, `data-reading-keys`,
+// `data-scroll-key`); arc only states the policies and keys the jump control's
+// visibility in the sheet. A text delta is driven through the engine's own
+// patch funnel (`capture` → DOM change → `restore`), so the gate needs no
+// model turn; every wait has a deadline and a missing frame FAILS.
+
+/// poll a page expression that returns `{ ok, ... }` until `ok` is true.
+async function pollOk(expr, timeoutMs = 3000, intervalMs = 60) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await ev(expr);
+    if (last && last.ok) return last;
+    await sleep(intervalMs);
+  }
+  return last;
+}
+
+async function runScroll() {
+  console.log('\n— gate: scroll (follow · away · jump · reading keys · Escape) —');
+  const out = {};
+  await driver.navigate(APP);
+  await waitReady();
+  await chatView();
+  await settle(400);
+
+  const pre = await ev(`uxGates.scrollState()`);
+  out.preconditions = pre;
+  const preOk = !!(pre && pre.present && pre.follow === 'bottom' && pre.readingKeys
+    && pre.key && pre.tabindex === '0' && pre.btnPresent && pre.btnDisplay === 'none');
+  record('scroll', 'the scroller states follow, reading keys, a per-session key and a hidden jump control', preOk, pre);
+  if (!preOk) return;
+
+  // ---- UX-39: the rail round-trip restores THIS chat's offset -------------
+  // Only meaningful with genuine room in the open conversation (a padded
+  // transcript is a gate fixture the next render would replace, so it cannot
+  // prove a restore). Without room the row is a SKIP that names the emitted
+  // key, never a pass.
+  if (pre.max >= 240) {
+    const mid = Math.min(900, Math.round(pre.max * 0.45));
+    await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = ${mid}; return true; })()`);
+    await settle(250);
+    const before = await ev(`document.getElementById('chat-scroll').scrollTop`);
+    await ev(`document.getElementById('nav-skills')?.click()`);
+    const left = await waitTrue(`!document.getElementById('chat-scroll')`, 4000);
+    if (!left) {
+      out.ux39 = { skipped: 'the rail switch did not leave the chat view — nothing to return to', key: pre.key, mid, before };
+      record('scroll', 'rail return restores this chat’s scroll (UX-39, data-scroll-key)', 'skip', out.ux39);
+    } else {
+      await ev(`document.getElementById('nav-chat')?.click()`);
+      const returned = await waitTrue(`!!document.getElementById('chat-scroll')`, 6000);
+      await settle(500);
+      const after = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? Math.round(s.scrollTop) : -1; })()`);
+      const pass = returned && Math.abs(before - mid) <= 8 && Math.abs(after - mid) <= 40;
+      out.ux39 = { room: pre.max, key: pre.key, mid, before, after, pass };
+      record('scroll', 'rail return restores this chat’s scroll (UX-39, data-scroll-key)', pass, out.ux39);
+    }
+    await chatView();
+    await settle(300);
+  } else {
+    out.ux39 = {
+      skipped: `the open chat has no usable scroll range (room=${pre.max}); the emitted memory key is ${JSON.stringify(pre.key)}`,
+      key: pre.key,
+    };
+    record('scroll', 'rail return restores this chat’s scroll (UX-39, data-scroll-key)', 'skip', out.ux39);
+  }
+
+  // ---- room: a follow assertion on a scroller with nothing to scroll is a
+  // no-op, so pad the transcript first (fixture; the page is reloaded before
+  // the gate hands it back).
+  const pad = await ev(`uxGates.scrollPad(1200)`);
+  out.pad = pad;
+  if (!pad || !pad.ok || pad.room < 240) {
+    record('scroll', 'the gate can give the transcript scroll room', false, pad);
+    return;
+  }
+
+  // ---- (a) a text delta from the bottom stays pinned -----------------------
+  await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = s.scrollHeight; return true; })()`);
+  await settle(200);
+  const atBottom = await ev(`uxGates.scrollState()`);
+  const deltas = [];
+  for (let i = 1; i <= 3; i++) deltas.push(await ev(`uxGates.scrollDelta('a11-${i}')`));
+  const settled = await ev(`uxGates.scrollState()`);
+  const pinned = deltas.every((d) => d && d.ok && d.gap <= 24 && d.away === null)
+    && settled.gap <= 24 && settled.away === null;
+  out.pinned = { atBottom, deltas, settled };
+  record('scroll', 'a text delta from the bottom stays pinned (gap ≤ 24, no away)', pinned, out.pinned);
+
+  // ---- (b) a scroll-up releases and shows the jump control ----------------
+  await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = Math.round((s.scrollHeight - s.clientHeight) * 0.35); return true; })()`);
+  await settle(250);
+  const awayState = await ev(`uxGates.scrollState()`);
+  const released = awayState.away === 'away' && awayState.btnVisible && awayState.gap > 24;
+  out.released = awayState;
+  record('scroll', 'a scroll-up releases: data-follow-state="away" appears and shows the jump control', released, out.released);
+
+  const afterReleaseDelta = await ev(`uxGates.scrollDelta('away')`);
+  const stayed = afterReleaseDelta && afterReleaseDelta.ok && afterReleaseDelta.gap > 24 && afterReleaseDelta.away === 'away';
+  out.releaseDelta = afterReleaseDelta;
+  record('scroll', 'a delta while the reader is away does not re-pin', stayed, out.releaseDelta);
+
+  // ---- (c) clicking the jump control returns to the bottom ---------------
+  const rect = await ev(`(() => {
+    const b = document.getElementById('scroll-to-bottom');
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), visible: r.width > 0 && r.height > 0 };
+  })()`);
+  if (!rect || !rect.visible) {
+    record('scroll', 'clicking the jump control returns to the bottom and clears away', false, { rect });
+  } else {
+    await driver.clickAt(rect.x, rect.y);
+    const back = await pollOk(`(() => {
+      const s = document.getElementById('chat-scroll');
+      const gap = Math.round(Math.max(0, s.scrollHeight - s.scrollTop - s.clientHeight));
+      return { ok: gap <= 24, gap, away: s.getAttribute('data-follow-state') };
+    })()`, 5000);
+    const hidden = await pollOk(`(() => {
+      const b = document.getElementById('scroll-to-bottom');
+      const s = document.getElementById('chat-scroll');
+      const cs = b ? getComputedStyle(b) : null;
+      return {
+        ok: !!b && !!cs && cs.display === 'none' && b.getClientRects().length === 0 && s.getAttribute('data-follow-state') === null,
+        display: cs ? cs.display : null,
+        rects: b ? b.getClientRects().length : null,
+        away: s.getAttribute('data-follow-state'),
+      };
+    })()`, 2500);
+    out.jump = { rect, back, hidden };
+    record('scroll', 'clicking the jump control returns to the bottom and clears away', !!(back && back.ok && hidden && hidden.ok), out.jump);
+  }
+
+  // ---- (d) the reading keys move the focused region, and never while the
+  // composer has focus -------------------------------------------------------
+  const focusScroller = `(() => { const s = document.getElementById('chat-scroll'); s.focus(); return document.activeElement === s; })()`;
+  const focused = await ev(focusScroller);
+  await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = Math.round((s.scrollHeight - s.clientHeight) * 0.5); return true; })()`);
+  await settle(120);
+  const beforeKeys = await ev(`Math.round(document.getElementById('chat-scroll').scrollTop)`);
+  await driver.pressKey('End');
+  await settle(150);
+  const afterEnd = await ev(`(() => { const s = document.getElementById('chat-scroll'); return { top: Math.round(s.scrollTop), max: Math.round(s.scrollHeight - s.clientHeight) }; })()`);
+  await driver.pressKey('Home');
+  await settle(150);
+  const afterHome = await ev(`Math.round(document.getElementById('chat-scroll').scrollTop)`);
+  await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = s.scrollHeight; return true; })()`);
+  await settle(120);
+  const fromEnd = await ev(`Math.round(document.getElementById('chat-scroll').scrollTop)`);
+  const clientH = await ev(`document.getElementById('chat-scroll').clientHeight`);
+  await driver.pressKey('PageUp');
+  await settle(150);
+  const afterPageUp = await ev(`Math.round(document.getElementById('chat-scroll').scrollTop)`);
+  await driver.pressKey('ArrowUp');
+  await settle(150);
+  const afterArrow = await ev(`Math.round(document.getElementById('chat-scroll').scrollTop)`);
+  const keysOk = focused
+    && afterEnd.top >= afterEnd.max - 2
+    && afterHome === 0
+    && afterPageUp < fromEnd && Math.abs(afterPageUp - (fromEnd - clientH)) <= 12
+    && afterArrow < afterPageUp && Math.abs(afterArrow - (afterPageUp - 40)) <= 8;
+  out.readingKeys = { focused, beforeKeys, afterEnd, afterHome, fromEnd, clientH, afterPageUp, afterArrow, pass: keysOk };
+  record('scroll', 'End/Home/PageUp/ArrowUp move the focused scroller', keysOk, out.readingKeys);
+
+  await ev(`(() => {
+    const s = document.getElementById('chat-scroll');
+    s.scrollTop = Math.round((s.scrollHeight - s.clientHeight) * 0.5);
+    document.getElementById('composer-input').focus();
+    return true;
+  })()`);
+  await settle(150);
+  const composerBefore = await ev(`Math.round(document.getElementById('chat-scroll').scrollTop)`);
+  for (const k of ['ArrowUp', 'PageUp', 'Home']) await driver.pressKey(k);
+  await settle(200);
+  const composerAfter = await ev(`(() => ({ top: Math.round(document.getElementById('chat-scroll').scrollTop), active: (document.activeElement || {}).id || null }))()`);
+  const keysQuiet = composerAfter.active === 'composer-input' && composerAfter.top === composerBefore;
+  out.composerKeys = { before: composerBefore, after: composerAfter, pass: keysQuiet };
+  record('scroll', 'the reading keys never move the scroller while the composer has focus', keysQuiet, out.composerKeys);
+
+  // ---- (e) Escape: a layer keeps the key; with no layer it returns to live --
+  await ev(`(() => { const s = document.getElementById('chat-scroll'); s.focus(); s.scrollTop = Math.round((s.scrollHeight - s.clientHeight) * 0.3); return true; })()`);
+  await settle(150);
+  const beforeEsc = await ev(`uxGates.scrollState()`);
+  await driver.pressEscape();
+  await settle(250);
+  const afterEsc = await ev(`uxGates.scrollState()`);
+  out.escapeNoLayer = { before: beforeEsc, after: afterEsc, pass: afterEsc.gap <= 24 && afterEsc.away === null };
+  record('scroll', 'Escape with no layer returns the reader to the live tail', out.escapeNoLayer.pass, out.escapeNoLayer);
+
+  await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = Math.round((s.scrollHeight - s.clientHeight) * 0.3); return true; })()`);
+  await settle(150);
+  const armed = await ev(`uxGates.armLayer()`);
+  await ev(`document.getElementById('chat-scroll').focus()`);
+  const beforeLayer = await ev(`uxGates.scrollState()`);
+  await driver.pressEscape();
+  await settle(300);
+  const midLayer = await ev(`uxGates.scrollState()`);
+  const layerGone = await ev(`!document.getElementById('gate-layer')`);
+  out.escapeLayer = { armed, before: beforeLayer, after: midLayer, layerGone, pass: armed.ok && layerGone && midLayer.top === beforeLayer.top };
+  record('scroll', 'Escape with a layer open closes the layer and leaves the reader put', out.escapeLayer.pass, out.escapeLayer);
+
+  await driver.pressEscape();
+  await settle(300);
+  const afterSecond = await ev(`uxGates.scrollState()`);
+  out.escapeSecond = { after: afterSecond, pass: afterSecond.gap <= 24 && afterSecond.away === null };
+  record('scroll', 'the next Escape returns to the live tail', out.escapeSecond.pass, out.escapeSecond);
+  await ev(`uxGates.disarmLayer()`);
+
+  // ---- restore: leave the page reloaded, not padded ----------------------
+  await driver.navigate(APP);
+  await waitReady();
+  await chatView();
+}
+
+// ---------------------------------------------------------------------------
 // T16 — reduced-motion gate (driver emulates prefers-reduced-motion: reduce)
 
 async function runMotion() {
@@ -1550,6 +1768,7 @@ async function main() {
     if (RUN.contrast) await runContrast();
     if (RUN.interactions) await runInteractions();
     if (RUN.upload) await runUpload();
+    if (RUN.scroll) await runScroll();
     if (RUN.motion) await runMotion();
     if (RUN.regression) await runRegression();
     if (RUN.round4) await runRound4();
@@ -1564,6 +1783,7 @@ async function main() {
       node: process.version,
       interactions: results.filter((r) => r.gate === 'interactions'),
       upload: results.filter((r) => r.gate === 'upload'),
+      scroll: results.filter((r) => r.gate === 'scroll'),
       motion: results.filter((r) => r.gate === 'motion'),
       regression: results.filter((r) => r.gate === 'regression'),
       round4: results.filter((r) => r.gate === 'round4'),
