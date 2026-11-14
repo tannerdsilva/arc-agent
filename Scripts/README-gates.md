@@ -21,6 +21,20 @@ node Scripts/ux-gates.mjs --only=schemes
 node Scripts/ux-gates.mjs --strict            # skips count as failures
 ```
 
+**The ship gate** — one command for the whole program's exit condition:
+
+```sh
+Scripts/ship-gate.sh          # zero-JS + make verify + every gate group, PASS/FAIL per row
+```
+
+It asserts the absences (`Assets/overlay.js` gone, no `.js` under `Sources/`, no
+source naming the deleted plumbing, an empty asset manifest, no `/ui/init.js` in
+the served document), then runs `make verify` (suite + pin) and every gate group
+above with `focus` first (the one group whose reads are state-sensitive), and
+prints one PASS/FAIL line per row. The two named known-red rows (`tab budget`,
+`delete flow`) pass WITH a note; anything else fails the script. It needs a
+daemon serving :8890.
+
 The daemon must already be serving the UI (`arc serve` → http://127.0.0.1:8890,
 override with `ARC_UI_URL`). Chrome is launched headless on a throwaway
 `--user-data-dir` (or `--attach` to a running Chrome exposing
@@ -39,6 +53,28 @@ Artifacts (all gitignored — regenerate, don't commit):
 | `gates-report.json` | interactions / motion / regression results with raw detail |
 | `assets/schemes/<slug>-chat.png`, `-settings.png` | 27-scheme contact sheet (54 PNGs) |
 | `schemes-index.json` | each scheme's computed key tokens (bg/text/accent/accentStrong/border) |
+
+## The zero client script invariant (A17)
+
+There is **no arc-owned JavaScript in this tree**, and that is a design rule, not
+a state of affairs: the client is no-webui's engine (`/ui/webui-engine.js` + its
+`-ext` asset), and every consequence arc once wrote lives in a framework
+behaviour or in the sheet. Concretely:
+
+- `find Sources -name '*.js'` prints nothing.
+- `Sources/ArcWebUI/Assets/webui-assets.json` declares no types — the embed
+  plugin generates one declaration per entry, so an entry that reappears is a
+  script coming back through the other door.
+- `AppShell.makeDocument` takes no script url, `AppShell.Assets` ships one asset
+  (the sheet), and the served document carries the engine's tags and none of
+  arc's.
+- `ZeroClientScriptTests` (web UI suite) asserts all four, so a new `.js` fails a
+  unit test before any browser gate runs. The old guard was a byte ceiling that
+  had to be ratcheted down after every deletion; the honest ceiling is zero,
+  because "the engine has no consequence for this" has no members left.
+
+A capability the engine lacks is a **framework request** (a release, a versioned
+behaviour and a vocabulary row), never a file here.
 
 ## What each gate asserts
 
@@ -100,9 +136,8 @@ Artifacts (all gitignored — regenerate, don't commit):
    sends nothing — the observed contract is that the engine's "successful" is
    the submit event, so the field clears while the server refuses the blank
    text; (a) Enter submits, the transcript gains the message, and the field
-   still reads empty after the replacing patches that follow (the draft store
-   would otherwise re-fill it; that echo is the one consequence arc still
-   guards, see the overlay's comment and `ClientAssetBudgetTests`).
+   still reads empty after the replacing patches that follow (3.1.0 clears the
+   draft store with the control, so the echo cannot come back — `ZeroClientScriptTests`).
 9. **theme (A15)** — `aria-pressed` is the theme-selected contract:
    (a) exactly one `[data-theme-choice][aria-pressed="true"]` at load and it
    matches `<html data-theme>` (the engine's boot press runs after the server's
@@ -110,8 +145,9 @@ Artifacts (all gitignored — regenerate, don't commit):
    leaves exactly one pressed, moves `<html data-theme>` with it, paints the
    sheet's `[aria-pressed="true"]` rule on that card (computed border/shadow
    differ from an unpressed card), and produces no `.active` class anywhere;
-   (c) the overlay the daemon serves (`/ui/init.js`) carries no
-   `syncThemePickers` and no `webui:theme` listener.
+   (c) no client script is served — `/ui/init.js` is 404 — and the page loads
+   no script of arc's at all: only the engine's two tags resolve, because A17
+   deleted the file that could have carried a theme mirror.
 
 ## Probes
 
