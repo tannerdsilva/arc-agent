@@ -123,9 +123,18 @@ extension ArcWebUITestRoot {
 		@Test("the controls outside WebUIField are exactly the enumerated shapes")
 		func remainderCensus() throws {
 			let source = try Self.viewsSource()
-			let fieldIDs = Set(try Self.identifiers(
+			var fieldIDs = Set(try Self.identifiers(
 				in: source,
 				pattern: #"(?:Input|TextArea|Select)\(field: "([^"]+)""#
+			))
+			// the composer's textarea renders through `ComposerText` — a typed
+			// component, not a modifier chain (D-5(a′): the two draft behaviors
+			// segfaulted every render on this element). it is still a
+			// `field:`-bound control outside `WebUIField`, so the census keeps
+			// seeing it instead of losing the row.
+			fieldIDs.formUnion(try Self.identifiers(
+				in: source,
+				pattern: #"ComposerText\(field: FieldID\("([^"]+)"\)"#
 			))
 			let adopted = Set(try Self.identifiers(in: source, pattern: #"controlID: "([^"]+)""#))
 			let left = fieldIDs.subtracting(adopted)

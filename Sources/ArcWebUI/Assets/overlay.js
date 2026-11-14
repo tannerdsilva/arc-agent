@@ -313,25 +313,9 @@
     }
   });
 
-  // Draft/focus memory for the post-patch seam (UX-40/45): both live for the
-  // page's lifetime so a session switch and a new chat can be aimed.
-  var lastComposerSession = null;
+  // Focus memory for the post-patch seam (UX-45): it lives for the page's
+  // lifetime so a new chat can be aimed.
   var focusComposerWanted = false;
-  // ---- Composer draft seam (UX-40): the engine preserves the pre-patch
-  // textarea value across fragment patches, so a session switch used to keep
-  // the OLD chat's text. The server renders the intended draft as
-  // `data-draft` on #composer-input; when the composer's session actually
-  // changes, re-assert it. Same-session patches (typing protected mid-turn,
-  // chip toggles) are left strictly alone.
-  function syncComposerDraft() {
-    var el = document.getElementById('composer-input');
-    if (!el) return;
-    var sid = el.getAttribute('data-session') || '';
-    if (sid === lastComposerSession) return;
-    lastComposerSession = sid;
-    var want = el.getAttribute('data-draft') || '';
-    if (el.value !== want) el.value = want;
-  }
 
   // ---- Confirmation dialog. Focus is the ENGINE's (no-webui 2.14.0):
   // `autofocus` on the dialog's Cancel control enters it, `data-focus-return`
@@ -380,7 +364,6 @@
   }
 
   function enhanceAll() {
-    syncComposerDraft();
     syncThemePickers();
     // UX-06: the server stages a resolved copy URL as a `#pending-copy` marker
     // inside the toasts fragment; this pass is its only consumer. The engine
@@ -390,7 +373,6 @@
 
   function enhancePatched(changed) {
     clearRestoredComposer();
-    syncComposerDraft();
     syncThemePickers();
     copyFromServerMarker();
     // UX-45: `+` (new chat) leaves focus on the button; the app asked for the

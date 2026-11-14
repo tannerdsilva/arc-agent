@@ -2812,18 +2812,17 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                 }
                 .id("attach-chips")
                 .wire("att-chips")
-                TextArea(field: "composer-input",
-                         placeholder: running ? "Send another message — queued after this reply." : "Message ARC…",
-                         value: draft, rows: 1)
-                    // The composer grows with its content; the sheet's
-                    // `max-height: 180px` on `.composer-bar textarea` is the
-                    // cap the old client resizer computed in JS.
-                    .behavior(Autogrow())
-                    .data("component-id", "composer-input")
-                    .data("session", sid)
-                    .data("draft", draft)
-                    .data("prevent-enter", "send")
-                    .attribute("style", "min-height:24px")
+                // the composer's textarea is a component, not a modifier chain:
+                // the two draft behaviors (no-webui 2.16.0) segfaulted every
+                // render once they joined this chain (D-5(a′)). It writes the
+                // autogrow, the draft identity + server seed and the routing
+                // attributes into its own open tag.
+                ComposerText(field: FieldID("composer-input"),
+                             component: "composer-input",
+                             placeholder: running ? "Send another message — queued after this reply." : "Message ARC…",
+                             value: draft,
+                             session: sid,
+                             rows: 1)
                 Div(class: .composerToolbar) {
                     ArcButton(id: "cb-file", component: "cb-file",
                               class: ClassName("tool-btn" + (openPopover == .file ? " on" : ""))) {
