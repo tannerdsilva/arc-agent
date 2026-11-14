@@ -946,19 +946,16 @@
     nu.focus({ preventScroll: true });
   }
 
-  // the theme switch is two sources of truth by design: the engine keeps the
-  // device-local choice in localStorage, while the settings panel is rendered
-  // from the server's saved mode. when they differ, the panel opened later and
-  // marked the server's mode selected even though the engine had already
-  // applied the stored one — the visible page and the checked card disagreed.
-  // reconcile after every render/patch and whenever the engine announces a
-  // change, so the panel always describes the theme the page is actually using.
+  // the theme switch has two sources of truth: the engine keeps the
+  // device-local choice in localStorage, the panel is rendered from the
+  // server's saved mode. aria-pressed is the engine's (press() re-runs on
+  // every insert); this pass carries only the `.active` class the sheet
+  // paints, and A15 (2.17.0) retires the mirror.
   function syncThemePickers() {
     var mode = document.documentElement.getAttribute('data-theme');
     var picks = document.querySelectorAll('[data-theme-choice]');
     for (var i = 0; i < picks.length; i++) {
       var on = picks[i].getAttribute('data-theme-choice') === mode;
-      picks[i].setAttribute('aria-pressed', on ? 'true' : 'false');
       if (on) picks[i].classList.add('active');
       else picks[i].classList.remove('active');
     }

@@ -18,13 +18,13 @@ extension ArcWebUITestRoot {
 	@Suite("Client asset budget", .serialized)
 	struct ClientAssetBudgetTests {
 
-		/// measured 77,508 bytes / 1,732 lines in the merged tree.
-		/// this commit: delete the dormant data-follow force-bottom branch (−6 lines / −176 bytes; ceiling 73,214 → 73,038).
-		/// the local line measured 77,120: the 388-byte delta is the
+		/// measured 77,231 bytes / 1,729 lines in the merged tree.
+		/// this commit: the engine owns aria-pressed on theme pickers; overlay duplicate deleted (−3 lines / −277 bytes; ceiling 73,038 → 72,761).
+		/// the local line measured 77,120: the 111-byte delta is the
 		/// upstream composer-attachment, workspace-delete and popover blocks this
 		/// program has not retired yet.
 		/// one byte of headroom, which is the ratchet working as intended.
-		private static let ceiling = 77_509
+		private static let ceiling = 77_232
 
 		private static let sourcePath = "Sources/ArcWebUI/Assets/overlay.js"
 
