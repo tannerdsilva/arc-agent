@@ -1,6 +1,6 @@
 // ux-gates.mjs — one-command UX gate suite for the arc web UI.
 //
-//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|scroll|focus|drawer|draft|composer|theme|motion|regression|round4|schemes]
+//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|scroll|focus|drawer|draft|composer|theme|residue|motion|regression|round4|schemes]
 //
 // Zero-dependency: native fetch + WebSocket via Scripts/ux-drive.mjs.
 // Assertions LIVE IN THE PAGE (Scripts/ux-contrast.js, ux-gates.js,
@@ -75,6 +75,7 @@ const RUN = {
   draft: !opts.only || opts.only.includes('draft'),
   composer: !opts.only || opts.only.includes('composer'),
   theme: !opts.only || opts.only.includes('theme'),
+  residue: !opts.only || opts.only.includes('residue'),
   motion: !opts.only || opts.only.includes('motion'),
   regression: !opts.only || opts.only.includes('regression'),
   round4: !opts.only || opts.only.includes('round4'),
@@ -1579,21 +1580,20 @@ async function runFocus() {
 
   // ---- (d) T26: a focused control whose patch replaces it keeps focus ------
   // the plan names the kanban inline-edit field and an attachment chip's ✕.
-  // Neither declares a return target (the kanban field carries no id at all, so
-  // no id-based restore could ever resolve it; the chip's ✕ is removed by its
-  // own click, so there is nothing to re-query), and this gate will not rename
-  // the owner's board to manufacture a patch. The replacing patch is therefore
-  // driven through the engine's OWN funnel on the chip summary — the calls the
-  // socket patch path makes — in two laps: undeclared (what a real arc surface
-  // does today) and declared (the engine's `data-focus-return` contract). An
-  // engine that restores the declared lap while the real surface has nothing to
-  // declare is a SKIP with both measurements, never a pass; a declared lap that
-  // fails is a hard failure.
+  // A16c gave both STABLE ids (`kb-col-name-<enc(col)>`, `att-del-<enc(path)>`),
+  // so the engine's input-state memo (`formScope|id-or-name`) can key them —
+  // but neither declares a `data-focus-return` region, and this lap measures
+  // THAT path (the declared one), driving the replacing patch through the
+  // engine's OWN funnel on the chip summary. Two laps: undeclared (what a real
+  // arc surface does today) and declared (the engine's contract). An engine that
+  // restores the declared lap while the surface has nothing to declare is a SKIP
+  // with both measurements, never a pass; a declared lap that fails is a hard
+  // failure.
   const undeclaredLap = await ev(`uxGates.focusReplace(false)`);
   const declaredLap = await ev(`uxGates.focusReplace(true)`);
   out.t26 = {
     surface: 'the context chip’s summary (#ctx-chip-summary)',
-    namedSurfaces: 'kanban rename field (input[name="kb-col-name"], no id) / attachment-chip ✕ (removed by its own click)',
+    namedSurfaces: 'kanban rename field (kb-col-name-<enc(col)>, id-keyed) / attachment-chip ✕ (att-del-<enc(path)>, id-keyed; removed by its own click) — both keyed by A16c',
     undeclared: undeclaredLap,
     declared: declaredLap,
   };
@@ -1606,7 +1606,7 @@ async function runFocus() {
   } else if (undeclaredLap.kept) {
     record('focus', '(d) a focused control whose patch replaces it keeps focus (T26)', true, out.t26);
   } else if (declaredOk) {
-    out.t26.skipped = `the engine’s declared path works (a \`data-focus-return\` on the replaced control sends focus back to it), but arc’s surfaces declare nothing to re-query: focus fell to ${undeclaredLap.active || '<body>'} after the patch. The plan’s named surfaces cannot declare it today (the kanban field has no id; the chip’s ✕ is removed before it could be re-queried) — arc declares no T26 region in this slice, and the dialog’s openers/close controls are the only declarations (owner A16c)`;
+    out.t26.skipped = `the engine’s declared path works (a \`data-focus-return\` on the replaced control sends focus back to it), but arc’s surfaces declare nothing to re-query: focus fell to ${undeclaredLap.active || '<body>'} after the patch. Both named surfaces are ID-KEYED now (A16c: kb-col-name-<enc(col)>, att-del-<enc(path)>), which is the input-state memo's path, not this declaration path — the dialog's openers and close controls remain the only data-focus-return declarations arc emits`;
     record('focus', '(d) a focused control whose patch replaces it keeps focus (T26)', 'skip', out.t26);
   } else {
     out.t26.reason = 'the engine restored neither lap — its T26 memo is broken, not merely undeclared';
@@ -1974,6 +1974,186 @@ async function runTheme() {
   await ev(`document.getElementById('chat-new')?.click()`).catch(() => {});
   await ev(`document.getElementById('nav-chat')?.click()`);
   await settle(300);
+}
+
+// ---------------------------------------------------------------------------
+// A16 — residue: the rename dialog, the engine's clipboard + toast, the caret,
+// and the seam that is left.
+//
+// A16a made rename ONE server-rendered card, so this row drives the whole round
+// trip: the menu opens it, the field carries the FULL stored title, submit
+// renames through a single `.refresh`, Escape cancels with no change, and focus
+// returns to the row's ⋮ (the "Rename" entry that armed the dialog is gone with
+// the menu the same click closed). A16b made every copy surface a `data-copy`
+// value the ENGINE writes, so the clipboard is read back and the engine's
+// `[data-webui-toast]` pill is checked in BOTH themes against the sheet's
+// tokens. A16c left the seam with three consumers; the new-chat caret (UX-45) is
+// the one a browser can drive without a live tool turn.
+//
+// Every await has a deadline. The rename mutates a REAL title, so it runs on the
+// probe session — which `cleanupProbeSessions` deletes at the end.
+
+async function runResidue() {
+  console.log('\n— gate: residue (rename dialog · engine clipboard · toast · caret) —');
+  const out = {};
+  driver.clearConsole();
+
+  // the clipboard read needs the permission granted to the ORIGIN, not the tab.
+  out.clipboardPermission = await driver
+    .send('Browser.grantPermissions', {
+      permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'],
+      origin: APP.replace(/\/+$/, ''),
+    })
+    .then(() => 'granted')
+    .catch((e) => `refused: ${String(e.message || e).slice(0, 120)}`);
+
+  const readClipboard = async () => {
+    try {
+      const v = await driver.js('navigator.clipboard.readText()', { awaitPromise: true });
+      return typeof v === 'string' ? v : null;
+    } catch (e) { return null; }
+  };
+
+  const sid = await ensureProbeSession('UXGATE residue target');
+  await chatView();
+  const rowExpr = `[...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${sid}')`;
+  await ev(`(() => { const row = ${rowExpr}; if (row) row.querySelector('.sess-open').click(); return true; })()`);
+  await settle(600);
+
+  const before = await ev(`(() => { const row = ${rowExpr}; return row ? { title: row.querySelector('.sess-title').textContent, full: row.getAttribute('data-full-title') } : null; })()`);
+  const openerID = await ev(`(() => { const row = ${rowExpr}; const d = row && row.querySelector('.menu-dots'); return d ? d.id : null; })()`);
+  out.probe = { sid: sid.slice(0, 8), before, openerID };
+
+  const openRename = async () => {
+    const opened = await openMenu(sid);
+    if (!opened) return { ok: false, reason: 'the row menu did not open' };
+    await ev(`(() => { const row = ${rowExpr}; const b = row && row.querySelector('.chat-menu-items [id^="sm-rename-"]'); if (b) b.click(); return !!b; })()`);
+    return pollOk(`(() => { const s = uxGates.renameState(); return Object.assign({ ok: s.open && !!s.field }, s); })()`, 6000);
+  };
+
+  // ---- (a) the rename dialog: full title, one round trip, Escape, return ----
+  const card = (await openRename()) || {};
+  const cardOk = !!card.ok
+    && String(card.overlayClass || '').includes('modal-overlay')
+    && card.role === 'dialog' && card.ariaModal === 'true'
+    && card.postTo === 'chat-menu'
+    && !!card.field && card.field.name === 'rename-name' && card.field.value === (before && before.full)
+    && !!card.cancel && card.cancel.dismiss && card.cancel.type === 'button'
+    && card.cancel.focusReturn === openerID
+    && !!card.save && card.save.type === 'submit';
+  out.renameCard = card;
+  record('residue', "(a1) the row menu opens a server card seeded with the FULL stored title", cardOk, out.renameCard);
+
+  let submitState = { ok: false, reason: 'the card never opened' };
+  if (card.ok) {
+    const probeTitle = `UXGATE residue ${Date.now() % 100000}`;
+    await ev(`(() => {
+      const f = document.getElementById('rename-name');
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      set.call(f, ${JSON.stringify(probeTitle)});
+      f.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    await ev(`document.getElementById('rename-save').click()`);
+    submitState = await pollOk(`(() => {
+      const row = ${rowExpr};
+      const s = uxGates.renameState();
+      const full = row ? row.getAttribute('data-full-title') : null;
+      const title = row ? row.querySelector('.sess-title').textContent : null;
+      return { ok: !s.open && full === ${JSON.stringify(probeTitle)} && title === ${JSON.stringify(probeTitle)}, full, title, open: s.open };
+    })()`, 8000);
+    out.renameSubmit = submitState;
+  }
+  record('residue', "(a2) submit renames through one .refresh — the row shows the new title and the card is gone",
+    !!submitState && submitState.ok === true, out.renameSubmit);
+
+  // Escape cancels with no change, and the close returns focus to the row's ⋮.
+  let cancelState = { ok: false, reason: 'the card never reopened' };
+  const reopened = await openRename();
+  if (reopened && reopened.ok) {
+    await ev(`(() => { const f = document.getElementById('rename-name'); f.focus(); f.value = 'MUST NOT STICK'; return true; })()`);
+    await driver.pressEscape();
+    cancelState = await pollOk(`(() => {
+      const row = ${rowExpr};
+      const s = uxGates.renameState();
+      const full = row ? row.getAttribute('data-full-title') : null;
+      const dots = row && row.querySelector('.menu-dots');
+      const a = document.activeElement;
+      return { ok: !s.open && full === ${JSON.stringify(submitState && submitState.full || '')} && !!dots && a === dots, full, active: a && a !== document.body ? (a.id || a.tagName) : null };
+    })()`, 6000);
+    out.renameCancel = cancelState;
+  }
+  record('residue', "(a3) Escape cancels with no change and focus returns to the row's ⋮", !!cancelState && cancelState.ok === true, out.renameCancel);
+
+  // ---- (b) copy is the engine's `data-copy` ---------------------------------
+  await chatView();
+  await openMenu(sid);
+  const copyValue = await ev(`(() => { const row = ${rowExpr}; const b = row && row.querySelector('.chat-menu-items [id^="sm-copy-"]'); return b ? b.getAttribute('data-copy') : null; })()`);
+  await ev(`(() => { const row = ${rowExpr}; const b = row && row.querySelector('.chat-menu-items [id^="sm-copy-"]'); if (b) b.click(); return !!b; })()`);
+  const linkToast = await ev(`uxGates.engineToast()`);
+  const linkClip = await readClipboard();
+  const linkOk = !!copyValue && /^https?:\/\/.+[?&]s=/.test(copyValue)
+    && (linkClip === null || linkClip === copyValue)
+    && !!linkToast && linkToast.present && linkToast.text === 'Copied';
+  out.copyLink = { value: copyValue, clipboard: linkClip, toast: linkToast };
+  record('residue', '(b1) "Copy conversation link" writes the absolute share url (clipboard + engine toast)', linkOk, out.copyLink);
+
+  // one work-log round: scan the open chats for a transcript that has one.
+  let worklog = null;
+  let worklogSkipped = null;
+  const sidList = (await ev(`(() => [...document.querySelectorAll('.sess-row')].map(r => r.getAttribute('data-sid')))()`)) || [];
+  for (const s of sidList.slice(0, 10)) {
+    await ev(`(() => { const r = [...document.querySelectorAll('.sess-row')].find(x => x.getAttribute('data-sid') === ${JSON.stringify(s)}); if (r) r.querySelector('.sess-open').click(); return true; })()`);
+    await settle(700);
+    worklog = await ev(`(() => { const b = document.querySelector('.tw-copy'); return b ? { value: b.getAttribute('data-copy') || '' } : null; })()`);
+    if (worklog) break;
+  }
+  if (!worklog) {
+    worklogSkipped = `no reachable transcript has a tool round (scanned ${Math.min(sidList.length, 10)} of ${sidList.length} chats) — the "copy this activity" control only renders for a turn that called a tool`;
+    record('residue', '(b2) a work-log round copies its activity digest', 'skip', { skipped: worklogSkipped });
+  } else {
+    await ev(`document.querySelector('.tw-copy').click()`);
+    const roundToast = await ev(`uxGates.engineToast()`);
+    const roundClip = await readClipboard();
+    const roundOk = worklog.value.length > 0
+      && (roundClip === null || roundClip.startsWith(worklog.value.slice(0, 40)))
+      && !!roundToast && roundToast.present && roundToast.text === 'Copied';
+    out.copyWorklog = { value: worklog.value.slice(0, 120), clipboard: roundClip === null ? null : roundClip.slice(0, 120), toast: roundToast };
+    record('residue', '(b2) a work-log round copies its activity digest (clipboard + engine toast)', roundOk, out.copyWorklog);
+  }
+
+  // ---- (c) the engine toast is legible in BOTH themes ----------------------
+  for (const theme of ['dark', 'light']) {
+    await setTheme(theme);
+    await chatView();
+    await openMenu(sid);
+    await ev(`(() => { const row = ${rowExpr}; const b = row && row.querySelector('.chat-menu-items [id^="sm-copy-"]'); if (b) b.click(); return !!b; })()`);
+    const t = await ev(`uxGates.engineToast()`);
+    const ok = !!t && t.present && t.text === 'Copied' && t.visible
+      && t.theme === theme
+      && t.contrast >= 4.5
+      && t.color === t.want.text && t.background === t.want.surface;
+    out[`toast_${theme}`] = t;
+    record('residue', `(c) the engine toast is legible in the ${theme} theme (sheet tokens + WCAG)`, ok, t);
+  }
+
+  // ---- (d) the new-chat caret (UX-45) --------------------------------------
+  await chatView();
+  await ev(`document.getElementById('chat-new')?.click()`);
+  const caret = await pollOk(`(() => { const a = document.activeElement; return { ok: !!a && a.id === 'composer-input', active: a && a !== document.body ? (a.id || a.tagName) : null }; })()`, 5000);
+  out.caret = caret;
+  record('residue', "(d) the new-chat caret lands in the composer (UX-45 — the seam's surviving consumer)", !!caret && caret.ok === true, caret);
+
+  // ---- (e) data-focus-after-patch -----------------------------------------
+  record('residue', '(e) a patched form still takes focus via data-focus-after-patch', 'skip', {
+    skipped: 'no reachable surface carries the attribute in this daemon state: the add-card form and the first-invalid skill field both need a live tool turn / a rejected save the gate cannot stage deterministically. The emission and its consumer are pinned in OverlaySeamContractTests (the attribute is one of the three A16d-blocked consumers).',
+  });
+
+  // ---- the tour's console ------------------------------------------------
+  const consoleReport = driver.consoleReport();
+  const consoleOk = consoleReport.errors.length === 0 && consoleReport.warnings.length === 0;
+  out.console = consoleReport;
+  record('residue', '(f) no console error or warning through the whole residue tour', consoleOk, consoleReport);
 }
 
 async function runMotion() {
@@ -2457,6 +2637,7 @@ async function main() {
     if (RUN.draft) await runDraft();
     if (RUN.composer) await runComposer();
     if (RUN.theme) await runTheme();
+    if (RUN.residue) await runResidue();
     if (RUN.motion) await runMotion();
     if (RUN.regression) await runRegression();
     if (RUN.round4) await runRound4();
@@ -2477,6 +2658,7 @@ async function main() {
       draft: results.filter((r) => r.gate === 'draft'),
       composer: results.filter((r) => r.gate === 'composer'),
       theme: results.filter((r) => r.gate === 'theme'),
+      residue: results.filter((r) => r.gate === 'residue'),
       motion: results.filter((r) => r.gate === 'motion'),
       regression: results.filter((r) => r.gate === 'regression'),
       round4: results.filter((r) => r.gate === 'round4'),

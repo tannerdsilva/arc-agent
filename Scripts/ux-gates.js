@@ -626,6 +626,86 @@
       return out;
     },
 
+    // ---- residue (a16) ------------------------------------------------------
+    // rename is a server dialog (A16a), copy is the engine's `[data-copy]` and
+    // its `[data-webui-toast]` pill (A16b), and the post-patch seam is down to
+    // its three A16d-blocked consumers (A16c). these helpers read the
+    // consequence; the driver performs the input.
+
+    /// the rename card, its field, the row it acts on, and where focus sits.
+    renameState: () => {
+      const card = document.getElementById('rename-overlay');
+      const form = document.getElementById('rename-form');
+      const field = document.getElementById('rename-name');
+      const cancel = document.getElementById('rename-cancel');
+      const save = document.getElementById('rename-save');
+      const a = document.activeElement;
+      const row = document.querySelector('.sess-row.active') || document.querySelector('.sess-row');
+      const title = row ? row.querySelector('.sess-title') : null;
+      return {
+        open: !!card,
+        overlayClass: card ? card.className : null,
+        role: form ? form.getAttribute('role') : null,
+        ariaModal: form ? form.getAttribute('aria-modal') : null,
+        postTo: form ? form.getAttribute('data-component-id') : null,
+        field: field ? {
+          id: field.id, name: field.name, value: field.value, focused: a === field,
+        } : null,
+        cancel: cancel ? {
+          id: cancel.id,
+          type: cancel.getAttribute('type'),
+          dismiss: cancel.hasAttribute('data-dismiss'),
+          focusReturn: cancel.getAttribute('data-focus-return'),
+        } : null,
+        save: save ? { id: save.id, type: save.getAttribute('type') } : null,
+        active: a && a !== document.body ? (a.id || a.tagName) : null,
+        rowTitle: title ? title.textContent : null,
+        rowFullTitle: row ? row.getAttribute('data-full-title') : null,
+      };
+    },
+
+    /// the engine's copy toast with the sheet tokens it must match.
+    /// `contrast` is the WCAG ratio of its text against its own background, so a
+    /// scheme that leaves the pill unreadable fails rather than "renders".
+    engineToast: () => {
+      const t = document.querySelector('[data-webui-toast]');
+      if (!t) return { present: false };
+      const cs = getComputedStyle(t);
+      const root = getComputedStyle(document.documentElement);
+      const token = (name) => root.getPropertyValue(name).trim();
+      // a token may be hex/named/color-mix: paint it and read the computed rgb.
+      const probe = document.createElement('span');
+      probe.style.color = token('--text');
+      probe.style.background = token('--surface');
+      document.body.appendChild(probe);
+      const pcs = getComputedStyle(probe);
+      const want = { text: pcs.color, surface: pcs.backgroundColor };
+      document.body.removeChild(probe);
+      const lum = (rgb) => {
+        const m = String(rgb).match(/[\d.]+/g) || [0, 0, 0];
+        const f = m.slice(0, 3).map((v) => {
+          const s = Number(v) / 255;
+          return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2];
+      };
+      const L1 = lum(cs.color);
+      const L2 = lum(cs.backgroundColor);
+      return {
+        present: true,
+        text: t.textContent,
+        color: cs.color,
+        background: cs.backgroundColor,
+        borderColor: cs.borderColor,
+        opacity: cs.opacity,
+        visible: shown(t),
+        contrast: Math.round(((Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05)) * 100) / 100,
+        theme: document.documentElement.getAttribute('data-theme'),
+        tokens: { text: token('--text'), surface: token('--surface') },
+        want,
+      };
+    },
+
     // ---- composer submit contract (a15) ------------------------------------
     // no-webui 2.17.0 owns the submit gesture and the clear, and the theme
     // picker's `aria-pressed` is the selected-state contract. these helpers
