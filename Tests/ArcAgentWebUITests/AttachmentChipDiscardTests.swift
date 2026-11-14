@@ -30,7 +30,7 @@ struct AttachmentChipDiscardTests {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         await app.addAttachment(file.path)
-        await app.removeAttachment(0)
+        await app.removeAttachment(file.path)
 
         #expect(!FileManager.default.fileExists(atPath: file.path))
         // the emptied staging folder is tidied away too
@@ -45,7 +45,7 @@ struct AttachmentChipDiscardTests {
         defer { try? FileManager.default.removeItem(at: tmp) }
 
         await app.addAttachment(tmp.path)
-        await app.removeAttachment(0)
+        await app.removeAttachment(tmp.path)
 
         #expect(FileManager.default.fileExists(atPath: tmp.path))
     }

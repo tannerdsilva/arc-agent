@@ -1539,9 +1539,6 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
     func chatMain() -> some WebUI.View {
         let hasSession = activeSessionID != nil
         let session = activeSession()
-        // the follow flag is consumed once: the render that scrolls to the
-        // bottom clears it, so a later re-render must not re-scroll.
-        forceScrollBottom = false
         // a11: the engine owns follow, the reading keys and the per-session
         // position. `ChatScroller` writes all three attributes (and the
         // focusability `ReadingKeys` needs) into its own open tag — four more
@@ -1713,7 +1710,12 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                         WebUIIcon(.edit, size: .small)
                         Span { Text("Start typing") }
                     }
-                    .data("focus-composer", "")
+                    // the engine's skip target moves real focus to the composer
+                    // (and scrolls it into view) — the same consequence the skip
+                    // link uses, so the blank canvas keeps no client handler
+                    // (A16c). `href` is not needed: this is a button, and the
+                    // behavior does the focusing.
+                    .behavior(SkipTarget(id: "composer-input"))
                 }
             }
         }
@@ -2861,7 +2863,7 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
             Form(action: "", method: nil, id: "composer-form",
                  class: ClassName("composer-bar" + (selOpen ? " sel-open" : ""))) {
                 Div(class: .attachChips) {
-                    for (i, path) in attachments.enumerated() {
+                    for path in attachments {
                         Span(class: .chip) {
                             Span(class: .chipLabel) {
                                 // Visually just the file name — the full
@@ -2869,7 +2871,13 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                                 // be long without crowding the composer.
                                 Text("@\(trunc((path as NSString).lastPathComponent, 50))")
                             }
-                            ArcButton(id: "att-del-\(i)", component: nil, class: .chipX) {
+                            // keyed by the PATH, not its index: the engine's
+                            // input-state memo restores focus by id, and an
+                            // index-shifted `att-del-<i>` lands on a different
+                            // chip the moment an earlier one is removed (T26,
+                            // A16c). `addAttachment` refuses duplicates, so the
+                            // path is unique inside this list.
+                            ArcButton(id: "att-del-\(enc(path))", component: nil, class: .chipX) {
                                 WebUIIcon(.x, size: .small)
                             }
                         }
@@ -5839,6 +5847,7 @@ extension AppState {
     /// (the display may be truncated).
     private func kanbanRename<Display: WebUI.View>(
         field: String,
+        inputID: String,
         value: String,
         idField: String,
         idValue: String,
@@ -5847,7 +5856,11 @@ extension AppState {
     ) -> some WebUI.View {
         Form(method: nil) {
             display()
-            Input(name: field, type: .text, value: value)
+            // the field's `name` is the wire key; its `id` is what the engine's
+            // input-state memo keys on (`formScope|id-or-name`), and WITHOUT one
+            // every column's rename field collapsed onto the same key — one
+            // value, and one focus target, for all of them (T26, A16c).
+            Input(id: inputID, name: field, type: .text, value: value)
                 .addClass(.inlineEdit)
                 .aria(.label(label))
             ArcButton(class: .iconMini, type: .submit) {
@@ -5883,7 +5896,7 @@ extension AppState {
                 // the column NAME is the rename control: clicking it enters local
                 // edit mode, so the pencil button that used to sit in the actions
                 // row is gone with the overlay editor that served it.
-                kanbanRename(field: "kb-col-name", value: col.name,
+                kanbanRename(field: "kb-col-name", inputID: "kb-col-name-\(cid)", value: col.name,
                              idField: "kb-col-id", idValue: col.id,
                              label: "Rename column") {
                     Span(class: .kbColName) { Text(col.name) }
@@ -5950,7 +5963,7 @@ extension AppState {
             // control, the input holds the FULL title (the display truncates to
             // 70), and the hidden `kb-card-id` rides the form's submit to the
             // existing `kanban` wire.
-            kanbanRename(field: "kb-card-title", value: card.title,
+            kanbanRename(field: "kb-card-title", inputID: "kb-card-title-\(enc(card.id))", value: card.title,
                          idField: "kb-card-id", idValue: card.id,
                          label: "Edit card title") {
                 Div(class: .kbCardTitle) { Text(trunc(card.title, 70)) }
@@ -6342,7 +6355,13 @@ extension AppState {
                           destination: .folder(path: ""),
                           component: "ws-drop", event: .custom("upload-complete")) {
             Div(class: "panel-head ws-head") {
+                // the panel head carries no upload control: 2.11.0's zone opens
+                // the picker from the panel's own surface, and the engine ignores
+                // clicks on a `button` inside it — so the old `#w-upload` was a
+                // dead control (the A9 ledger's row). The hint moves here, where
+                // it is discoverable and true (A16c).
                 PanelTitle { Text("Workspace") }
+                    .title("Upload files or drop them here")
                 Div(class: .wsTools) {
                     ArcButton(id: "w-new", component: nil, class: .iconMini) {
                         WebUIIcon(.plus, size: .small)
@@ -6352,10 +6371,6 @@ extension AppState {
                         WebUIIcon(.folder, size: .small)
                     }
                     .title("New folder")
-                    ArcButton(id: "w-upload", component: nil, class: .iconMini) {
-                        WebUIIcon(.upload, size: .small)
-                    }
-                    .title("Upload files or drop them here")
                     Div(class: .wsMenuWrap) {
                         ArcButton(id: "w-menu", component: nil, class: .iconMini) {
                             Text("\u{22EE}")   // ⋮ — Text escapes, so emit the char

@@ -62,9 +62,6 @@ extension AppState {
         prompt: ReplyPrompt,
         pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
     ) async {
-        // the new attempt lands at the end of the transcript; a reader who
-        // clicked an older reply is scrolled up and must see it arrive.
-        armScrollToBottom()
         await runTurn(
             userText: prompt.content,
             pusher: pusher,

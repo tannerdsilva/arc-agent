@@ -1605,8 +1605,8 @@ extension Controller {
     @Wired("att-chips", events: [.click])
     func handleAttChips(_ event: EventData) async -> HandlerOutcome {
         guard let tid = event.string("targetId"), tid.hasPrefix("att-del-"),
-              let idx = Int(tid.dropFirst("att-del-".count)) else { return .fragments([]) }
-        await self.app.removeAttachment(idx)
+              let path = dec(String(tid.dropFirst("att-del-".count))) else { return .fragments([]) }
+        await self.app.removeAttachment(path)
         return await self.changed()
     }
 
@@ -3553,7 +3553,10 @@ extension Controller {
     }
 
     /// Right-hand workspace panel actions (dock toggle, create, hidden files,
-    /// folder expand/collapse). Uploads + the "⋮" menu are client-side.
+    /// folder expand/collapse, preview). The ⋮ menu's open state is still a
+    /// client toggle; uploads arrive as the zone's `upload-complete` event, not
+    /// a click (the `#w-upload` control retired with A16c — the zone opens the
+    /// picker from its own surface).
     private func workspaceAction(_ tid: String) async -> HandlerOutcome {
         if tid == "w-dock" {
             await app.toggleWorkspace()
@@ -3563,8 +3566,8 @@ extension Controller {
             await app.setWsNewMode("file")
         } else if tid == "w-newfolder" {
             await app.setWsNewMode("folder")
-        } else if tid == "w-menu" || tid == "w-upload" {
-            return .fragments([])   // client-side: menu toggle / file picker
+        } else if tid == "w-menu" {
+            return .fragments([])   // client-side: menu toggle
         } else if tid == "w-hidden" {
             await app.toggleShowHiddenFiles()
         } else if tid.hasPrefix("w-del-"), let path = dec(String(tid.dropFirst("w-del-".count))) {

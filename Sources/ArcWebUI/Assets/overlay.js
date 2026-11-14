@@ -323,11 +323,14 @@
     }
   }, true);
 
-  // The seam (A16c): this pass lost its only consumer with A16b — the server
-  // no longer stages anything for a post-patch pass to pick up.
-  function enhanceAll() {
-  }
-
+  // ---- The post-patch seam (A16c): THREE consumers, each blocked on a
+  // behaviour A16d ships — (1) `clearRestoredComposer`, the A15 draft-store
+  // guard (2.17.0 clears the control, not `webui-draft:<identity>`); (2) the
+  // new-chat caret (`focusComposerWanted` + the `#chat-new` capture click,
+  // UX-45); (3) `[data-focus-after-patch]`, a form fragment that asks for the
+  // caret when it lands. (2) and (3) wait on a focus-on-appearance behaviour —
+  // `autofocus` is once per document (A12/F3). Everything else that used to
+  // live here died with its owner; this registration is the only one left.
   function enhancePatched(changed) {
     clearRestoredComposer();
     // UX-45: `+` (new chat) leaves focus on the button; the app asked for the
@@ -366,21 +369,20 @@
     }
   }, true);
 
-  function bootOverlay() {
+  // The one registration left. It has to wait for the engine: /ui/init.js is
+  // the FIRST head script and /ui/webui-engine.js comes after it, so
+  // `WebUIEngine` does not exist while this file is being parsed. That ordering
+  // is the whole reason a deferral survives here — there is no load-time pass
+  // and no `ready` registration any more.
+  function registerSeam() {
     if (window.WebUIEngine && WebUIEngine.on) {
       WebUIEngine.on.afterPatch(enhancePatched);
-      WebUIEngine.on.ready(enhanceAll);
     }
-    // The engine boots synchronously with its own script, which precedes this
-    // handler, so `ready` may never fire — the initial pass runs here, and
-    // covers anything that arrived before registration.
-    enhanceAll();
   }
-
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bootOverlay);
+    document.addEventListener('DOMContentLoaded', registerSeam);
   } else {
-    bootOverlay();
+    registerSeam();
   }
 
   // ---- Disclosures (context chip, session groups, skill categories) are
@@ -402,6 +404,9 @@
 
   // ---- Color swatches: client-side selection that mirrors into the
   // hidden color field of the enclosing form before submit.
+  // A16c: KEEP. The truth is that hidden input until submit (the server seeds
+  // index 0 and reads the field); a native radio group would be a markup + sheet
+  // rewrite of two forms for an interaction with no server state.
   document.addEventListener('click', function (e) {
     var sw = e.target && e.target.closest ? e.target.closest('.cat-swatch') : null;
     if (!sw) return;
@@ -421,6 +426,11 @@
   // applied yet: the handle did nothing right after closing. Adding the class
   // and letting the click continue keeps the slide (a 280ms transition outlives
   // the patch in the common case) and settles the control in one round trip.
+  //
+  // A16c: KEEP — the last visual-only handler here. The close is server state,
+  // but the outgoing region's class must be on the node BEFORE the replace
+  // lands, and the engine has no leave-transition hook (`afterPatch` runs after
+  // the node is gone). A framework `data-leave` hook is the way out.
   document.addEventListener('click', function (e) {
     var b = e.target && e.target.closest ? e.target.closest('#w-close, #w-dock') : null;
     if (!b) return;
@@ -429,14 +439,6 @@
     void p.offsetWidth; // force reflow so the transition actually runs
     p.classList.add('ws-closing');
   }, true);
-
-  function bootOnReady(fn) {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', fn);
-    } else {
-      fn();
-    }
-  }
 
   document.addEventListener('click', function (e) {
     // Workspace "⋮" menu toggle + click-outside close.
@@ -462,24 +464,10 @@
       console.error('arc-agent init failed:', err);
     }
   }
-  // ---- Blank-canvas CTA: focus the composer (delegated).
-  document.addEventListener('click', function (e) {
-    var b = e.target && e.target.closest ? e.target.closest('[data-focus-composer]') : null;
-    if (!b) return;
-    e.preventDefault();
-    var ta = document.getElementById('composer-input');
-    if (ta) ta.focus();
-  });
 
-  // ---- Copy is the ENGINE's (A16b/F5). Every copy control carries
-  // `data-copy` with its text (the conversation link is the absolute share URL,
-  // the code blocks and the work-log digest and the file preview carry theirs),
-  // and `webui-engine-ext.js` writes the clipboard and paints its
-  // `[data-webui-toast]` "Copied" pill. There is no staged server handoff, no
-  // client toast builder, and no per-surface copy handler left here.
-
-  // ---- in-page `#` anchors are left to the browser: `WebUIServer.answerNavigate`
-  // re-renders with `begin(..., preservingRegistrations: true)` (a5fa7bb, 2026-10-14),
-  // so a hash jump no longer drops the handlers arc registered at boot.
-  // `AnchorJumpTests` pins both halves of that premise.
+  // ---- Copy is the ENGINE's (A16b/F5): every control carries `data-copy` and
+  // `webui-engine-ext.js` writes the clipboard and paints its
+  // `[data-webui-toast]` pill. ---- The blank canvas' "Start typing" is the
+  // engine's `data-skip-to` consequence (A16c): real focus into
+  // `#composer-input`, the same behaviour the skip link uses.
 })();

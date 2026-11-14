@@ -350,19 +350,18 @@ public struct WebUIHost: Service {
         // server's `RenderContext` and lands in this token's session.
         let pageProvider: @Sendable (String?, String, RenderIntent) async -> WebUI.HTMLDocument = { [app] deepLink, renderToken, intent in
             // One render pipeline, three occasions (no-webui `RenderIntent`):
-            // a load opens the deep link and arms scroll-to-bottom; a client
-            // navigation re-arms the scroll; a `refresh` — a handler answered
-            // `HandlerOutcome.refresh` — replays NEITHER, or every settings
-            // toggle would drag the chat to the bottom and re-open a `?s=`.
+            // a load opens the deep link; a client navigation and a `refresh` —
+            // a handler answered `HandlerOutcome.refresh` — replay neither, or
+            // every settings toggle would re-open a `?s=`. Scroll position is
+            // the engine's (`data-follow`, A11): a load lands at the tail
+            // because `ChatScroller` renders following, not because the server
+            // arms a flag on the way in.
             switch intent {
             case .load:
                 if let sid = deepLink, !sid.isEmpty {
                     await app.openDeepLink(sid)
                 }
-                await app.armScrollToBottom()
-            case .navigate:
-                await app.armScrollToBottom()
-            case .refresh:
+            case .navigate, .refresh:
                 break
             }
             let shell = await app.appShell()

@@ -1009,8 +1009,6 @@ actor AppState {
     /// card rendered beside the confirm dialog (A16a — a native `<dialog open>`
     /// renders in flow, not in the top layer, so it cannot be a modal without JS).
     var renameSessionID: String?
-    /// Next chat-scroll render should force the view to the bottom (chat open).
-    var forceScrollBottom = true
     /// Conversation outline open. Server-owned so the toggle routes through the
     /// engine like every other control (the client-only version logged
     /// "[WebUIEngine] click on unwired control #outline-toggle" on every click)

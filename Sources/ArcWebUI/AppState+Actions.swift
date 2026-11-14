@@ -156,7 +156,6 @@ extension AppState {
             AppState.removeChatUploads(sessionID: draft)
         }
         attachments = pendingAttachmentsBySession[id] ?? []
-        forceScrollBottom = true
         // Follow the chat's own workspace (right panel + composer selector).
         if let id = activeSessionID {
             selectedWorkspace = settings.sessionWorkspaces[id] ?? settings.activeWorkspace
@@ -211,12 +210,6 @@ extension AppState {
 
     func clearPendingDelete() {
         pendingDelete = false
-    }
-
-    /// Mark the next chat-scroll render with `data-follow="bottom"` so a
-    /// full page load always opens the active conversation at the bottom.
-    func armScrollToBottom() {
-        forceScrollBottom = true
     }
 
     /// Open a shared conversation link (`?s=<id>`): select the session (also
@@ -404,9 +397,11 @@ extension AppState {
         formValues["file-path-input"] = ""
     }
 
-    func removeAttachment(_ index: Int) {
-        guard attachments.indices.contains(index) else { return }
-        let path = attachments.remove(at: index)
+    /// Remove an attachment by PATH — the chip's ✕ is keyed by the path so the
+    /// button's id survives its siblings being removed (T26, A16c).
+    func removeAttachment(_ path: String) {
+        guard attachments.contains(path) else { return }
+        attachments.removeAll { $0 == path }
         if let id = activeSessionID { pendingAttachmentsBySession[id] = attachments }
         // The X on an attachment chip means "discarded": when the path was a
         // staged composer upload (inside the uploads root), the file is now
