@@ -51,6 +51,10 @@ extension ArcWebUITestRoot {
 			"composer-input", "storage-edit-id", "ws-new-name",
 			"skill-name-input", "skill-desc-input",
 			"mc-effort",
+			// the rename dialog's pair (A16a): an inline form inside a
+			// `.modal-overlay` card, named by its own `#rename-title` heading —
+			// the same shape as `cat-rename-input` above, one row up.
+			"rename-name", "rename-id",
 		]
 
 		private static func regex(_ pattern: String) throws -> NSRegularExpression {

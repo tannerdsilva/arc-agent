@@ -1004,6 +1004,11 @@ actor AppState {
     /// chat and profile flows keep their original fields above, untouched).
     /// `modalHTML()` derives ONE dialog shape from whichever is armed.
     var pendingConfirm: ConfirmRequest?
+    /// Session whose rename dialog is open (nil = closed). Server state: the row
+    /// menu's "Rename conversation" arms it, and the dialog is a `.modal-overlay`
+    /// card rendered beside the confirm dialog (A16a — a native `<dialog open>`
+    /// renders in flow, not in the top layer, so it cannot be a modal without JS).
+    var renameSessionID: String?
     /// Next chat-scroll render should force the view to the bottom (chat open).
     var forceScrollBottom = true
     /// Conversation outline open. Server-owned so the toggle routes through the
@@ -1392,6 +1397,8 @@ actor AppState {
         var categoryMenu: CategoryMenu? = nil
         var categoryMenuRename = false
         var pendingConfirm: ConfirmRequest? = nil
+        /// an armed rename dialog: its input seeds from the session's full title.
+        var renameSessionID: String? = nil
         /// the composer flyout is only visible while something is armed; these
         /// seams are the only way to pin its four states from a render test.
         var pendingApproval: PendingApproval? = nil
@@ -1537,6 +1544,7 @@ actor AppState {
         self.categoryMenu = fixture.categoryMenu
         self.categoryMenuRename = fixture.categoryMenuRename
         self.pendingConfirm = fixture.pendingConfirm
+        self.renameSessionID = fixture.renameSessionID
         self.pendingApproval = fixture.pendingApproval
         self.pendingClarify = fixture.pendingClarify
         self.pluginManifests = fixture.pluginManifests

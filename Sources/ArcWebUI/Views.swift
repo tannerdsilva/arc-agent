@@ -325,6 +325,51 @@ extension AppState {
         return opener.isEmpty ? "" : FocusReturn(id: opener).attribute().attributeText
     }
 
+    /// The rename dialog (A16a): one form, one round trip, no client code.
+    ///
+    /// A native `<dialog open>` was the plan's first shape (F4), and it is not a
+    /// modal without JS: the `open` attribute renders the element in normal flow
+    /// — no top layer, no backdrop, no inert background — and `showModal()` is a
+    /// script call. So the card is the SAME `.modal-overlay` the confirm dialog
+    /// uses, and every behaviour is the engine's (2.14.0):
+    ///  - `autofocus` on the field is the entry path (the HTML autofocus flush;
+    ///    F3's once-per-document limit applies and A16d owns the fix);
+    ///  - `data-dismiss` on Cancel is Escape's target;
+    ///  - `data-focus-return` on Cancel names the row's ⋮ — the "Rename" entry
+    ///    that armed the dialog is gone with the menu the same click closed, so
+    ///    the return target is the row's own control (the A12 resolution).
+    ///
+    /// The form posts the same `rename-id` / `rename-name` pair the retired
+    /// hidden `#rename-form` carried, so `handleChatMenu`'s submit branch is
+    /// unchanged. `sessionTitle` seeds the field from the FULL stored title —
+    /// never the 40-char row clamp, which would commit truncation (UX-21).
+    func renameDialogHTML() -> some WebUI.View {
+        Group {
+            if let rid = renameSessionID,
+               let session = sessions.first(where: { $0.id == rid }) {
+                Div(id: "rename-overlay", class: .modalOverlay) {
+                    Form(method: nil, id: "rename-form", class: .modalCard) {
+                        Heading("Rename conversation", level: .h3)
+                            .id("rename-title")
+                        Input(field: "rename-name", type: .text, value: sessionTitle(session),
+                              attributes: [("autofocus", ""), ("aria-label", "Conversation title")])
+                        Input(field: "rename-id", type: .hidden, value: rid)
+                        Div(class: .modalActions) {
+                            ArcButton("Cancel", id: "rename-cancel", component: nil, class: .ghostBtn,
+                                      extraAttributes: DismissStack().attribute().attributeText
+                                          + FocusReturn(id: "s-menu-\(enc(rid))").attribute().attributeText)
+                            ArcButton("Rename", id: "rename-save", component: nil, class: .primaryBtn, type: .submit)
+                        }
+                    }
+                    .data("component-id", "chat-menu")
+                    .attribute("role", "dialog")
+                    .aria(.modal(.yes))
+                    .aria(.labelledby("rename-title"))
+                }
+            }
+        }
+    }
+
     /// The id of the control focus returns to when the dialog closes, per
     /// confirmation kind: the control the user activated — except for a chat,
     /// where the activated item is the row menu's Delete entry and the whole
@@ -416,12 +461,13 @@ extension AppState {
             }
         }
     }
-    /// Everything rendered in #modal-root (delete confirmation + category menu).
+    /// Everything rendered in #modal-root (delete confirmation + rename + category menu).
     /// Owns the `#modal-root` wrapper so the fragment id rides beside the builder
     /// that emits it.
     func modalRootHTML() -> some WebUI.View {
         Div(id: "modal-root") {
             modalHTML()
+            renameDialogHTML()
             contextPaneHTML()
             categoryMenuHTML()
         }

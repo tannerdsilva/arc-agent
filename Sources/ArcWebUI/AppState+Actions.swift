@@ -672,6 +672,17 @@ extension AppState {
         saveSettings()
     }
 
+    /// Arm the rename dialog for `id`. The row menu closes on the same click
+    /// (its items are server state), so the dialog is the only surface left.
+    func openRenameDialog(_ id: String) {
+        renameSessionID = id
+    }
+
+    /// Dismiss the rename dialog without touching the title.
+    func cancelRenameDialog() {
+        renameSessionID = nil
+    }
+
     func setShowArchived(_ on: Bool) {
         showArchived = on
         confirmDeleteID = nil

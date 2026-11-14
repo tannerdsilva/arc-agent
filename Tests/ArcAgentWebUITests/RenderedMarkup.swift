@@ -82,6 +82,27 @@ enum RenderedMarkup {
         return await app.panelHTML().markup.html
     }
 
+    /// `#modal-root` with the rename dialog armed for `sess-a` (A16a). The card
+    /// is server state, so a render pin can only reach it through the fixture —
+    /// `panelWithRows`' long title is deliberately the one it seeds from, past
+    /// the 40-char row clamp.
+    static func renameDialog(openOn sessionID: String) async -> String {
+        var fixture = seededFixture()
+        fixture.activeSessionID = "sess-a"
+        fixture.sessions = [
+            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                    title: "A conversation title long enough to be truncated by the row clamp",
+                    messageCount: 2, messages: []),
+            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_300),
+                    updatedAt: Date(timeIntervalSince1970: 1_700_000_300), title: "Second chat",
+                    messageCount: 1, messages: []),
+        ]
+        fixture.renameSessionID = sessionID
+        let app = AppState(renderFixture: fixture)
+        return await app.modalRootHTML().markup.html
+    }
+
     /// an assistant reply carrying a tool card and a foot: one render exercises
     /// the two copy buttons (tool arguments + response) and their tab order.
     static func assistantReplyWithToolCall() async -> String {

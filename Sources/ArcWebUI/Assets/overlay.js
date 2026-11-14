@@ -396,68 +396,12 @@
   // "Move to Category" is a server panel swap, and the engine's dismiss stack
   // closes it on Escape or an outside click. Nothing here flips it.
 
-  // ---- Rename conversation: inline edit of the row title, committed
-  // through a hidden form that rides the normal runtime pipeline.
-  // The row title lives inside a <button>, and an <input> must never
-  // be nested inside one: browsers treat Space as the button's
-  // activation key, steal focus from the nested input, blur it, and
-  // commit the partially-typed name. While editing we therefore swap
-  // the whole button for the input, then swap it back on commit or
-  // cancel.
-  document.addEventListener('click', function (e) {
-    var b = e.target && e.target.closest ? e.target.closest('[id^="sm-rename-"]') : null;
-    if (!b) return;
-    var row = b.closest('.sess-row');
-    var openBtn = row && row.querySelector('.sess-open');
-    var sid = b.getAttribute('data-sid');
-    if (!row || !openBtn || !sid) return;
-    // Seed from the full stored title (data-full-title on the row, UX-06) —
-    // never from the truncated 40-char row text, which would commit permanent
-    // truncation when the rename is committed (UX-21). Fall back to the
-    // rendered title for rows that predate the attribute.
-    var current = (row.getAttribute('data-full-title') || '').trim()
-        || ((openBtn.querySelector('.sess-title') || {}).textContent || '').trim();
-    var input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'rename-input';
-    input.value = current;
-    input.setAttribute('aria-label', 'Rename conversation');
-    row.replaceChild(input, openBtn);
-    input.focus();
-    if (input.select) input.select();
-    var settled = false;
-    function finish(commitIt) {
-      if (settled) return;
-      settled = true;
-      var val = input.value.trim();
-      var newBtn = openBtn.cloneNode(true);
-      var t = newBtn.querySelector('.sess-title');
-      if (t && (commitIt || val === '')) t.textContent = val === '' ? current : val;
-      row.replaceChild(newBtn, input);
-      if (commitIt && val !== '' && val !== current) submitRename(sid, val);
-    }
-    input.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
-      else if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
-    });
-    input.addEventListener('blur', function () { finish(true); });
-    input.addEventListener('click', function (ev) { ev.stopPropagation(); });
-  });
-
-  function submitRename(sid, name) {
-    var f = document.getElementById('rename-form');
-    if (!f) {
-      f = document.createElement('form');
-      f.id = 'rename-form';
-      f.style.display = 'none';
-      f.setAttribute('data-component-id', 'chat-menu');
-      f.innerHTML = '<input type="hidden" name="rename-id"><input type="hidden" name="rename-name">';
-      document.body.appendChild(f);
-    }
-    f.querySelector('[name="rename-id"]').value = sid;
-    f.querySelector('[name="rename-name"]').value = name;
-    try { f.requestSubmit(); } catch (err) { f.submit(); }
-  }
+  // ---- Rename conversation: the dialog is the SERVER's (A16a). The row menu's
+  // "Rename conversation" arms `#rename-overlay`, a `.modal-overlay` card whose
+  // form posts `rename-id`/`rename-name` to the `chat-menu` wire — one round
+  // trip, no client editor and no hidden form. Focus entry (`autofocus`) and
+  // return (`data-focus-return` on Cancel, naming the row's ⋮) are the engine's
+  // (no-webui 2.14.0).
 
   // ---- Color swatches: client-side selection that mirrors into the
   // hidden color field of the enclosing form before submit.

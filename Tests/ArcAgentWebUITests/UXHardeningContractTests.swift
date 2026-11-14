@@ -2159,18 +2159,19 @@ extension ArcWebUITestRoot {
 
         // MARK: - UX-21 (wave 4) rename seeds from the full stored title
 
-        @Test("rename input seeds from data-full-title, not the truncated row text")
+        @Test("rename seeds from the full stored title, not the truncated row text")
         func renameSeedsFromFullTitle() async {
-            let overlay = Self.overlay
-            // the row is typed now: the attribute is emitted by `.attribute`,
-            // so the proof is the RENDERED row, not a source spelling.
+            // the seed moved from the client to the SERVER at A16a: the dialog's
+            // field is rendered with `sessionTitle(...)`, so the proof is the
+            // rendered card — and the row attribute it can no longer get wrong.
             let panel = await RenderedMarkup.panelWithRows()
             #expect(panel.contains("data-full-title=\""),
                     "the session row must carry the full stored title (UX-06/UX-21)")
-            #expect(overlay.contains("row.getAttribute('data-full-title')"),
-                    "rename must seed from the row's data-full-title (UX-21)")
-            #expect(overlay.contains("data-full-title"),
-                    "rename must not seed from the truncated row text (UX-21)")
+            let card = await RenderedMarkup.renameDialog(openOn: "sess-a")
+            #expect(card.contains("value=\"A conversation title long enough to be truncated by the row clamp\""),
+                    "the dialog's field must seed from the FULL stored title — the 40-char row clamp would commit truncation (UX-21)")
+            #expect(!Self.overlay.contains("data-full-title"),
+                    "the overlay must not seed a rename field any more: the dialog is server-rendered (A16a)")
         }
 
     // MARK: - Round 3 (2026-10-19) — state, empty states, pinning

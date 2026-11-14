@@ -2028,6 +2028,7 @@ extension Controller {
         if event.event == "submit" {
             guard let sid = event.string("rename-id"), let name = event.string("rename-name") else { return .fragments([]) }
             await self.app.renameSession(sid, to: name)
+            await self.app.cancelRenameDialog()
             return await self.changed()
         }
         let tid = event.string("targetId") ?? ""
@@ -2051,10 +2052,19 @@ extension Controller {
             return await self.changed()
         }
         if tid.hasPrefix("sm-rename-") {
-            // the inline editor is the overlay's (A16a's slice); the menu closes
-            // around it, and the render replaces only `#menu-<sid>` (the editor
-            // lives on the row's title button, not in the menu).
+            // the rename dialog is SERVER state (A16a): arming it renders one
+            // `.modal-overlay` card whose form posts `rename-id`/`rename-name`
+            // straight back here. the menu closes on the same click, so its
+            // "Rename" entry is gone by the time the card is on screen.
+            guard let id = dec(String(tid.dropFirst("sm-rename-".count))) else { return .fragments([]) }
             await self.app.closeRowMenu()
+            await self.app.openRenameDialog(id)
+            return await self.changed()
+        }
+        if tid == "rename-cancel" {
+            // Cancel is also the layer's `[data-dismiss]` control, so Escape
+            // lands here too: one path for both.
+            await self.app.cancelRenameDialog()
             return await self.changed()
         }
         // every other row is an ACTION: the menu closes as it runs, exactly as
