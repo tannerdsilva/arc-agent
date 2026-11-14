@@ -17,10 +17,9 @@ extension ArcWebUITestRoot {
 
         /// The page template, rendered with stamped-asset-shaped urls and a themed `<html>`.
         private static func renderedPage(body: String = "") -> String {
-            AppShell.makeDocument(
-                sheetURL: "/ui/style.css?v=abc123",
-                overlayURL: "/ui/init.js?v=def456"
-            )(.trusted(body), "data-scheme=\"poseidon\" data-theme=\"dark\"").markup.html
+            AppShell.makeDocument(sheetURL: "/ui/style.css?v=abc123")(
+                .trusted(body), "data-scheme=\"poseidon\" data-theme=\"dark\""
+            ).markup.html
         }
 
         @Test("the frame document links the framework component sheet and arc's sheet, in that order")
@@ -40,13 +39,13 @@ extension ArcWebUITestRoot {
                 frameworkRange.lowerBound < arcRange.lowerBound,
                 "arc's sheet must be linked after the framework's"
             )
-            // the overlay script still rides the head slot — and it is a `HeadContent`
-            // script, so the document mints its nonce instead of arc spelling markup.
-            #expect(
-                html.contains("<script src=\"/ui/init.js?v=def456\" nonce=\""),
-                "the overlay script must be a typed head script carrying the render nonce"
-            )
-            #expect(html.contains("></script>"), "the overlay script must close")
+            // A17: the document declares NO script of arc's. The engine's tags
+            // are `HTMLDocument`'s own; arc's head is empty, so there is no
+            // typed head script and no nonce for one.
+            #expect(!html.contains("/ui/init.js"),
+                    "the document links a consumer script that A17 deleted")
+            #expect(!html.contains("<script src=\"/ui/style.css"),
+                    "a stylesheet url must never be emitted as a script")
         }
 
         @Test("a class no sheet defines fails the guardrail on this page")

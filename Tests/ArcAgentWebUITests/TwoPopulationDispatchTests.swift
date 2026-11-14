@@ -384,7 +384,6 @@ private func withMixedPageServer(
                 """
             return AppShell.makeDocument(
                 sheetURL: "/ui/style.css",
-                overlayURL: "/ui/init.js",
                 renderToken: token,
                 maxFrameBytes: serverConfig.maxFrameSize
             )(

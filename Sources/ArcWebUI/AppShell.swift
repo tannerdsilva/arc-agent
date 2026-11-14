@@ -58,8 +58,11 @@ public enum AppShell {
     /// arc's own chrome — the only trusted-markup seams left are the plugin panel ABI
     /// and sanitized markdown content.
     ///
-    /// The head is `HeadContent`, not markup: `HTMLDocument` adds the render nonce to
-    /// the overlay script and sanitizes its url, so this file carries no html at all.
+    /// The head is `HeadContent` — and since A17 it declares NOTHING: the client
+    /// is no-webui's engine, which `HTMLDocument` emits itself, and arc ships no
+    /// second script. `webui-assets.json` is empty for the same reason, and
+    /// `ZeroClientScriptTests` is what keeps it that way: a `.js` anywhere under
+    /// `Sources/` is a design regression, not a feature.
     ///
     /// Two parameters, not one, and the order is the contract. `HTMLDocument` emits
     /// `stylesheetURL:` (the base sheet) before `themeStylesheetURL:`, and its `head:` slot —
@@ -88,7 +91,6 @@ public enum AppShell {
     ///   than a page that names none.
     public static func makeDocument(
         sheetURL: String,
-        overlayURL: String,
         renderToken: String? = nil,
         maxFrameBytes: Int? = nil
     ) -> @Sendable (UnsafeMarkup, String) -> WebUI.HTMLDocument {
@@ -156,12 +158,10 @@ public enum AppShell {
                 title: "ARC Agent",
                 body: page,
                 rawStyles: [],
-                // typed head: the overlay script is an `externalScript`, so the
-                // document adds the render nonce itself and the url is escaped
-                // like every other attribute — no markup string in this file.
-                headContent: HeadContent {
-                    .script(src: overlayURL)
-                },
+                // no `headContent`: the document declares no script of its own.
+                // `HTMLDocument` emits the engine (`/ui/webui-engine.js` + its
+                // `-ext` asset) and the render nonce is not needed for a document
+                // that carries no inline script — A17 deleted the last one.
                 htmlAttributes: themeAttrs,
                 devMode: false,
                 // Two runtime knobs, both facts about the socket that served
@@ -186,16 +186,15 @@ public enum AppShell {
     /// The shipped assets. One `WebUIAsset` owns the bytes, the url a page links and the
     /// registration the server answers with, so the address, the bytes and the cache policy
     /// cannot disagree — and a test pins the product against the source it came from.
+    ///
+    /// ONE asset: the stylesheet. The client script was the other one until A17
+    /// deleted it — the engine is the framework's, served by the framework's
+    /// server, and arc contributes no second script.
     public enum Assets {
 
         /// The sheet is a build product (`ArcAssetTool theme-sheet`): rendered from
         /// `Sources/ArcTheme/`, stamped with the sha256 its url carries, and gzipped at build
         /// time.
         public static let sheet = WebUIAsset(ThemeSheetAssets.self, path: "/ui/style.css")
-
-        /// The overlay is a shipped asset too: no-webui's embed plugin generates
-        /// `EmbeddedAssets.swift` from `Assets/webui-assets.json` on every build, so the
-        /// script's bytes, its address and its registration all come from one value as well.
-        public static let overlay = WebUIAsset(ArcOverlay.self, path: "/ui/init.js")
     }
 }

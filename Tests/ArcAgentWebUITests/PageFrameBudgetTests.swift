@@ -84,7 +84,6 @@ private func withPageBudgetServer(
                 WebUIHost.pageDocument(
                     config: serverConfig,
                     sheetURL: "/ui/style.css",
-                    overlayURL: "/ui/init.js",
                     renderToken: token
                 )(
                     UnsafeMarkup.trusted("<p id=\"budget-probe\">frame budget harness</p>"),
@@ -174,7 +173,6 @@ extension ArcWebUITestRoot {
         func budgetIsPublishedWithoutAToken() {
             let page = AppShell.makeDocument(
                 sheetURL: "/ui/style.css",
-                overlayURL: "/ui/init.js",
                 maxFrameBytes: 131_072
             )(
                 UnsafeMarkup.trusted("<p>probe</p>"),

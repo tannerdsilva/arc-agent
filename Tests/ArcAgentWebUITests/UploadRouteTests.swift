@@ -146,7 +146,6 @@ private func withUploadServer(
         WorkspaceUpload.pageRoute("/", tokens: tokens) { _, token, _ in
             AppShell.makeDocument(
                 sheetURL: "/ui/style.css",
-                overlayURL: "/ui/init.js",
                 renderToken: token
             )(
                 UnsafeMarkup.trusted("<p id=\"upload-probe\">upload harness</p>"),
@@ -462,9 +461,9 @@ struct UploadRouteTests {
             // carry an empty credential the client could echo back.
             let markup = UnsafeMarkup.trusted("<p>probe</p>")
             let attrs = "data-scheme=\"poseidon\" data-theme=\"dark\""
-            let without = AppShell.makeDocument(sheetURL: "/ui/style.css", overlayURL: "/ui/init.js")(markup, attrs)
+            let without = AppShell.makeDocument(sheetURL: "/ui/style.css")(markup, attrs)
             let with = AppShell.makeDocument(
-                sheetURL: "/ui/style.css", overlayURL: "/ui/init.js", renderToken: token
+                sheetURL: "/ui/style.css", renderToken: token
             )(markup, attrs)
             #expect(
                 !without.markup.html.contains(token),

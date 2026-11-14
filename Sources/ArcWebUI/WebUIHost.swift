@@ -181,7 +181,6 @@ public struct WebUIHost: Service {
             // one.
             assets: [
                 AppShell.Assets.sheet.registration,
-                AppShell.Assets.overlay.registration,
             ],
             // Workspace uploads stream over their own HTTP route with a
             // token-bound budget; the socket body limit stays off so large
@@ -206,12 +205,10 @@ public struct WebUIHost: Service {
     static func pageDocument(
         config: WebUIServerConfig,
         sheetURL: String,
-        overlayURL: String,
         renderToken: String? = nil
     ) -> @Sendable (UnsafeMarkup, String) -> WebUI.HTMLDocument {
         AppShell.makeDocument(
             sheetURL: sheetURL,
-            overlayURL: overlayURL,
             renderToken: renderToken,
             maxFrameBytes: config.maxFrameSize
         )
@@ -315,9 +312,10 @@ public struct WebUIHost: Service {
         let router = EventRouter()
 
         // The shipped assets — address, bytes and registration all live in
-        // `AppShell.Assets`; this host only serves them.
+        // `AppShell.Assets`; this host only serves them. ONE asset: the sheet.
+        // A17 deleted the client script, so a page's only script is the engine
+        // `HTMLDocument` emits itself.
         let sheet = AppShell.Assets.sheet
-        let overlay = AppShell.Assets.overlay
 
         // Assemble the page (external /ui/* assets keep each response small).
         // The document template wraps whatever body the app currently renders,
@@ -326,7 +324,7 @@ public struct WebUIHost: Service {
         // The theme attributes belong on `<html>`, not on `#app`: the engine writes them on
         // `documentElement` and the theme is scoped to `:root`. `themeAttrs` is the server's
         // default, which the engine overrides from storage before first paint.
-        let makeDocument = Self.pageDocument(config: config, sheetURL: sheet.url, overlayURL: overlay.url)
+        let makeDocument = Self.pageDocument(config: config, sheetURL: sheet.url)
         // the tokens this host served, so `POST /api/upload` can tell a page it
         // rendered from a request that never loaded one. Bounded (see
         // `UploadTokenStore`): a daemon runs for weeks.
@@ -368,7 +366,6 @@ public struct WebUIHost: Service {
             return Self.pageDocument(
                 config: config,
                 sheetURL: sheet.url,
-                overlayURL: overlay.url,
                 renderToken: renderToken
             )(shell.markup, AppShell.themeAttrs(await app.themeDefaults()))
         }

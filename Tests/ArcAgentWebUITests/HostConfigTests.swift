@@ -56,9 +56,12 @@ extension ArcWebUITestRoot {
 			#expect(config.port == 8890)
 		}
 
-		@Test("both shipped assets are registered")
+		@Test("the one shipped asset is registered")
 		func assetsAreRegistered() {
-			#expect(config.assets.count == 2, "the sheet and the overlay are the two files the page loads")
+			// A17: the sheet is the ONLY file arc serves. The client script was
+			// the second until it was deleted — the engine is the framework's,
+			// served by the framework's server.
+			#expect(config.assets.count == 1, "the sheet is the only asset the page links")
 		}
 	}
 }

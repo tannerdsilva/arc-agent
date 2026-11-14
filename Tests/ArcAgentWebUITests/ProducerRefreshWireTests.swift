@@ -351,7 +351,6 @@ private func withProducerServer(
             WorkspaceUpload.pageRoute("/", tokens: tokens) { _, token, _ in
                 AppShell.makeDocument(
                     sheetURL: "/ui/style.css",
-                    overlayURL: "/ui/init.js",
                     renderToken: token,
                     maxFrameBytes: serverConfig.maxFrameSize
                 )(

@@ -1969,19 +1969,19 @@ async function runTheme() {
       pressedBorder: pressedCard && pressedCard.borderColor,
       otherBorder: otherCard && otherCard.borderColor, painted });
 
-  // (c) the overlay the daemon actually serves carries no theme mirror. Read
-  // UTF-8 bytes (not `text().length`, which counts UTF-16 code units and would
-  // undercount the em dashes), so the byte count can be compared with `wc -c`.
+  // (c) A17 deleted the client script, so the mirror cannot come back: the row
+  // is the ABSENCE. `/ui/init.js` must not resolve, and the page must load no
+  // script of arc's — only the framework's engine and its `-ext` asset.
   const served = await driver.js(`fetch('/ui/init.js', { cache: 'no-store' }).then(function (r) {
-    return r.arrayBuffer().then(function (b) {
-      var text = new TextDecoder().decode(b);
-      return { bytes: b.byteLength, syncThemePickers: text.indexOf('syncThemePickers'), webuiTheme: text.indexOf('webui:theme') };
-    });
-  })`, { awaitPromise: true });
-  const gone = !!served && served.bytes > 0
-    && served.syncThemePickers === -1 && served.webuiTheme === -1;
-  record('theme', '(c) the served overlay carries no syncThemePickers / webui:theme mirror', gone,
-    served || { error: 'fetch did not resolve' });
+    return { status: r.status };
+  }).catch(function () { return { status: 'network-error' }; })`, { awaitPromise: true });
+  const srcs = await ev(`Array.from(document.querySelectorAll('script[src]')).map(function (s) {
+    return s.getAttribute('src') || '';
+  })`);
+  const foreign = (srcs || []).filter(function (s) { return s.indexOf('/ui/webui-engine') !== 0; });
+  const gone = !!served && served.status === 404 && foreign.length === 0;
+  record('theme', "(c) no client script is served and the page loads none of arc's", gone,
+    { served, scriptSrcs: srcs, foreign });
 
   await ev(`document.getElementById('chat-new')?.click()`).catch(() => {});
   await ev(`document.getElementById('nav-chat')?.click()`);
