@@ -247,11 +247,6 @@ extension AppState {
         // their TTL tick).
         let visible = toasts.suffix(3)
         let overflow = toasts.count - visible.count
-        // Clipboard side-channel for the shared-link copy (UX-06): consumed
-        // by the overlay's post-patch pass; single-shot — the state is read
-        // and cleared here so a later toast push never re-emits it.
-        let marker = pendingCopyURL
-        pendingCopyURL = nil
         return Group {
             for t in visible {
                 Div(class: ClassName("toast \(t.kind)")) {
@@ -267,9 +262,6 @@ extension AppState {
             }
             if overflow > 0 {
                 Div(class: ClassName(.toast, .toastMore)) { Text("+\(overflow) more") }
-            }
-            if let marker {
-                Span {}.id("pending-copy").data("copy-url", marker)
             }
         }
     }
@@ -1059,7 +1051,8 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                         .title("Chat actions")
                         Div(class: .chatMenu) {
                             Div(class: "chat-menu-items") {
-                                ArcButton("Copy conversation link", id: "sm-copy-\(encID)", class: "")
+                                ArcButton("Copy conversation link", id: "sm-copy-\(encID)", class: "",
+                                          extraAttributes: Clipboard(text: shareURL(s.id)).attribute().attributeText)
                                     .data("sid", s.id)
                                 ArcButton("Rename conversation", id: "sm-rename-\(encID)", class: "")
                                     .data("sid", s.id)
@@ -1804,9 +1797,16 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
     /// entries as `key: value · key: value` (keys sorted, so re-renders diff
     /// clean); falls back to the raw text when the JSON does not parse.
     func toolArgSummary(_ raw: String, limit: Int = 68) -> String {
+        esc(toolArgText(raw, limit: limit))
+    }
+
+    /// The same summary UNESCAPED — the `data-copy` value a copy control carries
+    /// (the attribute emitter escapes on the way out; escaping here too would
+    /// put `&amp;` on the clipboard).
+    func toolArgText(_ raw: String, limit: Int = 68) -> String {
         let oneLine = raw.replacingOccurrences(of: "\n", with: " ")
         let parsed = (try? JSONSerialization.jsonObject(with: Data(oneLine.utf8))) as? [String: Any]
-        guard let parsed, !parsed.isEmpty else { return esc(trunc(oneLine, limit)) }
+        guard let parsed, !parsed.isEmpty else { return trunc(oneLine, limit) }
         let pairs = parsed.sorted { $0.key < $1.key }.prefix(3).map { key, value -> String in
             let val: String
             if let s = value as? String {
@@ -1823,7 +1823,27 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
             return key + ": " + trunc(val, 24)
         }
         let joined = pairs.joined(separator: " · ")
-        return esc(trunc(joined.isEmpty ? oneLine : joined, limit))
+        return trunc(joined.isEmpty ? oneLine : joined, limit)
+    }
+
+    /// Plain-text digest of one work-log round — the value its "copy this
+    /// activity" control carries (A16b).
+    ///
+    /// It is what the old client copy actually produced: the round's interim
+    /// text, then one line per tool call (name + its one-line argument summary).
+    /// The old handler read `.wl-detail`'s `innerText`, which for a CLOSED
+    /// disclosure is empty — so the collapsed copy button copied nothing at all.
+    /// Rendering the digest server-side makes the control work in both states.
+    func worklogCopyText(_ m: Message) -> String {
+        var parts: [String] = []
+        if let interim = m.content, !interim.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append(interim)
+        }
+        for c in m.toolCalls ?? [] {
+            let args = toolArgText(c.function.arguments)
+            parts.append(args.isEmpty ? c.function.name : "\(c.function.name) \(args)")
+        }
+        return parts.joined(separator: "\n\n")
     }
 
     /// `data-webui-key` attribute for a stable engine identity. Empty key in,
@@ -1921,10 +1941,10 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                     WebUIIcon(.tool, size: .small)
                     Span { Text(summary) }
                     TwSpacer {}
-                    ArcButton(id: nil, component: nil, class: .twCopy, tabIndex: -1) {
+                    ArcButton(id: nil, component: nil, class: .twCopy, tabIndex: -1,
+                              extraAttributes: Clipboard(text: worklogCopyText(m)).attribute().attributeText) {
                         WebUIIcon(.copy, size: .small)
                     }
-                    .data("copy-target", target)
                     .title("Copy this activity")
                     TwCaret { WebUIIcon(.chevronRight, size: .small) }
                 }, content: {
@@ -6412,6 +6432,7 @@ extension AppState {
                 if let path = previewPath {
                     let name = URL(fileURLWithPath: path).lastPathComponent
                     let isMarkdown = path.lowercased().hasSuffix(".md")
+                    let content = previewContent
                     Div(class: .wsPreview) {
                         Div(class: .wsPreviewHead) {
                             ArcButton(id: "w-preview-back", component: nil, class: .iconMini) {
@@ -6420,17 +6441,26 @@ extension AppState {
                             .title("Back to files")
                             Span(class: .wsPreviewName) { Text(name) }
                                 .title(path + (isMarkdown ? " (markdown)" : ""))
-                            ArcButton(id: "ws-preview-copy", component: nil, class: .iconMini) {
-                                WebUIIcon(.copy, size: .small)
+                            // the copy control exists only when there is text to
+                            // copy: its value is the server-rendered file text
+                            // (A16b), so a preview with no content renders no
+                            // button rather than one that cannot do its job. The
+                            // engine's `[data-copy]` copies the attribute's text
+                            // and owns the "Copied" toast.
+                            if let content {
+                                ArcButton(id: "ws-preview-copy", component: nil, class: .iconMini,
+                                          extraAttributes: Clipboard(text: content).attribute().attributeText) {
+                                    WebUIIcon(.copy, size: .small)
+                                }
+                                .title("Copy content")
                             }
-                            .title("Copy content")
                         }
                         Div(class: .wsPreviewScroll) {
                             // UX-12: wrap text previews (pre-wrap) and render markdown
                             // for .md files — the dock is for glancing, raw markdown
                             // syntax is not readable. Code keeps `white-space: pre`
                             // (via the monospace pre-wrap body, which still wraps).
-                            if let content = previewContent {
+                            if let content {
                                 if isMarkdown {
                                     Div(class: .wsPreviewBody) {
                                         TrustedMarkup(renderMarkdown(content), from: .markdown)

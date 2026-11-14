@@ -609,7 +609,7 @@ extension ArcWebUITestRoot {
             // `id="ta-<action.id>-<toast.id>"` on the action button. Render it
             // once and assert the wireable id is present in the bytes.
             var undoFixture = AppState.RenderFixture()
-            undoFixture.pendingCopyURL = "https://example.com/x"
+            undoFixture.publicOrigin = "http://127.0.0.1:8890"
             undoFixture.toasts = [
                 Toast(id: 2, text: "Saved", kind: "success",
                       action: ToastAction(id: "undo-delete", label: "Undo")),
@@ -618,35 +618,27 @@ extension ArcWebUITestRoot {
             let rendered = await undoApp.toastsHTML().markup.html
             #expect(rendered.contains("id=\"ta-undo-delete-2\""),
                     "the toast action button must be rendered with a wireable id")
-            // The copy side effect is server-owned for the MENU path (the server
-            // resolves the URL), and the clipboard write is a post-patch handoff
-            // via #pending-copy that only the client can perform.
-            // 2.6.0 deleted the overlay's `[data-copy]` delegate — the engine
-            // dispatches that attribute, so one clipboard owner, not two. But the
-            // engine's behavior can only copy a LITERAL attribute value; it has no
-            // access to a server-staged marker or a sibling's rendered text, so
-            // the server-marker, workspace-preview and worklog seams stay. An
-            // assertion demanding the overlay perform no clipboard write at all
-            // would pin a regression: "Copy conversation link" silently does
-            // nothing once the marker has no consumer.
+            // Copy is ONE attribute now (A16b/F5): the engine binds
+            // `[data-copy]`, writes the clipboard and owns the "Copied" pill, so
+            // every copy surface carries its text as `data-copy` and arc keeps no
+            // clipboard code at all. The staged `#pending-copy` marker, the
+            // `flashToast` builder and the three per-surface handlers are gone —
+            // a name from that list reappearing is the duplicate coming back.
             #expect(!Self.actions.contains("surfaceToast(\"Conversation link copied.\")"),
-                    "the server must NOT surface the copy toast — the client owns that feedback")
-            #expect(Self.appState.contains("func markCopyLink(_ sessionID: String)"),
-                    "the server must stage the link for the client clipboard write")
-            #expect(Self.appState.contains("var pendingCopyURL: String? = nil"),
-                    "the staged link must ride the toasts fragment")
-            // Re-based onto rendered output: the builder emits `<span id="pending-copy" data-copy-url="…">`
-            // inside #toasts. Re-use the rendered fragment from above.
-            #expect(rendered.contains("id=\"pending-copy\" data-copy-url"),
-                    "the hidden copy marker must be rendered inside #toasts")
-            #expect(Self.overlay.contains("function copyFromServerMarker"),
-                    "the only consumer of the staged marker is the overlay's post-patch pass")
-            #expect(Self.overlay.contains("copyFromServerMarker();"),
-                    "the marker pass must be wired into boot and post-patch")
-            #expect(!Self.overlay.contains("closest('[data-copy]')"),
-                    "2.6.0 owns data-copy: the overlay must not keep a second delegate for it")
-            #expect(Self.overlay.contains("#ws-preview-copy") && Self.overlay.contains("'.tw-copy'"),
-                    "sibling-text copies cannot be an attribute value, so their handlers stay")
+                    "the server must NOT surface a copy toast — the engine's `[data-webui-toast]` is the one feedback")
+            #expect(!Self.appState.contains("func markCopyLink(_ sessionID: String)"),
+                    "the staged link helper is gone: the share url is an attribute value now")
+            #expect(!Self.appState.contains("var pendingCopyURL: String? = nil"),
+                    "nothing stages a copy url through the toasts fragment any more")
+            #expect(!rendered.contains("id=\"pending-copy\""),
+                    "the hidden copy marker must not be rendered inside #toasts")
+            let overlay = Self.overlay
+            for name in ["flashToast", "copyFromServerMarker", "#ws-preview-copy", "'.tw-copy'", "closest('[data-copy]')"] {
+                #expect(!overlay.contains(name),
+                        "the overlay still mentions `\(name)` — the engine owns the clipboard, and a second owner is the defect this slice removed")
+            }
+            #expect(Self.views.contains("Clipboard(text:") ,
+                    "the copy surfaces must carry `Clipboard` values (the link, the work-log digest, the preview)")
         }
         @Test("deleting a chat surfaces a plain notification with NO undo button")
         func deleteHasNoUndoToast() async {
@@ -737,21 +729,22 @@ extension ArcWebUITestRoot {
         @Test("the copy-link branch stages the marker; the door's render carries the shell")
         func copyLinkToastsInterpolates() async {
             let actions = Self.actions
-            // The branch stages the URL on the state and asks the door to look. The
-            // render is what emits the marker, inside `#toasts` (single-shot: reading
-            // it clears it). Pin both halves, and keep the hand-written wrapper
-            // banned — it shipped the literal interpolation once.
-            #expect(actions.contains("await self.app.markCopyLink(sid)"),
-                    "the copy-link branch must stage the URL the overlay writes to the clipboard")
+            // The branch no longer stages anything: the entry itself carries
+            // `data-copy` with the absolute share url (A16b), and the server click
+            // only closes the menu. Pin both halves — the engine-owned value and
+            // the hand-written wrapper that shipped literal markup once.
+            #expect(!actions.contains("await self.app.markCopyLink(sid)"),
+                    "the copy-link branch must not stage a url any more: the value is an attribute")
+            #expect(actions.contains("the clipboard write is the ENGINE's"),
+                    "the copy branch must say where the clipboard write now lives, or the next reader re-adds a staged path")
             #expect(!actions.contains("<div id=\"toasts\" data-component-id=\"toast-dismiss\""),
                     "the hand-written toasts wrapper string must not survive — it ships literal markup")
             var fixture = AppState.RenderFixture()
-            fixture.pendingCopyURL = "https://example.com/x"
             let rendered = await AppState(renderFixture: fixture).toastsShell().markup.html
             #expect(rendered.contains("id=\"toasts\""),
                     "the fragment must carry the container: an inner-only replace deletes #toasts for the session")
-            #expect(rendered.contains("id=\"pending-copy\" data-copy-url=\"https://example.com/x\""),
-                    "the staged URL must render inside #toasts — that is what the overlay reads")
+            #expect(!rendered.contains("pending-copy"),
+                    "no staged marker rides the toasts fragment (A16b)")
         }
 
 
@@ -828,9 +821,9 @@ extension ArcWebUITestRoot {
 
         /// The preview pane must keep the reason it cannot render (binary,
         /// too large, not utf-8, read failure) instead of an empty <pre>, and
-        /// every control in its head must have an owner: the copy control is
-        /// client-side, the open-in-editor control was markup-only and is gone.
-        @Test("workspace previews keep their no-preview reason and the copy control is wired")
+        /// every control in its head must have an owner: the copy control is the
+        /// engine's `[data-copy]` and exists only when there IS text to copy.
+        @Test("workspace previews keep their no-preview reason and the copy control carries its text")
         func workspacePreviewContracts() async {
             let body = await Self.workspace {
                 $0.workspaceOpen = true
@@ -841,19 +834,25 @@ extension ArcWebUITestRoot {
                     "an unreadable preview must name the reason, not render an empty box")
             #expect(!body.contains("<pre"),
                     "an unreadable preview must not fall through to an empty <pre>")
-            #expect(body.contains("id=\"ws-preview-copy\""),
-                    "the preview must still render its copy control")
+            #expect(!body.contains("id=\"ws-preview-copy\""),
+                    "with no content there is nothing to copy: the control must not render (A16b)")
             #expect(!body.contains("ws-preview-open"),
                     "the unwired open-in-editor control must not ship")
-            let overlay = Self.overlay
-            // 2.6.0 deletes the overlay's `[data-copy]` delegate — the engine owns
-            // that attribute. But #ws-preview-copy copies the preview body's
-            // rendered TEXT at click time, which no attribute value can carry, so
-            // its own handler stays. (The child's first pass deleted it and pinned
-            // the absence; that assertion pinned a silent no-op, so it is re-based
-            // to the truth: the control keeps a client owner.)
-            #expect(overlay.contains("#ws-preview-copy"),
-                    "the preview copy control reads sibling text, so the overlay owns it")
+
+            let readable = await Self.workspace {
+                $0.workspaceOpen = true
+                $0.previewPath = "notes.md"
+                $0.previewContent = "# Notes\n\nA line of prose."
+            }.workspaceBodyHTML().markup.html
+            #expect(readable.contains("id=\"ws-preview-copy\""),
+                    "a readable preview must render its copy control")
+            #expect(readable.contains("data-copy=\"# Notes"),
+                    "the copy control carries the file's server-rendered text (A16b/F5)")
+
+            // A16b: the preview is an ATTRIBUTE now, so the overlay keeps no
+            // handler for it — a name reappearing here is a second clipboard owner.
+            #expect(!Self.overlay.contains("#ws-preview-copy"),
+                    "the preview copy is the engine's `[data-copy]`; the overlay must not own it")
             // D-10's `attachUploadedPath` pin is gone with the function: 2.11.0's
             // upload zone dispatches `upload-complete` on `#composer-form`, and
             // `handleComposerForm` routes the answer to the same attach wire. the

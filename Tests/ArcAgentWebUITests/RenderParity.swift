@@ -778,14 +778,6 @@ extension ArcWebUITestRoot {
 	        Parity.expect(html, matches: "toasts-overflow")
 	    }
 
-	    @Test("toasts pending copy matches golden")
-	    func toastsPendingCopyMatchesGolden() async {
-	        let app = AppState(renderFixture: .init(toasts: [], pendingCopyURL: "https://example.com/x"))
-	        let html = await app.toastsShell().markup.html
-	        Parity.capture(html, as: "toasts-pending-copy")
-	        Parity.expect(html, matches: "toasts-pending-copy")
-	    }
-
 	    @Test("modal armed matches golden")
 	    func modalArmedMatchesGolden() async {
 	        let app = AppState(renderFixture: .init(

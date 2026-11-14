@@ -133,6 +133,21 @@ public struct WebUIHost: Service {
             // its own over the same `~/.arc/kanban` directory.
             kanban: kanban
         )
+        // the origin this host serves on, for the one control that must carry an
+        // absolute URL (the row menu's "Copy conversation link"): a render has no
+        // request, so a server-rendered `data-copy` value cannot learn the
+        // browser's origin, and a relative `?s=` copies nothing pasteable.
+        await self.app.setPublicOrigin(Self.publicOrigin(host: host, port: port))
+    }
+
+    /// The absolute origin the page is served from, as a browser would spell it.
+    ///
+    /// A wildcard bind is not an origin any browser can use, so it reads as
+    /// loopback — the address `arc serve` prints and the one a local browser is
+    /// on. Port 80 keeps the default spelling.
+    static func publicOrigin(host: String, port: Int) -> String {
+        let h = (host.isEmpty || host == "0.0.0.0" || host == "::") ? "127.0.0.1" : host
+        return port == 80 ? "http://\(h)" : "http://\(h):\(port)"
     }
 
     /// Run one scheduled job headless and return its output — the daemon's

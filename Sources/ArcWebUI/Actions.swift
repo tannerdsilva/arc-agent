@@ -2071,14 +2071,9 @@ extension Controller {
         // the deleted client-side pass did.
         await self.app.closeRowMenu()
         if tid.hasPrefix("sm-copy-") {
-            // the copy MENU rides the server: this stages the resolved URL as a
-            // hidden `#pending-copy[data-copy-url]` marker, and the overlay's
-            // `copyFromServerMarker()` post-patch pass consumes it, writes the
-            // clipboard and owns the "copied" toast. the marker exists because
-            // the engine's `data-copy` behavior can only copy a literal
-            // attribute value — it has no access to a server-staged handoff.
-            guard let sid = dec(String(tid.dropFirst("sm-copy-".count))) else { return .fragments([]) }
-            await self.app.markCopyLink(sid)
+            // the clipboard write is the ENGINE's: the entry carries
+            // `data-copy="<absolute share url>"` (A16b/F5), so the click copies
+            // locally and this round trip only closes the menu (done above).
             return await self.changed()
         }
         if tid.hasPrefix("sm-pin-"), let id = dec(String(tid.dropFirst("sm-pin-".count))) {

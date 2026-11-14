@@ -564,9 +564,11 @@ async function runContrast() {
       return !!c;
     })()`);
     await settle(500);
-    const toast = await ev(`(() => { const ts = [...document.querySelectorAll('.toast')]; return { count: ts.length, texts: ts.map(t => t.textContent) }; })()`);
+    // the toast is the ENGINE's now (A16b): a `data-copy` click paints
+    // `[data-webui-toast]` — the arc `#toasts` stack is only for server pushes.
+    const toast = await ev(`(() => { const ts = [...document.querySelectorAll('[data-webui-toast]')]; return { count: ts.length, texts: ts.map(t => t.textContent) }; })()`);
     if (toast.count > 0) {
-      views.push({ name: 'toast', sample: await ev(`uxContrast.sampleView({ root: '#toasts', view: 'toast', theme: '${theme}' })`) });
+      views.push({ name: 'toast', sample: await ev(`uxContrast.sampleView({ root: '[data-webui-toast]', view: 'toast', theme: '${theme}' })`) });
     } else {
       views.push({ name: 'toast', sample: { view: 'toast', theme, error: 'no toast shown' } });
     }
@@ -1997,11 +1999,13 @@ async function runMotion() {
   await ev(`document.getElementById('w-close')?.click()`);
   await settle(500);
 
-  // toast enter (copy link -> neutral toast must appear, no animation)
+  // toast enter (copy link -> the ENGINE's toast must appear, no animation)
+  // A16b: the copy feedback is `[data-webui-toast]`, painted by the engine's
+  // `data-copy` binder — arc's `#toasts` stack no longer receives it.
   await openMenu(mSid);
   await ev(`(() => { const row = [...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${mSid}'); row?.querySelector('.chat-menu-items [id^="sm-copy-"]')?.click(); })()`);
   await settle(500);
-  const toast = await ev(`uxGates.toastAnim()`);
+  const toast = await ev(`uxGates.engineToastAnim()`);
   const toastOk = toast.present && toast.visible && parseFloat(toast.animationDuration) <= 0.01 && parseFloat(String(toast.transitionDuration).replace(/[^0-9.]+$/, '')) <= 0.01;
 
   // stream shimmer (needs a real turn; a genuinely unobtainable turn is an env

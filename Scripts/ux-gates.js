@@ -209,6 +209,21 @@
       const cs = getComputedStyle(t);
       return { present: true, count: $$('.toast').length, animationName: cs.animationName, animationDuration: cs.animationDuration, transitionDuration: cs.transitionDuration, visible: shown(t) };
     },
+    /// the ENGINE's copy toast (`[data-webui-toast]`, appended to <body> by the
+    /// `data-copy` binder and removed after 2 s) — the surface a copy click
+    /// paints since A16b. Same shape as `toastAnim` so the motion row reads one
+    /// kind of record.
+    engineToastAnim: () => {
+      const t = $('[data-webui-toast]');
+      if (!t) return { present: false };
+      const cs = getComputedStyle(t);
+      return {
+        present: true, count: $$('[data-webui-toast]').length,
+        text: t.textContent, animationName: cs.animationName,
+        animationDuration: cs.animationDuration, transitionDuration: cs.transitionDuration,
+        visible: shown(t),
+      };
+    },
     // ---- drawer (no-webui 2.15.0) ------------------------------------------
     //
     // the state is `data-open` on #app; `data-drawer-toggle` on the topbar

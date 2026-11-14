@@ -1257,12 +1257,12 @@ actor AppState {
     /// Daily-token graph range selected in the Insights panel (7/30/90/365).
     var insightsRangeDays = 30
     var toasts: [Toast] = []
-    /// URL fragment the server hands the client for the shared-link clipboard
-    /// write (UX-06). Clicks inside the wired chat-menu boundary never reach
-    /// client JS — the engine routes them away — so the copy rides this
-    /// marker: the server surfaces the toast, the overlay's post-patch pass
-    /// reads the marker, writes the clipboard, and drops it.
-    var pendingCopyURL: String? = nil
+    /// The absolute origin the page is served from (`http://host:port`), set by
+    /// `WebUIHost`. It is what makes the row menu's "Copy conversation link" a
+    /// literal `data-copy` value: the render has no request, so a
+    /// server-rendered URL cannot learn the browser's own origin, and a
+    /// relative `?s=` copies nothing pasteable. Empty in render fixtures.
+    var publicOrigin = ""
     /// Mid-stream sends awaiting their turn, keyed by session (UX-04). Typing
     /// during a turn queues the message visibly here; each runs as its own
     /// turn after the current reply, in order, and a chip ✕ removes it.
@@ -1409,7 +1409,9 @@ actor AppState {
         /// discovered skills: the agent-powers lock rows render per skill.
         var skills: [Skill] = []
         var pluginStartupOutcome: [String: String] = [:]
-        var pendingCopyURL: String? = nil
+        /// the origin the page is served from — set on the fixture by a test
+        /// that pins an absolute share link.
+        var publicOrigin = ""
         /// Left-panel chat list filter text (drives the "No chats match" branch).
         var chatFilter = ""
         /// Show archived chats instead of active ones.
@@ -1553,7 +1555,7 @@ actor AppState {
         self.turnMemoryOverride = fixture.turnMemory
         self.approvalManager = fixture.approvalManager
         self.pluginStartupOutcome = fixture.pluginStartupOutcome
-        self.pendingCopyURL = fixture.pendingCopyURL
+        self.publicOrigin = fixture.publicOrigin
         self.chatFilter = fixture.chatFilter
         self.showArchived = fixture.showArchived
         self.activeTurns = fixture.activeTurns
@@ -2665,11 +2667,22 @@ actor AppState {
         toasts.removeAll { $0.id == id }
     }
 
-    /// Stage the shared-link URL for the client clipboard write (UX-06). The
-    /// path rides the next `#toasts` fragment as a hidden marker that the
-    /// overlay consumes; the caller surfaces the "copied" toast.
-    func markCopyLink(_ sessionID: String) {
-        pendingCopyURL = "?s=\(enc(sessionID))"
+    /// The absolute share link for `id` — the `data-copy` value the row menu's
+    /// "Copy conversation link" carries (UX-06, F5).
+    ///
+    /// The engine's `[data-copy]` copies its attribute's TEXT, so the value has
+    /// to be the whole URL. The server knows the origin it serves on
+    /// (`WebUIHost` sets `publicOrigin`), which is the only reason this can be
+    /// an attribute at all — the render carries no request, so it cannot read
+    /// the browser's own origin. Behind a proxy that rewrites the origin the
+    /// copied link names the configured host: the alternative is a client
+    /// handler, which is exactly what A16b deletes.
+    func shareURL(_ sessionID: String) -> String {
+        publicOrigin.isEmpty ? "?s=\(enc(sessionID))" : "\(publicOrigin)/?s=\(enc(sessionID))"
+    }
+
+    func setPublicOrigin(_ origin: String) {
+        publicOrigin = origin
     }
 
     /// How long a surfaced error stays on screen before it clears itself. Long

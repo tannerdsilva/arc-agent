@@ -2771,6 +2771,30 @@ public static let css: String = """
       pointer-events: auto;
     }
     .toast .toast-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: 0 0 8px; }
+    /* The ENGINE's toast (no-webui's `toast()` in webui-engine-ext.js): a bare
+       `<div data-webui-toast role="status">` appended to <body>, its text set to
+       "Copied", removed after 2 s. It is the feedback for every `data-copy`
+       control — code blocks, the conversation link, the work-log digest, the
+       preview — so it must read as arc's own toast family: same pill, same
+       tokens, all 27 schemes and both themes. Bottom-CENTRE, so it never
+       collides with the server stack (#toasts, bottom-right). No transition:
+       the motion gate holds every entry animation at zero. */
+    [data-webui-toast] {
+      position: fixed;
+      left: 50%;
+      bottom: 120px;
+      transform: translateX(-50%);
+      z-index: 1001;
+      background: var(--surface);
+      border: 1.5px solid var(--border-strong);
+      border-radius: 999px;
+      padding: 8px 16px;
+      box-shadow: var(--shadow);
+      font-size: 0.88em;
+      color: var(--text);
+      max-width: 440px;
+      pointer-events: none;
+    }
     .toast .toast-x { border: none; background: none; color: var(--muted); opacity: 0.9; cursor: pointer; font-size: 1.25em; line-height: 1; padding: 0 3px; }
     .toast .toast-x:hover { opacity: 1; }
     /* Success confirms (copied / deleted / saved): green, never red. */
