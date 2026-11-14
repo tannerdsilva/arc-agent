@@ -499,8 +499,10 @@
   });
 
   // ---- Scroll-to-bottom. Follows new content while the user is at the
-  // bottom, and always jumps to the bottom when a fresh chat is opened
-  // (the server tags #chat-scroll with data-follow="bottom" on open).
+  // bottom. #chat-scroll carries no engine follow attribute: A3.1 withdrew
+  // `data-scroll-key="chat"` and the one-shot `data-follow="bottom"` so the
+  // engine's handlers could not double-drive the scroll position; A11 restores
+  // the consequence as `ScrollFollow`/`data-follow-state` when this block dies.
   //
   // The stick is USER INTENT, not distance. A wheel-up, a reading key
   // (Up/PageUp/Home), a touch drag, or any net upward movement releases it —
@@ -566,21 +568,13 @@
     }
     if (s !== seenChatScroll) {
       // The scroll container was (re)created — a chat open, a streaming
-      // refresh, or a rail return. Respect data-follow only for chat opens.
+      // refresh, or a rail return.
       seenChatScroll = s;
       lastTop = s.scrollTop;
-      if (s.getAttribute('data-follow') === 'bottom') {
-        stick = true;
-        var forceBottom = function () {
-          var cur = chatScroller();
-          if (cur === s) s.scrollTop = s.scrollHeight;
-        };
-        requestAnimationFrame(forceBottom);
-        setTimeout(forceBottom, 60);
-      } else if (stick) {
+      if (stick) {
         s.scrollTop = s.scrollHeight;
       } else {
-        // A rail return re-renders the chat fragment WITHOUT data-follow:
+        // A rail return re-renders the chat fragment WITHOUT a follow flag:
         // put the reader back where they were for THIS session instead of
         // at the top of the thread (UX-39). Clamped; re-applied after the
         // layout settles.
