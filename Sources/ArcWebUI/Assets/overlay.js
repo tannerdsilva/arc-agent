@@ -8,73 +8,36 @@
 
 (function () {
   try {
-  // The engine restores input values across fragment replacements, so a
-  // server-side empty textarea would be re-filled. Clear the composer after
-  // the engine has read its value on submit — the ENGINE's delegated submit
-  // listener lives on `document`, so this one registers on `window` (bubble
-  // reaches window last): registering on `document` instead would clear the
-  // field BEFORE the engine reads it, and every send would carry "".
-  // The submit clear below erases the composer, but the engine restores form
-  // values across a fragment patch — and a local slash command echoes a message,
-  // so a patch lands right after the clear and hands the command back to the
-  // field. The user then sees `/help` still sitting there and the next Enter
-  // runs it again (measured: two transcript rows for one command). Remember what
-  // was submitted and clear it again only if the patch restored exactly that
-  // text; a real edit is never touched.
+  // The ENGINE owns the submit gesture and the clear (no-webui 2.17.0): the
+  // composer's `data-submit-on-enter="plain"` submits on Enter (Shift+Enter
+  // newlines, IME returns early) and `data-clear-on-submit` empties the field
+  // on the submit event.
+  //
+  // One consequence is NOT the engine's, measured: its draft store
+  // (`data-draft-id`) writes `webui-draft:<identity>` on every input and
+  // `syncDrafts()` re-fills an EMPTY field from it on the next replacing patch,
+  // so the patch that lands right after the clear hands the submitted text
+  // back (an `[data-draft-id][data-clear-on-submit]` composer refilled ~1.3 s
+  // after Enter on the live page; 2.17.0's `onDocSubmit` clears the control,
+  // not the store). Remember what the submit carried — CAPTURE phase, before
+  // the engine's own submit handler reads and clears the control — and clear
+  // the field again whenever a patch restores exactly that text.
   var submittedComposerText = null;
+
+  document.addEventListener('submit', function (e) {
+    if (!e.target || e.target.id !== 'composer-form') return;
+    var t = document.getElementById('composer-input');
+    if (t) submittedComposerText = t.value;
+  }, true);
 
   function clearRestoredComposer() {
     if (submittedComposerText === null) return;
     var t = document.getElementById('composer-input');
-    if (!t || t.value === '') {
-      submittedComposerText = null;
-      return;
-    }
-    if (t.value.trim() === String(submittedComposerText).trim()) {
+    if (!t) return;
+    if (t.value !== '' && t.value.trim() === String(submittedComposerText).trim()) {
       t.value = '';
-      submittedComposerText = null;
     }
   }
-
-  window.addEventListener('submit', function (e) {
-    if (e.target && e.target.id === 'composer-form') {
-      var t = document.getElementById('composer-input');
-      if (t) {
-        // Remembered so a fragment patch that restores the field can be
-        // recognised as the echo of this submit (see clearRestoredComposer).
-        submittedComposerText = t.value;
-        t.value = '';
-      }
-      // A send consumes the composed text; an open slash menu must not
-      // linger over the next prompt.
-      closeSlashMenu();
-    }
-  });
-
-  // ---- Enter sends; Shift+Enter keeps the newline.
-  // The engine only suppresses Enter's default on NON-textarea targets (its
-  // `editTarget` guard), so `data-prevent-enter="send"` on the composer
-  // textarea is inert and Enter used to insert a newline. Drive the form's own
-  // submit path instead: the engine's delegated submit listener flushes pending
-  // inputs and reads the live form values, so the server always sees the text
-  // that is on screen. Empty composers fall through to the server, which
-  // no-ops on blank text (same as clicking Send with nothing typed).
-  document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
-    var t = e.target;
-    if (!t || t.id !== 'composer-input') return;
-    // An open slash menu owns Enter: it inserts the highlighted command
-    // (handled by the slash keydown listener) and must not also submit.
-    if (slashMenuOpen()) return;
-    var form = document.getElementById('composer-form');
-    if (!form) return;
-    e.preventDefault();
-    if (typeof form.requestSubmit === 'function') {
-      form.requestSubmit();
-    } else {
-      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    }
-  });
 
   // ---- Slash-command autocomplete (UX-01).
   // The markup and payload (`#cmd-dropdown`, `#slash-data`) are server-side;
@@ -269,6 +232,15 @@
 
   // Keyboard: ArrowUp/Down move the selection, Enter/Tab insert, Escape closes.
   // Only while the menu is open and the composer owns focus.
+  //
+  // CAPTURE phase, deliberately: no-webui 2.17.0's `data-submit-on-enter`
+  // listener is bound on the textarea ELEMENT, so it runs before any
+  // document-level bubble listener — and the engine never checks
+  // `e.defaultPrevented`. Enter must reach the menu's insert, not the form, so
+  // this listener registers on `document` in the capture phase (before the
+  // target's own listeners) and stops propagation for the two keys the menu
+  // owns while it is open. The engine keeps its IME guard; this does not
+  // re-implement it.
   document.addEventListener('keydown', function (e) {
     if (!slashMenuOpen()) return;
     var t = e.target;
@@ -286,7 +258,10 @@
     if (e.key === 'Enter' || e.key === 'Tab') {
       var candidates = slashFiltered(slashToken(t.value));
       if (!candidates.length) return;
+      // the menu's insert wins the key: capture-phase stopPropagation keeps it
+      // from the textarea's `data-submit-on-enter` listener (a form submit)
       e.preventDefault();
+      e.stopPropagation();
       chooseSlash(candidates[Math.min(slashSel, candidates.length - 1)].name);
       return;
     }
@@ -294,7 +269,7 @@
       e.preventDefault();
       closeSlashMenu();
     }
-  });
+  }, true);
 
   // Clicking anywhere outside the dropdown closes it — including clicks inside
   // the composer bar, which the shared outside-click handler deliberately
@@ -348,23 +323,7 @@
     }
   }, true);
 
-  // the theme switch has two sources of truth: the engine keeps the
-  // device-local choice in localStorage, the panel is rendered from the
-  // server's saved mode. aria-pressed is the engine's (press() re-runs on
-  // every insert); this pass carries only the `.active` class the sheet
-  // paints, and A15 (2.17.0) retires the mirror.
-  function syncThemePickers() {
-    var mode = document.documentElement.getAttribute('data-theme');
-    var picks = document.querySelectorAll('[data-theme-choice]');
-    for (var i = 0; i < picks.length; i++) {
-      var on = picks[i].getAttribute('data-theme-choice') === mode;
-      if (on) picks[i].classList.add('active');
-      else picks[i].classList.remove('active');
-    }
-  }
-
   function enhanceAll() {
-    syncThemePickers();
     // UX-06: the server stages a resolved copy URL as a `#pending-copy` marker
     // inside the toasts fragment; this pass is its only consumer. The engine
     // owns `[data-copy]` only — it has no server-staged handoff, so this stays.
@@ -373,7 +332,6 @@
 
   function enhancePatched(changed) {
     clearRestoredComposer();
-    syncThemePickers();
     copyFromServerMarker();
     // UX-45: `+` (new chat) leaves focus on the button; the app asked for the
     // composer and the new chat's fragment just landed — put the caret in it.
@@ -416,7 +374,6 @@
       WebUIEngine.on.afterPatch(enhancePatched);
       WebUIEngine.on.ready(enhanceAll);
     }
-    document.addEventListener('webui:theme', syncThemePickers);
     // The engine boots synchronously with its own script, which precedes this
     // handler, so `ready` may never fire — the initial pass runs here, and
     // covers anything that arrived before registration.

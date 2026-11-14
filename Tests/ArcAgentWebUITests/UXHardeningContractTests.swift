@@ -300,40 +300,58 @@ extension ArcWebUITestRoot {
 
         // MARK: - Appearance follows the applied theme
 
-        /// Defect: the engine applies the device-local theme before the
-        /// settings panel exists, then the panel arrives carrying the server's
-        /// saved mode. When the two differ, the page is dark and the Appearance
-        /// section still marks Light selected — the panel lies about the state
-        /// of the switch it owns.
-        @Test("the appearance panel describes the applied theme, not a stale saved mode")
-        func themePickersFollowAppliedTheme() {
+        /// A15 (no-webui 2.17.0): `aria-pressed` is the theme selected-state
+        /// contract. The server renders it from the saved mode, the engine
+        /// reconciles it on boot and on every press, and the sheet paints
+        /// `[aria-pressed="true"]`. The overlay's `.active` mirror and its
+        /// `syncThemePickers` / `webui:theme` pass are gone: a second writer is
+        /// how the panel could disagree with the page it describes.
+        @Test("the theme card's selected state is aria-pressed, with no overlay mirror")
+        func themeSelectionIsAriaPressed() async {
             let js = Self.overlay
-            #expect(js.contains("function syncThemePickers"),
-                    "the panel needs a reconciler: the engine applies the stored theme before the panel renders")
-            #expect(js.contains("getAttribute('data-theme')"),
-                    "the applied mode is the source of truth, not the server's saved mode")
-            #expect(js.contains("addEventListener('webui:theme', syncThemePickers)"),
-                    "a theme change while the panel is open must update the checked card")
-            let calls = js.components(separatedBy: "syncThemePickers();").count - 1
-            #expect(calls >= 2,
-                    "both the initial pass and every patch must reconcile the cards")
+            let css = Self.sheetSource
+            let surface = await RenderedMarkup.fullSurface()
+            #expect(css.contains(".theme-pick-btn[aria-pressed=\"true\"]"),
+                    "the sheet must paint the selected card from the normative aria state")
+            #expect(!css.contains(".theme-pick-btn.active"),
+                    "a server-only class is not a selected contract")
+            #expect(surface.contains("class=\"theme-pick-btn\""),
+                    "the theme cards carry no selection class")
+            #expect(!surface.contains("theme-pick-btn active"),
+                    "the `.active` mirror is retired: aria-pressed is the only selected state")
+            #expect(surface.contains("aria-pressed=\"true\""),
+                    "the server renders the saved mode's pressed card")
+            #expect(!js.contains("syncThemePickers"),
+                    "the engine reconciles the pickers; the overlay must not keep a second writer")
+            #expect(!js.contains("webui:theme"),
+                    "a theme-change listener is the mirror this slice deletes")
         }
 
         // MARK: - B1/F52 Enter sends
 
-        @Test("Enter sends from the composer; Shift+Enter keeps the newline")
-        func enterSends() async {
+        /// A15 (no-webui 2.17.0): Enter-to-submit is the engine's.
+        /// `SubmitOnEnterMode.plain` submits a textarea and leaves Shift+Enter a
+        /// newline, the binder returns early on an IME composition, and
+        /// `ClearOnSubmit` empties the field on the submit event. The overlay
+        /// keeps no keydown handler: the engine's listener is bound on the
+        /// element, so a document-level copy would be a second submit path with
+        /// a different ordering. The one submit listener that stays is the
+        /// capture-phase memo for the draft store's echo (see
+        /// `ComposerSubmitContractTests`); it never submits and never clears.
+        @Test("Enter submits and the field clears through the engine's own attributes")
+        func enterSendsThroughTheEngine() async {
             let js = Self.overlay
-            #expect(js.contains("t.id !== 'composer-input'"), "the handler must be scoped to the composer")
-            #expect(js.contains("e.shiftKey"), "Shift+Enter must stay a newline")
-            #expect(js.contains("form.requestSubmit()"),
-                    "the submit path must be the form's own, so the engine flushes and reads live values")
-            #expect(js.contains("e.keyCode === 229"), "an IME commit must not send")
-            // This block STAYS under no-webui 2.7.0: `data-submit-on-enter`
-            // returns early for a textarea (webui-engine-ext.js), so the
-            // attribute cannot submit the composer and the handler above is the
-            // only path. Autogrow, in the same row, IS the engine's now.
             let composer = await RenderedMarkup.composer()
+            #expect(composer.contains("data-submit-on-enter=\"plain\""),
+                    "a textarea opts in to Enter-to-submit by VALUE; the bare attribute leaves it exempt")
+            #expect(!composer.contains("data-submit-on-enter=\"\""),
+                    "the legacy spelling would leave the textarea exempt")
+            #expect(composer.contains("data-clear-on-submit"),
+                    "the clear is the engine's, on the submit event")
+            #expect(!js.contains("form.requestSubmit()"),
+                    "the overlay must not drive the composer form's submit path anymore")
+            #expect(!js.contains("e.keyCode === 229"),
+                    "the IME guard is the engine's; a copy here is a second rule to keep in sync")
             #expect(composer.contains("data-autogrow"),
                     "the composer textarea must carry the engine's growth behavior")
             #expect(!js.contains("resizeComposer"),
@@ -864,8 +882,17 @@ extension ArcWebUITestRoot {
             #expect(overlay.contains("chooseSlash("), "an insert path must exist")
             #expect(overlay.contains("function closeSlashMenu()"),
                     "Escape/outside-click must be able to close it")
-            #expect(overlay.contains("if (slashMenuOpen()) return;"),
-                    "Enter with the menu open must insert, not submit the stale `/…` text")
+            // Enter with the menu open must insert, not submit. A15 moved the
+            // ownership: no-webui 2.17.0's `data-submit-on-enter` binds on the
+            // textarea ELEMENT, so the menu's listener registers in the CAPTURE
+            // phase and stops propagation for the keys it owns — a document-level
+            // bubble check would run after the engine already submitted.
+            #expect(overlay.contains("e.preventDefault();\n      e.stopPropagation();\n      chooseSlash("),
+                    "Enter with the menu open must not reach the engine's submit listener")
+            #expect(overlay.contains("  }, true);\n\n  // Clicking anywhere outside the dropdown closes it"),
+                    "the menu's keydown listener must be a capture-phase registration")
+            #expect(overlay.contains("document.addEventListener('keydown', function (e) {\n    if (!slashMenuOpen()) return;"),
+                    "the listener still only runs while the menu is open")
             let composer = await RenderedMarkup.composer()
             // the plan asks for a stronger pin than a substring: the payload must
             // PARSE as JSON, because a malformed blob silently kills autocomplete.

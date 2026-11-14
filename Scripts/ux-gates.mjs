@@ -212,7 +212,7 @@ async function setTheme(themeKey) {
   await settle(150);
   const bgBefore = await ev(`getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()`);
   await ev(`document.getElementById('thm-${themeKey}')?.click()`);
-  await driver.waitFor(`document.querySelector('[data-theme-choice="${themeKey}"].active') !== null`, { timeoutMs: 8000, label: `theme ${themeKey} active` });
+  await driver.waitFor(`document.querySelector('[data-theme-choice="${themeKey}"][aria-pressed="true"]') !== null`, { timeoutMs: 8000, label: `theme ${themeKey} active` });
   // Wait out the stylesheet swap: the --bg token must actually change before
   // any contrast read, or the sample catches a half-applied sheet.
   await driver.waitFor(`(() => {
@@ -223,7 +223,9 @@ async function setTheme(themeKey) {
 }
 
 async function currentTheme() {
-  return ev(`document.querySelector('[data-theme-choice].active')?.getAttribute('data-theme-choice') || 'dark'`);
+  // aria-pressed is the theme selected contract (no-webui 2.17.0): the engine
+  // reconciles it on boot and on every press. `.active` no longer exists.
+  return ev(`document.querySelector('[data-theme-choice][aria-pressed="true"]')?.getAttribute('data-theme-choice') || 'dark'`);
 }
 
 /** Create (or return the existing) throwaway probe session. */
@@ -458,7 +460,7 @@ async function snapshotInitialState() {
     await driver.waitFor(`document.querySelector('[data-theme-choice]') !== null`, { timeoutMs: 8000, label: 'settings pickers' }).catch(() => {});
     await settle(250);
     const t = await ev(`(() => {
-      const th = document.querySelector('[data-theme-choice].active');
+      const th = document.querySelector('[data-theme-choice][aria-pressed="true"]');
       const sc = document.querySelector('[data-scheme-choice].active');
       return { theme: th?.getAttribute('data-theme-choice') || null, scheme: sc?.getAttribute('data-scheme-choice') || null, bodyBg: getComputedStyle(document.body).backgroundColor };
     })()`);

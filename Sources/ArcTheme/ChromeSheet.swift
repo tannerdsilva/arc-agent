@@ -1339,10 +1339,10 @@ public static let css: String = """
     }
     .theme-pick-btn .thm-ic { display: inline-flex; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3)); }
     .theme-pick-btn .thm-label { font-size: 12px; font-weight: 500; }
-    .theme-pick-btn.active {
+    .theme-pick-btn[aria-pressed="true"] {
       border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
     }
-    .theme-pick-btn.active .thm-label {
+    .theme-pick-btn[aria-pressed="true"] .thm-label {
       /* WCAG AA: same accent→text pin as the sidebar-tab chips. */
       color: color-mix(in srgb, var(--accent) 42%, var(--text));
     }

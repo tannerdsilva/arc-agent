@@ -19,24 +19,43 @@ extension ArcWebUITestRoot {
             return try String(contentsOfFile: path, encoding: .utf8)
         }
 
-        @Test("the submit clear runs after the engine's read (window, not document)")
-        func clearRunsAfterEngineRead() throws {
+        /// A15 (no-webui 2.17.0): the ENGINE owns both the gesture and the
+        /// clear. The composer states them on its own open tag; the overlay
+        /// registers no Enter handler and no submit clear. What stays is the
+        /// one consequence the engine cannot express: its draft store re-fills
+        /// an EMPTY `[data-draft-id]` field on the next replacing patch, and
+        /// `onDocSubmit` clears the control, not `webui-draft:<identity>` —
+        /// measured, the submitted text came back ~1.3 s after Enter. The
+        /// overlay's remaining submit listener captures the payload in the
+        /// CAPTURE phase (before the engine reads and clears it) so a restored
+        /// echo of exactly that text can be cleared again.
+        @Test("the composer states submit-on-enter and clear-on-submit; the engine owns the submit path")
+        func submitAndClearAreTheEngines() async throws {
             let source = try Self.overlaySource()
+            let composer = await RenderedMarkup.composer()
             #expect(
-                source.contains("window.addEventListener('submit'"),
-                """
-                the composer clear must register on window: the engine's delegated \
-                submit listener lives on document, and a document-level clear \
-                (registered earlier) erases the value before the engine reads it
-                """
+                composer.contains("data-submit-on-enter=\"plain\""),
+                "a textarea opts in to Enter-to-submit by VALUE; the bare attribute leaves it exempt"
             )
             #expect(
-                !source.contains("document.addEventListener('submit'"),
-                """
-                a document-level submit listener runs before the engine's own and \
-                would clear the composer before the engine reads it — every send \
-                then carries an empty field
-                """
+                composer.contains("data-clear-on-submit"),
+                "the engine clears the field on the submit event"
+            )
+            #expect(
+                !source.contains("window.addEventListener('submit'"),
+                "the overlay must not clear on submit: the engine's onDocSubmit does"
+            )
+            #expect(
+                source.contains("document.addEventListener('submit'") && source.contains("  }, true);"),
+                "the echo guard's memo must be captured before the engine reads and clears the control"
+            )
+            #expect(
+                !source.contains("form.requestSubmit()"),
+                "the Enter gesture is the engine's (`data-submit-on-enter=\"plain\"`)"
+            )
+            #expect(
+                !source.contains("e.keyCode === 229"),
+                "the IME guard is the engine's; a copy here is a second rule to keep in sync"
             )
         }
 

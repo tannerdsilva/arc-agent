@@ -18,12 +18,12 @@ extension ArcWebUITestRoot {
 	@Suite("Client asset budget", .serialized)
 	struct ClientAssetBudgetTests {
 
-		/// measured 30,285 bytes / 686 lines in the merged tree.
-		/// this commit: the engine owns the composer draft — identity and seed.
+		/// measured 28,479 bytes / 643 lines in the merged tree.
+		/// this commit: the engine submits and clears the composer — enter, IME, theme.
 		/// the merged file is smaller than the figure the local line carried,
 		/// because this commit's own deletion dominates it.
 		/// one byte of headroom, which is the ratchet working as intended.
-		private static let ceiling = 30_286
+		private static let ceiling = 28_480
 
 		private static let sourcePath = "Sources/ArcWebUI/Assets/overlay.js"
 

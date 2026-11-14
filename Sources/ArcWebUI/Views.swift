@@ -4803,10 +4803,13 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                     Div(class: .thmGrid) {
                         for t in themeDefs {
                             let active = settings.theme == t.key
-                            // UX-08: the card marks selection visually (.active) — the
-                            // pressed state must reach assistive tech too.
+                            // UX-08: `aria-pressed` IS the selected contract (no-webui
+                            // 2.17.0) — the server renders it, the engine reconciles it
+                            // on boot and on every press, and the sheet paints
+                            // `.theme-pick-btn[aria-pressed="true"]`. There is no
+                            // server-only class left to mirror.
                             ErasedViews([ArcButton(id: "thm-\(t.key)",
-                                      class: ClassName("theme-pick-btn\(active ? " active" : "")")) {
+                                      class: ClassName(.themePickBtn)) {
                                 Span(class: .thmPreview) {
                                     Span(class: .thmIc) { WebUIIcon(t.icon, size: .medium) }
                                 }

@@ -4,8 +4,10 @@ import WebUICore
 /// The composer's textarea: one open tag that carries every consequence the
 /// engine reads off it — the autogrow pass (`data-autogrow`), the draft's
 /// per-chat identity and its server-rendered seed (no-webui 2.16.0's
-/// `data-draft-id` / `data-draft-value`), and the routing attributes the
-/// composer's own listeners key on.
+/// `data-draft-id` / `data-draft-value`), the submit gesture and its clear
+/// (no-webui 2.17.0's `data-submit-on-enter="plain"` /
+/// `data-clear-on-submit`), and the routing attributes the composer's own
+/// listeners key on.
 ///
 /// **A component, not a modifier chain.** `chatMain()` participates in the
 /// shell's `TupleView`, and the two draft behaviors on this textarea were the
@@ -67,6 +69,12 @@ struct ComposerText: WebUI.View {
         // 24px` and the `max-height: 180px` cap the old client resizer computed
         // in JS both live there, so the element carries no inline style.
         attributes += " data-prevent-enter=\"send\""
+        // the submit gesture is the ENGINE's (no-webui 2.17.0): `.plain` submits
+        // on Enter and leaves Shift+Enter a newline, the binder returns early on
+        // an IME composition, and `data-clear-on-submit` empties the field on
+        // the submit event. A textarea opts in by value, never by presence.
+        attributes += SubmitOnEnterAttribute(mode: .plain).attributeText
+        attributes += ClearOnSubmitAttribute().attributeText
         buffer.beginElement("textarea", attributes)
         buffer.endOpenTag()
         buffer.appendEscaped(value)
