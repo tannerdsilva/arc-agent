@@ -431,6 +431,81 @@
       if (el) el.remove();
       return { ok: true };
     },
+
+    // ---- focus contract (a12) ----------------------------------------------
+    // no-webui 2.14.0 owns focus. `autofocus` is the entry flush on a
+    // patched-in dialog, `data-focus-return` names where focus goes when the
+    // control that DECLARED it is removed by a patch (and, around a focused
+    // control, the T26 target to re-query), and `.modal-overlay` wraps Tab.
+    // these helpers only read the consequence — the driver performs the input.
+
+    focusState: () => {
+      const a = document.activeElement;
+      const dialog = document.querySelector('.modal-overlay');
+      const close = document.getElementById('ctx-pane-close') || document.getElementById('modal-cancel');
+      const chip = document.getElementById('ctx-chip-summary');
+      return {
+        active: a && a !== document.body ? (a.id || a.tagName) : null,
+        activeIsBody: !a || a === document.body,
+        activeInDialog: !!(a && dialog && dialog.contains(a)),
+        dialog: dialog ? dialog.id : null,
+        ctxPaneOpen: !!document.getElementById('ctx-pane-overlay'),
+        modalOpen: !!document.getElementById('modal-overlay'),
+        opener: chip ? { id: chip.id, tag: chip.tagName.toLowerCase() } : null,
+        close: close ? {
+          id: close.id,
+          focusReturn: close.getAttribute('data-focus-return'),
+          autofocus: close.hasAttribute('autofocus'),
+          dismiss: close.hasAttribute('data-dismiss'),
+        } : null,
+      };
+    },
+
+    /// the open dialog's focusable controls, in document order — the set the
+    /// engine's `.modal-overlay` keydown trap wraps over.
+    dialogFocusables: () => {
+      const d = document.querySelector('.modal-overlay');
+      if (!d) return { ok: false, reason: 'no dialog' };
+      const sel = 'button, [href], input, select, textarea, [tabindex], summary';
+      const list = [];
+      const all = d.querySelectorAll(sel);
+      for (let i = 0; i < all.length; i++) {
+        const el = all[i];
+        if (!el.disabled && el.getAttribute('tabindex') !== '-1') list.push(el);
+      }
+      return { ok: true, count: list.length, ids: list.map((el) => el.id || el.tagName) };
+    },
+
+    /// T26 with a real replacing patch, driven through the engine's OWN funnel
+    /// (`capture` → node replace → `restore`, the calls the socket patch path
+    /// makes). `declared` gives the focused control a `data-focus-return`
+    /// (empty value = the element itself) so the engine's memo has a target;
+    /// the undeclared lap measures what arc's real surfaces do today.
+    focusReplace: (declared) => {
+      const engine = window.WebUIEngine && window.WebUIEngine._getInstance ? window.WebUIEngine._getInstance() : null;
+      const live = document.getElementById('ctx-chip-summary');
+      if (!engine || !engine.behaviors || !live || !live.parentNode) {
+        return { ok: false, reason: 'no engine, or no focused control to replace' };
+      }
+      const had = !!live.closest('[data-focus-return]');
+      if (declared && !had) live.setAttribute('data-focus-return', '');
+      live.focus();
+      engine.behaviors.capture([{ op: 'replace', id: 'ctx-chip' }]);
+      const copy = live.cloneNode(true);
+      live.parentNode.replaceChild(copy, live);
+      engine.behaviors.restore([copy]);
+      const active = document.activeElement;
+      const out = {
+        ok: true,
+        declared: !!declared,
+        hadDeclaration: had,
+        replaced: !live.isConnected,
+        kept: active === copy,
+        active: active && active !== document.body ? (active.id || active.tagName) : null,
+      };
+      if (declared && !had) copy.removeAttribute('data-focus-return');
+      return out;
+    },
   };
   window.uxGates = api;
   return 'uxGates installed — helpers on window.uxGates';

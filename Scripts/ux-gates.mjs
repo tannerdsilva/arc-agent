@@ -1,6 +1,6 @@
 // ux-gates.mjs — one-command UX gate suite for the arc web UI.
 //
-//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|scroll|motion|regression|round4|schemes]
+//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|scroll|focus|motion|regression|round4|schemes]
 //
 // Zero-dependency: native fetch + WebSocket via Scripts/ux-drive.mjs.
 // Assertions LIVE IN THE PAGE (Scripts/ux-contrast.js, ux-gates.js,
@@ -70,6 +70,7 @@ const RUN = {
   interactions: !opts.only || opts.only.includes('interactions'),
   upload: !opts.only || opts.only.includes('upload'),
   scroll: !opts.only || opts.only.includes('scroll'),
+  focus: !opts.only || opts.only.includes('focus'),
   motion: !opts.only || opts.only.includes('motion'),
   regression: !opts.only || opts.only.includes('regression'),
   round4: !opts.only || opts.only.includes('round4'),
@@ -1293,6 +1294,213 @@ async function runScroll() {
 }
 
 // ---------------------------------------------------------------------------
+// a12 — focus: entry, the two close round trips, the Tab wrap, T26, the F3
+// entry limitation, and a clean console through the whole tour. no-webui 2.14.0
+// owns focus and arc states it as two attributes, so every row reads the
+// consequence in the real browser: `autofocus` enters the patched-in dialog (F3
+// — the HTML flush is the only entry path the engine ships), `data-focus-return`
+// returns focus to the opener once the close control's removal patch lands, and
+// the engine's `.modal-overlay` keydown trap wraps Tab. The delete-confirm flow
+// is base-red in this daemon state (`interactions · delete flow` cannot open its
+// modal), so the dialog under test is the context-breakdown pane opened from the
+// composer's context chip — a real `.modal-overlay` dialog reachable in every
+// conversation with at least one message, and every row names that surface.
+//
+// each ENTRY row starts from a fresh document: the context pane's open state is
+// SERVER state (it survives a reload), and Blink honors a dynamically inserted
+// `autofocus` element once per document — so a second open in the same document
+// is a different (unshipped) contract, measured by row (f). Every wait has a
+// deadline; a missing frame FAILS the row.
+
+const FOCUS_SURFACE = 'the composer’s context chip (#ctx-chip-summary) → the context-breakdown dialog (#ctx-pane-overlay, a .modal-overlay card)';
+
+/// open the context dialog and wait for the autofocus flush to land in it.
+async function openContextDialog() {
+  await ev(`document.getElementById('ctx-chip-summary')?.click()`);
+  return pollOk(`(() => {
+    const s = uxGates.focusState();
+    return Object.assign({ ok: s.ctxPaneOpen && s.active === 'ctx-pane-close' && s.activeInDialog }, s);
+  })()`, 12000);
+}
+
+/// wait for the dialog to be gone AND focus to be back on the opener.
+async function awaitReturn() {
+  return pollOk(`(() => {
+    const s = uxGates.focusState();
+    return Object.assign({ ok: !s.ctxPaneOpen && s.active === 'ctx-chip-summary' }, s);
+  })()`, 6000);
+}
+
+/// load the chat with no dialog open AND the document's autofocus flush unspent.
+/// the pane is server state, so a reload can arrive with it already open — and
+/// that load spends the flush on the pane in the initial HTML. closing it and
+/// reloading again is the only way to a resting page that can be entered.
+async function freshChat() {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await driver.navigate(APP);
+    await waitReady();
+    await chatView();
+    await settle(300);
+    const s = await ev(`uxGates.focusState()`);
+    if (!s.ctxPaneOpen && !s.modalOpen) return { ok: true, attempts: attempt + 1, state: s };
+    const closed = await ev(`(() => { const c = document.getElementById('ctx-pane-close') || document.getElementById('modal-cancel'); if (!c) return false; c.click(); return true; })()`);
+    if (!closed) return { ok: false, attempts: attempt + 1, state: s, reason: 'a dialog was open on load and carried no close control' };
+    await pollOk(`(() => { const s2 = uxGates.focusState(); return { ok: !s2.ctxPaneOpen && !s2.modalOpen }; })()`, 6000);
+  }
+  return { ok: false, attempts: 2, state: await ev(`uxGates.focusState()`), reason: 'a dialog would not close across two reloads' };
+}
+
+async function runFocus() {
+  console.log('\n— gate: focus (entry · round trip · Escape · Tab wrap · T26 · F3 · console) —');
+  const out = { surface: FOCUS_SURFACE };
+  driver.clearConsole();
+
+  const pre = await freshChat();
+  out.preconditions = pre;
+  if (!pre.ok) {
+    record('focus', 'the gate can reach a resting page with no dialog open', false, out);
+    return;
+  }
+  if (!pre.state.opener) {
+    out.skipped = `no conversation with at least one message is open, so the surface (${FOCUS_SURFACE}) is not rendered — open a chat with a reply and re-run`;
+    record('focus', 'the gate can reach a dialog opener with no dialog open', 'skip', out);
+    return;
+  }
+  record('focus', 'the gate can reach a resting page with no dialog open', true, out.preconditions);
+
+  // ---- (a) entry: the autofocus flush lands focus inside the dialog --------
+  const entered = await openContextDialog();
+  const entryState = entered || (await ev(`uxGates.focusState()`));
+  out.entry = {
+    surface: FOCUS_SURFACE,
+    focused: entryState.active || null,
+    inDialog: !!entryState.activeInDialog,
+    close: entryState.close || null,
+  };
+  const entryOk = !!(entered && entered.ok && entryState.close
+    && entryState.close.focusReturn === 'ctx-chip-summary'
+    && entryState.close.autofocus && entryState.close.dismiss);
+  record('focus', '(a) the patched-in dialog takes focus on its autofocus control', entryOk, out.entry);
+  if (!entryOk) {
+    await freshChat();
+    return;
+  }
+
+  // ---- (c) Tab from the dialog's last control wraps inside .modal-overlay --
+  const focusables = await ev(`uxGates.dialogFocusables()`);
+  out.trap = { dialog: '#ctx-pane-overlay', focusables, before: entryState.active };
+  if (focusables && focusables.ok && focusables.count > 0) {
+    const lastID = focusables.ids[focusables.count - 1];
+    await ev(`(() => { const el = document.getElementById(${JSON.stringify(lastID)}); if (el) el.focus(); return true; })()`);
+    await driver.pressTab();
+    const wrapped = await pollOk(`(() => {
+      const s = uxGates.focusState();
+      return Object.assign({ ok: s.activeInDialog && s.active === ${JSON.stringify(focusables.ids[0])} }, s);
+    })()`, 3000);
+    out.trap.after = wrapped || (await ev(`uxGates.focusState()`));
+    out.trap.lastID = lastID;
+    out.trap.firstID = focusables.ids[0];
+    record('focus', '(c) Tab from the dialog’s last control wraps inside .modal-overlay',
+      !!(wrapped && wrapped.ok), out.trap);
+  } else {
+    record('focus', '(c) Tab from the dialog’s last control wraps inside .modal-overlay', false, out.trap);
+  }
+
+  // ---- (b1) Escape returns focus to the opener ----------------------------
+  await driver.pressEscape();
+  const escaped = await awaitReturn();
+  out.escape = { closed: !!(escaped && escaped.ok), focused: escaped ? escaped.active : null, opener: '#ctx-chip-summary' };
+  record('focus', '(b1) Escape closes the dialog and returns focus to the opener', !!(escaped && escaped.ok), out.escape);
+
+  // ---- (b2) the close control returns focus to the opener -----------------
+  const pre2 = await freshChat();
+  out.closeRoundTrip = { resting: pre2.ok };
+  const reopened = pre2.ok ? await openContextDialog() : null;
+  out.closeRoundTrip.entry = reopened ? reopened.active : null;
+  if (reopened && reopened.ok) {
+    await ev(`document.getElementById('ctx-pane-close')?.click()`);
+    const closed = await awaitReturn();
+    out.closeRoundTrip.closed = !!(closed && closed.ok);
+    out.closeRoundTrip.focused = closed ? closed.active : null;
+    record('focus', '(b2) the close control returns focus to the opener', !!(closed && closed.ok), out.closeRoundTrip);
+  } else {
+    out.closeRoundTrip.reason = pre2.ok
+      ? 'the dialog did not take focus on open — the close round trip could not start'
+      : 'the page would not come back to a resting state before the round trip';
+    record('focus', '(b2) the close control returns focus to the opener', false, out.closeRoundTrip);
+  }
+
+  // ---- (f) F3: a SECOND dialog in the same document ----------------------
+  // the shipped entry path is the browser's autofocus flush, and Blink honors a
+  // dynamically inserted `autofocus` element ONCE per document (measured here,
+  // including on a synthetic insertion, so it is the browser's rule and not
+  // arc's). F3 pre-authorizes the fallback — a 3.1.0 `FocusInto(id:)` behavior,
+  // or accepting focus on the opener — as a product decision. Until one lands,
+  // this row reports the measurement instead of grading an unshipped contract.
+  await ev(`document.getElementById('ctx-chip-summary')?.click()`);
+  const second = await pollOk(`(() => {
+    const s = uxGates.focusState();
+    return Object.assign({ ok: s.ctxPaneOpen && s.active === 'ctx-pane-close' && s.activeInDialog }, s);
+  })()`, 8000);
+  const secondState = second || (await ev(`uxGates.focusState()`));
+  out.secondOpen = { name: 'F3', focusables: focusables ? focusables.count : null, state: secondState };
+  if (second && second.ok) {
+    record('focus', '(f) a dialog opened a second time in the same document takes focus', true, out.secondOpen);
+  } else {
+    out.secondOpen.skipped = `measured: the second open of ${FOCUS_SURFACE} in one document puts focus on ${secondState.active || '<body>'}, not on #ctx-pane-close. Blink honors a dynamically inserted autofocus element once per document (a synthetic second insertion fails the same way), so this is the browser’s flush, not arc’s emission — F3 pre-authorizes the fallback (3.1.0 FocusInto(id:), or accepting focus on the opener) as a product decision`;
+    record('focus', '(f) a dialog opened a second time in the same document takes focus', 'skip', out.secondOpen);
+  }
+  // dismiss it (focus may be outside the card, where Escape does not reach)
+  await ev(`document.getElementById('ctx-pane-close')?.click()`);
+  await pollOk(`(() => { const s = uxGates.focusState(); return { ok: !s.ctxPaneOpen }; })()`, 6000);
+
+  // ---- (d) T26: a focused control whose patch replaces it keeps focus ------
+  // the plan names the kanban inline-edit field and an attachment chip's ✕.
+  // Neither declares a return target (the kanban field carries no id at all, so
+  // no id-based restore could ever resolve it; the chip's ✕ is removed by its
+  // own click, so there is nothing to re-query), and this gate will not rename
+  // the owner's board to manufacture a patch. The replacing patch is therefore
+  // driven through the engine's OWN funnel on the chip summary — the calls the
+  // socket patch path makes — in two laps: undeclared (what a real arc surface
+  // does today) and declared (the engine's `data-focus-return` contract). An
+  // engine that restores the declared lap while the real surface has nothing to
+  // declare is a SKIP with both measurements, never a pass; a declared lap that
+  // fails is a hard failure.
+  const undeclaredLap = await ev(`uxGates.focusReplace(false)`);
+  const declaredLap = await ev(`uxGates.focusReplace(true)`);
+  out.t26 = {
+    surface: 'the context chip’s summary (#ctx-chip-summary)',
+    namedSurfaces: 'kanban rename field (input[name="kb-col-name"], no id) / attachment-chip ✕ (removed by its own click)',
+    undeclared: undeclaredLap,
+    declared: declaredLap,
+  };
+  const lapOk = !!(undeclaredLap && undeclaredLap.ok && undeclaredLap.replaced
+    && declaredLap && declaredLap.ok && declaredLap.replaced);
+  const declaredOk = lapOk && !!declaredLap.kept;
+  if (!lapOk) {
+    out.t26.reason = 'the fixture could not replace the focused control — nothing was measured';
+    record('focus', '(d) a focused control whose patch replaces it keeps focus (T26)', false, out.t26);
+  } else if (undeclaredLap.kept) {
+    record('focus', '(d) a focused control whose patch replaces it keeps focus (T26)', true, out.t26);
+  } else if (declaredOk) {
+    out.t26.skipped = `the engine’s declared path works (a \`data-focus-return\` on the replaced control sends focus back to it), but arc’s surfaces declare nothing to re-query: focus fell to ${undeclaredLap.active || '<body>'} after the patch. The plan’s named surfaces cannot declare it today (the kanban field has no id; the chip’s ✕ is removed before it could be re-queried) — arc declares no T26 region in this slice, and the dialog’s openers/close controls are the only declarations (owner A16c)`;
+    record('focus', '(d) a focused control whose patch replaces it keeps focus (T26)', 'skip', out.t26);
+  } else {
+    out.t26.reason = 'the engine restored neither lap — its T26 memo is broken, not merely undeclared';
+    record('focus', '(d) a focused control whose patch replaces it keeps focus (T26)', false, out.t26);
+  }
+
+  // ---- (e) console: no error or warning through the whole tour ------------
+  await driver.navigate(APP);
+  await waitReady();
+  await chatView();
+  const cr = driver.consoleReport();
+  const bad = cr.errors.concat(cr.warnings);
+  out.console = { errors: cr.errors, warnings: cr.warnings, infoCount: cr.info.length };
+  record('focus', '(e) no console error or warning through the whole focus tour', bad.length === 0, out.console);
+}
+
+// ---------------------------------------------------------------------------
 // T16 — reduced-motion gate (driver emulates prefers-reduced-motion: reduce)
 
 async function runMotion() {
@@ -1769,6 +1977,7 @@ async function main() {
     if (RUN.interactions) await runInteractions();
     if (RUN.upload) await runUpload();
     if (RUN.scroll) await runScroll();
+    if (RUN.focus) await runFocus();
     if (RUN.motion) await runMotion();
     if (RUN.regression) await runRegression();
     if (RUN.round4) await runRound4();
@@ -1784,6 +1993,7 @@ async function main() {
       interactions: results.filter((r) => r.gate === 'interactions'),
       upload: results.filter((r) => r.gate === 'upload'),
       scroll: results.filter((r) => r.gate === 'scroll'),
+      focus: results.filter((r) => r.gate === 'focus'),
       motion: results.filter((r) => r.gate === 'motion'),
       regression: results.filter((r) => r.gate === 'regression'),
       round4: results.filter((r) => r.gate === 'round4'),

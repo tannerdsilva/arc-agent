@@ -10,6 +10,8 @@ page** (probe IIFEs); a tiny CDP driver (`ux-drive.mjs`, native `fetch` +
 node Scripts/ux-gates.mjs                # every gate
 node Scripts/ux-gates.mjs --only=contrast         # just WCAG AA contrast
 node Scripts/ux-gates.mjs --only=interactions
+node Scripts/ux-gates.mjs --only=scroll
+node Scripts/ux-gates.mjs --only=focus          # focus matrix (A12)
 node Scripts/ux-gates.mjs --only=motion
 node Scripts/ux-gates.mjs --only=regression
 node Scripts/ux-gates.mjs --only=schemes
@@ -72,6 +74,17 @@ Artifacts (all gitignored — regenerate, don't commit):
 6. **schemes (T18)** — enumerate the schemes from the app's own settings grid
    (`[data-scheme-choice]` tiles — registry-driven, never hardcoded), click
    each, screenshot chat + settings, record computed tokens.
+7. **focus (A12)** — no-webui 2.14.0 owns focus, so this matrix reads the
+   consequence in the real browser on the context-breakdown dialog (opened from
+   the composer's context chip; the delete-confirm flow is base-red in some
+   daemon states): (a) the patched-in dialog takes focus on its `autofocus`
+   control; (b1) Escape closes it and returns focus to the opener; (b2) the
+   close control does the same; (c) Tab from the dialog's last control wraps
+   inside `.modal-overlay`; (d) a focused control whose patch replaces it keeps
+   focus — reported SKIP with the measured surface while no arc surface declares
+   a `data-focus-return` region (the kanban rename field has no id to re-query);
+   (e) no console error or warning through the tour. Every wait is
+   deadline-bounded, and a missing frame fails the row.
 
 ## Probes
 
