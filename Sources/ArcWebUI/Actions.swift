@@ -1027,8 +1027,9 @@ extension AppState {
         await reloadSessions(selecting: selectAfter ? sessionID : nil)
         // Turn-end boundary: transcript (final message in, live block out), the
         // session row spinner cleared, composer back to send, header meta, toasts.
-        // A nudge, not a batch: the door renders the shell and names only the
-        // regions that moved, so a boundary cannot drag `#main` onto the wire.
+        // A nudge, not a batch: the server re-renders the pages it served and
+        // ships only the regions that moved, so a boundary cannot drag `#main`
+        // onto the wire.
         let endChrome = await turnChromeFragments()
         // The render that removes `#live-turn` and shows the persisted final
         // message always describes the chat that is actually on screen, so the
@@ -1080,13 +1081,11 @@ extension AppState {
 
     /// Live-region signal: the in-progress turn node.
     ///
-    /// The turn's own region is pushed explicitly, and only it: the door derives
-    /// every other region from a fresh render, but `#live-turn` is the one node
-    /// whose frame the streaming contract pins at the source
-    /// (`StreamingDomContractTests`), and it is pushed with `transition: false`
-    /// so a token-rate replace never reads as a page cross-fade. The composer
-    /// flyout used to ride this batch; it is shell chrome, so the door's render
-    /// carries it now.
+    /// The turn's own region is named explicitly, and only it: the door treats
+    /// this batch as structural, so the producer's html is discarded and the
+    /// server's re-render carries every region including `#live-turn`. The bytes
+    /// stay here because the presenter wiring tests read the batch the pusher
+    /// receives; nothing about it reaches the wire unchanged.
     ///
     /// (This is also why `fragment(_:_:)` survives — see its doc comment.)
     func liveFragments() async -> [FragmentUpdate] {
@@ -1119,18 +1118,19 @@ extension AppState {
     }
 
     /// The transcript node's change, as a nudge. It used to be the `#chat-inner`
-    /// html rendered here; the door derives the regions that actually moved, so
-    /// an off-chat turn end has nothing to skip — the render always describes the
-    /// chat that is on screen.
+    /// html rendered here; the server derives the regions that actually moved
+    /// from the page it served, so an off-chat turn end has nothing to skip —
+    /// the render always describes the chat that is on screen.
     func transcriptFragments() async -> [FragmentUpdate] {
         structuralChange()
     }
 
     /// The chrome that changes at turn boundaries: the session row spinner, the chat
     /// header meta, the composer (send ⇄ stop), the topbar, and the toasts
-    /// (compression hints, turn-failure notices). A nudge, not a batch: the door
-    /// renders the shell once and names only the regions whose bytes moved — which
-    /// is also why a turn boundary can no longer drag `#main` onto the wire.
+    /// (compression hints, turn-failure notices). A nudge, not a batch: the
+    /// server re-renders the served pages once and ships only the regions whose
+    /// bytes moved — which is also why a turn boundary can no longer drag `#main`
+    /// onto the wire.
     func turnChromeFragments() async -> [FragmentUpdate] {
         structuralChange()
     }
@@ -2510,7 +2510,7 @@ extension Controller {
         }
         // Sender-side response: clear the composer. The transcript and the turn
         // chrome reach every page through the turn-start push a moment later
-        // (runTurn), and the door names only the regions whose bytes moved — so
+        // (runTurn), and the server ships only the regions whose bytes moved — so
         // the sender keeps its scroll and selection instead of a `#main` replace.
         return await self.changed()
     }

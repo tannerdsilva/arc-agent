@@ -74,21 +74,23 @@ func fmtTps(_ v: Double) -> String {
 ///
 /// **This helper is for direct broadcasts only.** Anything that flows through the
 /// push door (`Controller.push` → `PushEdge`) must NOT assemble html: it returns
-/// `structuralChange()` and the edge derives every region from a fresh render.
+/// `structuralChange()` and the door asks the server to re-render the pages it
+/// served, whose diff decides every region.
 /// The surviving callers are the producers that never reach that door:
 ///
 /// - `liveLogFragments()` (`log-lines`) and `liveWorkspaceFragments()` (`ws-tree`)
 ///   are broadcast straight to `WebUIServer.broadcast` by `WebUIHost`'s
-///   interval streamers, so the edge never sees or diffs them;
-/// - `liveFragments()`' two nodes (`live-turn`, `composer-flyout`) are pinned at
-///   the source by the streaming contract (B5 moves that pin to the wire).
+///   interval streamers, so the door never sees or refreshes them;
+/// - `liveFragments()`' three nodes (`live-turn`, `composer-flyout`, `ctx-meter`)
+///   are replaced inside a batch the door treats as structural, so their bytes
+///   are discarded and the server's render carries them.
 ///
 /// Deltas (`FragmentUpdate.text`) are the other sanctioned explicit shape: they
-/// target a node another producer owns, and the edge forwards them untouched.
+/// target a node another producer owns, and the door forwards them untouched.
 ///
-/// Every frame this helper builds carries `transition: false` — the differ that
-/// serves the push door stamps the same flag on its own frames ("the diff is not
-/// a navigation and must not animate", `PushEdge.livePolicy`), and these frames
+/// Every frame this helper builds carries `transition: false` — the server's
+/// refresh frames carry the same flag from the diff policy ("the diff is not a
+/// navigation and must not animate", `AppShell.refreshPolicy`), and these frames
 /// bypass that door. An un-flagged broadcast frame opts INTO the engine's
 /// `startViewTransition` wrapper, whose update callback starves in a
 /// compositor-starved tab: `callbackPending` sticks and the engine refuses every

@@ -3,31 +3,25 @@ import WebUICore
 // The wire recorder the push suites share.
 //
 // `TurnPresenterWiringTests` reads the markup a turn pushed (its cards);
-// `StreamingDomContractTests` reads the batches themselves — ids, ops, and the
-// door's render bookkeeping at the moment each one crossed. One type, so both
-// suites observe the same seam instead of each keeping a private copy that can
-// drift.
+// `StreamingDomContractTests` reads the batches themselves — ids and ops. One
+// type, so both suites observe the same seam instead of each keeping a private
+// copy that can drift.
 //
-// Render bookkeeping is recorded per batch on purpose: it is the only way to
-// state "a delta batch cost no render" as an ORDERED fact (the door renders,
-// then broadcasts), rather than inferring it from a total.
+// It records BROADCASTS only. It used to carry the door's render bookkeeping as
+// well ("a delta batch cost no render", recorded per batch), which died with the
+// host-side differ in A10b: a structural batch is now a refresh the server
+// performs, so the door has no render to tally. `PushDiffTests` records the
+// refresh/broadcast ORDER instead.
 
-/// Records what a producer pushed, in order, alongside what the push door
-/// rendered for it.
+/// Records what a producer pushed, in order.
 ///
 /// `push` is the sink to hand a `PushEdge`'s `broadcast` (or a `pusher:`
-/// closure); `noteRender` is the tap to call from the door's `render` closure.
-/// A recorder used as a plain pusher simply has no renders.
+/// closure).
 actor PushRecorder {
 
-    /// One broadcast that crossed the wire, with the door's state at that
-    /// moment.
+    /// One broadcast that crossed the wire.
     struct WireBatch: Sendable, CustomStringConvertible {
         let updates: [FragmentUpdate]
-        /// how many renders the door had performed when this batch crossed.
-        let renders: Int
-        /// the markup of the door's last render — nil before the first.
-        let render: String?
 
         var ids: [String] { updates.map(\.id) }
 
@@ -46,12 +40,11 @@ actor PushRecorder {
                     + (update.text.map { " text:\($0.count)b" } ?? "")
                     + "]"
             }.joined(separator: " ")
-            return "renders=\(renders) \(body)"
+            return body
         }
     }
 
     private(set) var log: [WireBatch] = []
-    private var rendered: [String] = []
 
     /// every batch, in wire order.
     var batches: [[FragmentUpdate]] { log.map(\.updates) }
@@ -61,17 +54,12 @@ actor PushRecorder {
     var html: String { flat.map(\.html).joined(separator: "\n") }
     /// the markup in the last batch.
     var lastHTML: String { (batches.last ?? []).map(\.html).joined(separator: "\n") }
-    /// every page the door rendered, in order.
-    var renders: [String] { rendered }
 
     nonisolated var push: @Sendable ([FragmentUpdate]) async -> Void {
         { [weak self] updates in await self?.record(updates) }
     }
 
-    /// the door's render tap — call it from `PushEdge`'s `render` closure.
-    func noteRender(_ markup: String) { rendered.append(markup) }
-
     func record(_ updates: [FragmentUpdate]) {
-        log.append(WireBatch(updates: updates, renders: rendered.count, render: rendered.last))
+        log.append(WireBatch(updates: updates))
     }
 }

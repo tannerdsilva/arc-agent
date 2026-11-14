@@ -10,7 +10,7 @@ import WebUIState
 //
 // The live turn streams into two stable spans (`#live-turn-text`,
 // `#live-turn-thinking`). What keeps a stream alive is not a spelling in the
-// renderer's source — it is what crosses the push door while a turn runs:
+// renderer's source — it is what crosses the producer door while a turn runs:
 //
 //   - the token writer owns those two nodes with `.text` ops. An html replace
 //     re-mounts the node, and the writer's next delta lands in a node it no
@@ -20,24 +20,29 @@ import WebUIState
 //     render produced. An id that resolves nowhere is a dropped update that logs
 //     once and then disappears.
 //   - a token-only stretch of a turn ships no structural frame at all: the two
-//     spans are excluded from the diff, so the render is byte-identical and the
-//     door has nothing to say.
+//     spans are excluded from the refresh policy, so a re-render is
+//     byte-identical and the server has nothing to send.
 //
 // These used to be source greps ("does Actions.swift contain
 // `FragmentUpdate.text(id: "live-turn-text"`?"), which go green with the feature
 // inert and red on any refactor that keeps the behaviour. They are now
 // measurements of a scripted turn's real batches, pushed through a real
-// `PushEdge` — the measured wire for the script below is
+// `PushEdge`.
 //
-//   batch 0  renders=1  8 structural frames: s-open-…, s-menu-…, chat-header,
-//                       chat-scroll, chat-inner, composer-form, composer-input,
-//                       cb-send  (the turn-start boundary)
-//   batch 1  renders=2  live-turn[replace]            (the live turn mounts)
-//   batch 2  renders=3  live-turn-text[text]          (a token batch)
-//   batch 3  renders=3  live-turn-thinking[text]      (a token batch)
-//   batch 4  renders=5  app[replace]                  (the finalize: the live
-//                       turn's removal is the one diff shape the differ cannot
-//                       express as a region, so it escalates to the root)
+// Since A10b the door no longer derives frames: a structural batch is a refresh
+// of every page this host served (`PushEdge.refresh`), and the broadcast carries
+// deltas only. The shape a scripted turn leaves on the door is therefore
+//
+//   refresh                    (turn start: the composer swaps send ⇄ stop)
+//   refresh                    (the live turn mounts)
+//   delta   live-turn-text[text]          (a token batch)
+//   delta   live-turn-thinking[text]      (a token batch)
+//   refresh                    (the finalize: the live turn goes away)
+//
+// No broadcast in that sequence carries a structural update — that is the
+// property this suite owns, and it is what makes re-mounting a token span
+// impossible rather than merely avoided. What each refresh *ships* is the
+// server's decision, and `ProducerRefreshWireTests` asks it over a real socket.
 // ===========================================================================
 
 /// the scripted provider: streaming-only (a non-streaming call is a harness
@@ -145,12 +150,20 @@ extension ArcWebUITestRoot {
 
         // MARK: harness
 
+        /// how many times the door asked the server to re-render the served
+        /// pages. A refresh is the whole of a structural batch now, so this is
+        /// the turn's structural boundary count.
+        private actor RefreshTally {
+            private(set) var count = 0
+            func note() { count += 1 }
+        }
+
         private struct Rig {
             let app: AppState
             let edge: PushEdge
+            /// the broadcasts the door made — deltas only, by contract.
             let wire: PushRecorder
-            /// the page the client holds when the turn starts.
-            let seed: String
+            let tally: RefreshTally
         }
 
         private func session() -> Session {
@@ -191,22 +204,16 @@ extension ArcWebUITestRoot {
             return f
         }
 
-        /// a rig whose door renders the app it describes — the real shell, not a
-        /// synthetic page — and records both sides, in order.
+        /// a rig whose door asks a counter to refresh — the server is not in this
+        /// suite — and records every broadcast.
         private func makeRig(_ app: AppState) async -> Rig {
             let wire = PushRecorder()
+            let tally = RefreshTally()
             let edge = PushEdge(
-                differ: PageDiffer(policy: PushEdge.livePolicy),
-                render: {
-                    let markup = await app.appShell().markup.html
-                    await wire.noteRender(markup)
-                    return markup
-                },
+                refresh: { await tally.note() },
                 broadcast: wire.push
             )
-            let seed = await app.appShell().markup.html
-            edge.seed(seed)
-            return Rig(app: app, edge: edge, wire: wire, seed: seed)
+            return Rig(app: app, edge: edge, wire: wire, tally: tally)
         }
 
         /// reasoning, then two text chunks and one more reasoning delta, each far
@@ -239,22 +246,11 @@ extension ArcWebUITestRoot {
             return await awaitTurn(turn)
         }
 
-        /// whether `markup` carries `id` as an id attribute.
-        private func markup(_ markup: String, carriesID id: String) -> Bool {
-            markup.contains("id=\"\(id)\"")
-        }
-
-        /// the real shell with a live turn on screen, streaming `text` /
-        /// `thinking`. Every clock field is fixed, so two calls differ only in the
-        /// bytes they are told to differ in.
-        private func livePage(workspace: URL, text: String, thinking: String) async -> String {
-            var live = LiveTurn(sessionID: Self.sessionID, userText: "hello", attachments: [])
-            live.assistantText = text
-            live.thinking = thinking
-            live.startedAt = Date(timeIntervalSince1970: 1_700_000_000)
-            let app = AppState(renderFixture: makeFixture(workspace: workspace, liveTurn: live))
-            return await app.appShell().markup.html
-        }
+        // Two helpers stood here and died with the host-side differ (A10b):
+        // `markup(_:carriesID:)` and `livePage(workspace:text:thinking:)`
+        // existed to check a frame against the render the DOOR had made. The
+        // door derives no frames now, and `ProducerRefreshWireTests` asks a real
+        // server for the bytes it ships.
 
         // MARK: - addressability (the ids the streaming push addresses)
 
@@ -308,7 +304,6 @@ extension ArcWebUITestRoot {
         }
 
         // MARK: - the wire contract
-
         @Test("a token write into the streaming spans is a text op, never a replace")
         func tokenWritesAreTextOps() async {
             let app = AppState(renderFixture: makeFixture(workspace: makeWorkspace()))
@@ -317,20 +312,17 @@ extension ArcWebUITestRoot {
             #expect(finished, "the scripted turn must reach its end")
 
             let log = await rig.wire.log
-            let structural = log.filter(\.isStructural)
             let deltas = log.filter(\.isDeltaOnly)
             // floor: a turn that pushed nothing would satisfy every assertion below
             // while proving nothing about the streaming path.
-            #expect(structural.count >= 2,
-                    "the turn must push structure too — got \(structural.count) structural batches")
             #expect(!deltas.isEmpty, "the turn must push at least one token batch — got none")
 
-            // 1. an html replace of either span would re-mount the node and strand
-            //    the writer's next delta. no structural frame may name them.
-            let structuralTargets = structural.flatMap(\.updates).map(\.id)
-            let replacedSpans = structuralTargets.filter { Self.tokenSpans.contains($0) }
-            #expect(replacedSpans.isEmpty,
-                    "a structural frame re-mounted a token-owned span: \(replacedSpans) in \(structuralTargets)")
+            // 1. no broadcast may carry structure at all. a structural frame would
+            //    re-mount the node the delta is about to be written into, and the
+            //    writer's next delta would land in a node it no longer owns.
+            let structural = log.filter(\.isStructural)
+            #expect(structural.isEmpty,
+                    "the door broadcast \(structural.map(\.ids)) — a structural batch is a refresh, never a frame")
 
             // 2. every write that reaches a span is a `.text` op carrying no html —
             //    the characterData write the token writer owns.
@@ -347,78 +339,38 @@ extension ArcWebUITestRoot {
                         "#\(update.id) did not opt out of the view transition — a token-rate write must not animate")
             }
 
-            // 3. a token batch is deltas only: a structural frame riding along would
-            //    re-mount the parent the delta is about to be written into.
+            // 3. a batch carrying a token write is deltas only. true by
+            //    construction now — structure never reaches the broadcast — and
+            //    kept as the wire-level statement a future producer would break by
+            //    broadcasting its own structure.
             for batch in log where batch.updates.contains(where: { Self.tokenSpans.contains($0.id) }) {
                 #expect(batch.isDeltaOnly,
                         "a batch carrying a token write also carried structure: \(batch)")
             }
         }
 
-        @Test("every structural frame addresses a node the page holds")
-        func structuralFramesResolve() async {
+        @Test("a turn's structural boundaries are refreshes, and its token batches are deltas")
+        func boundariesAreRefreshesAndTokensAreDeltas() async {
+            // the door's partition, measured on a real turn: every structural
+            // boundary asks the server to re-render the served pages, and every
+            // broadcast the turn makes is a delta batch.
             let app = AppState(renderFixture: makeFixture(workspace: makeWorkspace()))
             let rig = await makeRig(app)
             let finished = await runScriptedTurn(app, edge: rig.edge)
             #expect(finished, "the scripted turn must reach its end")
 
+            let refreshes = await rig.tally.count
             let log = await rig.wire.log
-            var examined = 0
-            for batch in log where batch.isStructural {
-                // the page the client holds once this batch lands: the door just
-                // rendered it, and the door's frames are regions of that render.
-                let held = batch.render ?? rig.seed
-                for frame in batch.updates {
-                    examined += 1
-                    #expect(markup(held, carriesID: frame.id),
-                            "frame #\(frame.id) resolves nowhere in the page the client holds — a dropped update")
-                    #expect(!frame.html.isEmpty, "frame #\(frame.id) carries no bytes")
-                    #expect(held.contains(frame.html),
-                            "frame #\(frame.id) carries bytes the render did not produce — a producer's html, not the door's")
-                }
-            }
-            // floor: the scan must have seen the turn's frames.
-            #expect(examined >= 8, "the scan examined \(examined) structural frames — it is not reaching the wire")
-        }
-
-        @Test("a token-only change ships no structural frame")
-        func tokenOnlyChangeShipsNoStructuralFrame() async {
-            // The page the client holds, rendered from a live turn. The changed
-            // page is derived from THIS render rather than from a second
-            // `appShell()`: the shell also renders the process's shared log
-            // buffer, which other suites write to in parallel, so two renders can
-            // differ in the log dock and the pair would then be testing that
-            // instead of the spans.
-            let base = await livePage(workspace: makeWorkspace(), text: "tok-a", thinking: "thi-a")
-            let cases: [(span: String, prior: String, next: String)] = [
-                ("live-turn-text", "tok-a", "tok-b"),
-                ("live-turn-thinking", "thi-a", "thi-b"),
-            ]
-
-            for testCase in cases {
-                // the span's own bytes, rewritten — exactly what a token delta
-                // changes in the render (`Span { Text(…) }.id(…)`).
-                let from = ">\(testCase.prior)</span>"
-                let to = ">\(testCase.next)</span>"
-                #expect(base.contains(from),
-                        "#\(testCase.span): the render must carry the span's token text, or the pair is synthetic")
-                let page = base.replacingOccurrences(of: from, with: to)
-                #expect(page != base, "#\(testCase.span): the pair must actually differ")
-
-                // the door: a producer asking it to look during a token-only
-                // stretch must find nothing to ship.
-                let wire = PushRecorder()
-                let edge = PushEdge(
-                    differ: PageDiffer(policy: PushEdge.livePolicy),
-                    render: { page },
-                    broadcast: wire.push
-                )
-                edge.seed(base)
-                await edge.push([])
-                let ids = await wire.batches.map { $0.map(\.id) }
-                #expect(ids.isEmpty,
-                        "#\(testCase.span): a token-only change shipped \(ids) — the span leaked into the diff")
-            }
+            // floor: the turn has at least the live-turn mount and the finalize
+            // boundary. A door that swallowed them would leave the page stale with
+            // every assertion in the suite still green.
+            #expect(refreshes >= 2,
+                    "the turn asked for \(refreshes) refreshes — the door never reached the server")
+            #expect(!log.isEmpty, "the turn broadcast no deltas at all")
+            // bound first: `allSatisfy` takes a throwing closure, and the
+            // `#expect` macro will not carry an unmarked `try` into its expansion.
+            let allDeltas = log.allSatisfy(\.isDeltaOnly)
+            #expect(allDeltas, "a broadcast batch carried structure: \(log.map(\.ids))")
         }
     }
 }

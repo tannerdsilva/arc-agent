@@ -40,18 +40,25 @@ struct QueuedSendChipTests {
         return f
     }
 
-    /// A tiny thread-safe box standing in for the wire (the push door
-    /// broadcasts here).
-    private final class WireBox: @unchecked Sendable {
+    /// The producer door's two sinks, counted. A queued submit answers a
+    /// framework outcome (`.refresh`), so the server re-renders the dispatch
+    /// session's page and neither sink may fire — a producer nudge here would be
+    /// a second diff regime over the same page.
+    private final class DoorCounters: @unchecked Sendable {
         private let lock = NSLock()
-        private var batches: [[FragmentUpdate]] = []
-        func record(_ b: [FragmentUpdate]) {
+        private var refreshes = 0
+        private var broadcasts = 0
+        func refresh() {
             lock.lock(); defer { lock.unlock() }
-            batches.append(b)
+            refreshes += 1
         }
-        var flat: [FragmentUpdate] {
+        func broadcast() {
             lock.lock(); defer { lock.unlock() }
-            return batches.flatMap { $0 }
+            broadcasts += 1
+        }
+        var counts: (refreshes: Int, broadcasts: Int) {
+            lock.lock(); defer { lock.unlock() }
+            return (refreshes, broadcasts)
         }
     }
 
@@ -62,12 +69,10 @@ struct QueuedSendChipTests {
         // `activeTurns[sessionID]`, so seed it through the fixture seam.
         f.activeTurns = ["sess-a": LiveTurn(sessionID: "sess-a", userText: "hi", attachments: [])]
         let app = AppState(renderFixture: f)
-        let box = WireBox()
+        let counters = DoorCounters()
         let edge = PushEdge(
-            differ: PageDiffer(policy: PushEdge.livePolicy),
-            render: { [app] in await app.appShell().markup.html },
-            broadcast: { [box] in await box.record($0) })
-        edge.seed(await app.appShell().markup.html)
+            refresh: { counters.refresh() },
+            broadcast: { _ in counters.broadcast() })
 
         let router = EventRouter()
         let controller = Controller(app: app, push: { await edge.push($0) })
@@ -89,6 +94,9 @@ struct QueuedSendChipTests {
         let page = await app.appShell().markup.html
         #expect(page.contains("queued-sends"),
                 "the refreshed page does not carry the queue chip — the reader never learns a message was queued")
+        let counts = counters.counts
+        #expect(counts == (0, 0),
+                "a queued submit crossed the producer door (\(counts)): the re-render is the server's, not a nudge")
     }
 }
 extension QueuedSendChipTests {
@@ -103,12 +111,10 @@ extension QueuedSendChipTests {
         f.activeTurns = ["sess-a": LiveTurn(sessionID: "sess-a", userText: "hi", attachments: [])]
         f.formValues = ["composer-input": "queued text"]
         let app = AppState(renderFixture: f)
-        let box = WireBox()
+        let counters = DoorCounters()
         let edge = PushEdge(
-            differ: PageDiffer(policy: PushEdge.livePolicy),
-            render: { [app] in await app.appShell().markup.html },
-            broadcast: { [box] in await box.record($0) })
-        edge.seed(await app.appShell().markup.html)
+            refresh: { counters.refresh() },
+            broadcast: { _ in counters.broadcast() })
 
         let router = EventRouter()
         let controller = Controller(app: app, push: { await edge.push($0) })
@@ -128,5 +134,8 @@ extension QueuedSendChipTests {
         // the exact same text from a trailing input frame.
         let draft = await app.settings.composerDrafts["sess-a"]
         #expect(draft?.isEmpty != false, "the queued text must not stay in the draft — one Enter away from a double send")
+        let counts = counters.counts
+        #expect(counts == (0, 0),
+                "a queued submit crossed the producer door (\(counts)): the re-render is the server's, not a nudge")
     }
 }

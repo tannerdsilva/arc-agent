@@ -7,8 +7,7 @@ import WebUI
 import WebUIServer
 import WebUIState
 
-/// The push edge: the door arc's producers push through, standing on no-webui's
-/// `PageDiffer` instead of re-deriving a patch per handler.
+/// The push edge: the door arc's producers push through.
 ///
 /// **What still crosses it, and what no longer does.**
 ///
@@ -25,11 +24,15 @@ import WebUIState
 /// A batch means one of two things, and the door tells them apart rather than
 /// trusting the producer to have:
 ///
-/// - a **structural** op (`nil`/`.replace`) says "the page changed". The frame
-///   the client needs is the difference between what it holds and a *fresh*
-///   render, so the edge renders once and ships the differ's frames. The `html`
-///   the producer sent is ignored: a handler that assembled markup is re-sending
-///   bytes the render already contains, at best identical and at worst stale.
+/// - a **structural** op (`nil`/`.replace`, or an empty batch) says "the page
+///   changed". The client needs the difference between what it holds and a
+///   *fresh* render, and only the server can derive that: it served the page, so
+///   it owns the baseline. The door therefore asks the server to refresh every
+///   page this host served (`refresh`), and the server's own diff decides what
+///   ships. **A structural batch never forwards its own html.** The producer
+///   assembled it before the render that describes the same change, so at best
+///   it is identical and at worst stale; forwarding it would also be a second
+///   diff regime over one page, which is what this door exists to not be.
 /// - a **delta** op (`.text`, `.append`) is a write against a node another
 ///   producer owns — the streaming spans, which `FragmentUpdate.text` rewrites on
 ///   every token. It goes to the wire verbatim, transition flag included;
@@ -37,49 +40,27 @@ import WebUIState
 ///
 /// Structure ships first, deltas second: a delta targets a node the structural
 /// frame may have re-mounted, and the client would log "Element not found" for a
-/// delta that beat its own container.
+/// delta that beat its own container. Both are awaited, in that order.
 final class PushEdge: Sendable {
 
-    /// The diff policy for the producer batches that still cross this door.
+    /// Ask the server to re-render every page this host served and ship what
+    /// moved.
     ///
-    /// **`config.refreshPolicy` carries this same value** (`serverConfig`
-    /// below), so the server's re-render under `.refresh` and this door's
-    /// render agree byte for byte about which regions ship. One policy, two
-    /// doors: an interaction and a producer push name the same regions.
-    ///
-    /// `elementID` identity is the only one that is a real address: the engine
-    /// resolves a frame with `getElementById`, and the shell is full of elements
-    /// that carry a component attribute but no `id`. `.finest` coverage is what
-    /// keeps a chrome change from dragging `#app` onto the wire; `.nearestTrackedAncestor`
-    /// makes an appeared node a parent replace instead of a whole page; the two
-    /// excluded spans are the token-owned ones, whose bytes must not make their
-    /// ancestors look changed. `transition: false` is a stated policy, not a `nil`
-    /// delegation — the diff is not a navigation and must not animate as one.
-    static let livePolicy = RegionPolicy(
-        identity: .elementID,
-        coverage: .finest,
-        escalation: .nearestTrackedAncestor,
-        excluded: ["live-turn-text", "live-turn-thinking"],
-        transition: false
-    )
-
-    private let differ: PageDiffer
-    /// the markup a fresh `app.appShell()` answers — the root element's own
-    /// bytes, never a document (a document's diff is scoped to `<body>`, and the
-    /// frames would then name a different root than every later render).
-    private let render: @Sendable () async -> String
-    /// the wire. A closure, not a `WebUIServer`: the door's whole job is to decide
-    /// what crosses, and a test that has to conjure a live server to observe that
-    /// decision is a test that will not be written.
+    /// A closure, not a `WebUIServer`: the door's whole job is to decide which
+    /// half of a batch costs a refresh, and a test that has to conjure a live
+    /// server to observe that decision is a test that will not be written. The
+    /// host wires it to `server.refresh(session:)` over the render tokens the
+    /// page route recorded; a suite wires it to a counter.
+    private let refresh: @Sendable () async -> Void
+    /// the wire for the half that crosses verbatim. Also a closure, for the same
+    /// reason.
     private let broadcast: @Sendable ([FragmentUpdate]) async -> Void
 
     init(
-        differ: PageDiffer,
-        render: @escaping @Sendable () async -> String,
+        refresh: @escaping @Sendable () async -> Void,
         broadcast: @escaping @Sendable ([FragmentUpdate]) async -> Void
     ) {
-        self.differ = differ
-        self.render = render
+        self.refresh = refresh
         self.broadcast = broadcast
     }
 
@@ -91,23 +72,14 @@ final class PushEdge: Sendable {
     /// failure would look like a dropped keystroke rather than a dropped batch.
     func push(_ updates: [FragmentUpdate]) async {
         let deltas = updates.filter { $0.op == .text || $0.op == .append }
-        // an empty batch is a producer saying "look at the page": the whole point of
-        // the nudge. it costs one render and ships nothing unless bytes moved.
-        let hasStructure = updates.isEmpty || updates.contains { $0.op == nil || $0.op == .replace }
+        // an empty batch is a producer saying "look at the page": the whole point
+        // of the nudge. it costs one refresh, and the server ships nothing unless
+        // the render moved bytes.
+        let structural = updates.isEmpty || updates.contains { $0.op == nil || $0.op == .replace }
 
-        if hasStructure {
-            let frames = differ.messages(forMarkup: await render(), root: "app")
-            // empty means "nothing moved" — the render that triggered this push
-            // produced the bytes the client already holds, so there is no frame and
-            // no reason to wake the wire.
-            if !frames.isEmpty { await broadcast(frames) }
-        }
+        if structural { await refresh() }
         if !deltas.isEmpty { await broadcast(deltas) }
     }
-
-    /// Declare what the client already holds — the page the host just served — so
-    /// the first patch is a region instead of a whole-root replace.
-    func seed(_ markup: String) { differ.seed(withMarkup: markup) }
 }
 
 /// The Web UI host: boots the app state, serves the page through no-webui's
@@ -200,16 +172,13 @@ public struct WebUIHost: Service {
             // token-bound budget; the socket body limit stays off so large
             // request payloads elsewhere are not truncated (user request).
             maxBodyBytes: .max,
-            // The server owns the baseline a `HandlerOutcome.refresh` diffs
-            // against, and this is the only dial that tells it which regions a
-            // re-render may ship. `.elementID` identity is the only one that is
-            // a real address (the engine resolves a frame with
-            // `getElementById`); `.finest` keeps a chrome change from dragging
-            // `#app` onto the wire; the two excluded spans are the token-owned
-            // ones, whose bytes must not make their ancestors look changed.
-            // Identical to `PushEdge.livePolicy`, so the two doors that can
-            // re-render this page cannot disagree about which regions ship.
-            refreshPolicy: PushEdge.livePolicy,
+            // The server owns the baseline a re-render diffs against, and this is
+            // the only dial that tells it which regions a re-render may ship.
+            // `HandlerOutcome.refresh` and a producer refresh both diff here, so
+            // one value keeps the two doors from ever disagreeing about what
+            // crosses — `AppShell` owns it because it also owns the page region
+            // those bytes land in.
+            refreshPolicy: AppShell.refreshPolicy,
         )
     }
 
@@ -437,10 +406,10 @@ public struct WebUIHost: Service {
 
         // The one push edge. The producers that still cross this door — the turn
         // loop's structural boundaries and its token deltas — get the door's own
-        // decision: a structural batch is re-derived from a fresh render, a delta
-        // is forwarded verbatim. Handlers no longer cross it: `Controller.changed()`
-        // answers `HandlerOutcome.refresh`, and the server re-renders the dispatch
-        // session's page itself (no-webui 2.12.0).
+        // decision: a structural batch asks the server to re-render the pages it
+        // served, a delta is forwarded verbatim. Handlers no longer cross it:
+        // `Controller.changed()` answers `HandlerOutcome.refresh`, and the server
+        // re-renders the dispatch session's page itself (no-webui 2.12.0).
         //
         // Three producers do NOT cross it, by design: the log and workspace
         // streamers broadcast their fragments straight to `server.broadcast`
@@ -448,24 +417,36 @@ public struct WebUIHost: Service {
         // the token stream's `FragmentUpdate.text` deltas target nodes another
         // producer owns.
         //
-        // The boot shell is captured once and serves twice: the log line's byte
-        // count, and the differ's seed. The seed is the shell's ELEMENT markup
-        // (`#app`), not the document — every later `render()` answers `#app`, and
-        // a document's diff is scoped to `<body>`. Seeding a document would diff
-        // two different roots on the first push and ship the whole page.
+        // The boot shell is captured once for the boot log line's byte count.
         let bootShell = await app.appShell().markup
         let bootPageBytes = makeDocument(
             bootShell,
             AppShell.themeAttrs(await app.themeDefaults())
         ).markup.html.utf8.count
 
+        // Every page this host served is a structural refresh target.
+        //
+        // `uploadTokens` records each render token the page route handed out,
+        // and the token IS the render session (`RenderSessionID(rawValue:)`), so
+        // the store is the registry of "pages this host rendered". One structural
+        // batch therefore asks the server to re-render each of them — the same
+        // reach the retired single-differ broadcast had — and each page gets its
+        // own diff against the baseline the server recorded when it served it. A
+        // page that has not loaded yet is simply not in the set; a page older
+        // than the store's capacity is not refreshed until it reloads (a daemon
+        // runs for weeks, and an unbounded registry is a slow leak).
+        //
+        // `server.refresh(session:)` is a no-op before `start()` — the same shape
+        // `broadcast` has — so a push that races boot costs nothing.
         let edge = PushEdge(
-            differ: PageDiffer(policy: PushEdge.livePolicy),
-            render: { [app] in await app.appShell().markup.html },
+            refresh: { [server] in
+                for token in await uploadTokens.snapshot() {
+                    await server.refresh(session: RenderSessionID(token))
+                }
+            },
             broadcast: { [server] updates in await server.broadcast(updates) }
         )
-        edge.seed(bootShell.html)
-        let controller = await Controller(app: app, push: { updates in
+        let controller = Controller(app: app, push: { updates in
             await edge.push(updates)
         })
         await controller.wireAll(router)

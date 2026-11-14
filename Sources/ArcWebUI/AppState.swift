@@ -2655,7 +2655,7 @@ actor AppState {
     /// verbatim — same shape as `toastsShell()` in the page.
     func toastFragments() -> [FragmentUpdate] {
         // `transition: false` — same contract as `fragment()` (see Helpers.swift):
-        // this broadcast bypasses the differ's stamp, and an un-flagged frame
+        // this broadcast bypasses the refresh policy's stamp, and an un-flagged frame
         // wedges the engine's patcher when the transition callback starves.
         [FragmentUpdate(id: "toasts", html: toastsShell().markup.html, transition: false)]
     }

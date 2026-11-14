@@ -79,17 +79,18 @@ extension AppState {
 
     /// a structural change happened; the push edge decides what crosses the wire.
     ///
-    /// the empty batch is the signal, not a payload: `PushEdge` derives every
-    /// replace from a fresh render and never forwards a producer's html. an empty
-    /// batch still asks the edge to look (see its `hasStructure`), which is why
-    /// this is not a no-op.
+    /// the empty batch is the signal, not a payload: `PushEdge` asks the server to
+    /// re-render every page this host served and never forwards a producer's
+    /// html. an empty batch still asks the door to look (see its `structural`),
+    /// which is why this is not a no-op.
     ///
     /// producers that can reach a dispatch spell this through
     /// `Controller.changed()`, which answers `.refresh`: the server re-renders
     /// the dispatch session's page against the baseline it served and ships the
     /// diff itself (no-webui 2.12.0). a producer with no dispatch session — the
     /// turn loop, a background task — has no page to name, so it hands this
-    /// empty batch to the pusher it was given and the edge looks instead.
+    /// empty batch to the pusher it was given and the door refreshes the served
+    /// pages by their recorded render tokens instead.
     func structuralChange() -> [FragmentUpdate] { [] }
 
     func setCreateSkill(_ on: Bool) {
@@ -2215,7 +2216,7 @@ extension AppState {
     /// Best-effort chat-title generation via the title_gen auxiliary model.
     /// Only fires when a title_gen assignment exists and the chat has no
     /// custom title yet; the default stays the first-message auto title.
-    /// Stores the title and nudges the door: the render names the topbar and
+    /// Stores the title and nudges the door: the re-render names the topbar and
     /// panel regions that moved, and leaves the streaming chat area untouched.
     func maybeGenerateTitle(
         sessionID: String,

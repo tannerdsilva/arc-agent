@@ -253,8 +253,8 @@ extension AppState {
 
     func notifyQueueView(_ pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void) async {
         guard activeTabID == "todos" else { return }
-        // A nudge: the queue's own view is `#main`'s todos panel, and the door
-        // derives it from a fresh render instead of being handed its html here.
+        // A nudge: the queue's own view is `#main`'s todos panel, and the server
+        // re-renders it instead of being handed its html here.
         await pusher(structuralChange())
     }
 

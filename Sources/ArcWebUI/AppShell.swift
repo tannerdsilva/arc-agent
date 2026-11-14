@@ -2,6 +2,7 @@ import WebUI
 import WebUICore
 import WebUIDesignSystem
 import WebUIServer
+import WebUIState
 
 /// The page template and the shipped assets: the shell every served page renders
 /// through, and the two `WebUIAsset`s the server answers with.
@@ -12,6 +13,35 @@ public enum AppShell {
     /// server patches this element when a re-render cannot be expressed as a
     /// region diff; without it, it reloads the document instead.
     static let pageRegionID = "webui-page"
+
+    /// The policy every re-render of this page is diffed under.
+    ///
+    /// One value, one owner of the wire contract. `WebUIServerConfig.refreshPolicy`
+    /// carries it, so the server's re-render — a `HandlerOutcome.refresh` and a
+    /// producer refresh alike — decides which regions ship from the same rule the
+    /// page was recorded under. A second policy anywhere would be a second diff
+    /// regime over one page, and the two baselines would drift.
+    ///
+    /// - `identity: .elementID` is the only identity that is a real address: the
+    ///   engine resolves a frame with `getElementById`, and the shell is full of
+    ///   elements that carry a component attribute but no `id`.
+    /// - `coverage: .finest` is what keeps a chrome change from dragging `#app`
+    ///   onto the wire: a region ships only when its own bytes moved.
+    /// - `escalation: .nearestTrackedAncestor` makes an appeared node a parent
+    ///   replace instead of a whole page.
+    /// - `excluded` names the two token-owned spans: `FragmentUpdate.text` writes
+    ///   them on every streaming token, so their bytes must not make their
+    ///   ancestors look changed — and must never ship as a replace, which would
+    ///   re-mount the node and strand the token writer.
+    /// - `transition: false` is a stated policy, not a `nil` delegation — a diff
+    ///   is not a navigation and must not animate as one.
+    static let refreshPolicy = RegionPolicy(
+        identity: .elementID,
+        coverage: .finest,
+        escalation: .nearestTrackedAncestor,
+        excluded: ["live-turn-text", "live-turn-thinking"],
+        transition: false
+    )
 
     /// `data-scheme`/`data-theme` for `<html>`, escaped like every other attribute the
     /// framework emits.
@@ -111,9 +141,9 @@ public enum AppShell {
             // style of its own (`#app` is viewport-height, not parent-height).
             //
             // `data-webui-transition="off"` is the engine's page-level opt-out,
-            // and it states the same policy this host already declares on every
-            // diff it derives (`PushEdge.livePolicy.transition == false`: "the
-            // diff is not a navigation and must not animate"). It is load
+            // and it states the same policy this host declares on every diff it
+            // derives (`refreshPolicy.transition == false`: "the diff is not a
+            // navigation and must not animate"). It is load
             // bearing for the whole-page patch: the server builds that frame
             // itself (`WebUIServer.diffFrame`) and does not stamp the policy's
             // transition flag on it, so without this the client wraps the patch

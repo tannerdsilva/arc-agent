@@ -50,6 +50,18 @@ actor UploadTokenStore {
         }
     }
 
+    /// Every token currently valid, oldest first — the pages this host served
+    /// and has not evicted.
+    ///
+    /// This is the producer door's registry of "pages this host rendered": a
+    /// render token IS a render session (`RenderSessionID(rawValue:)`), so a
+    /// structural batch that arrives with no dispatch session to borrow — the
+    /// turn loop's boundaries, a background job — names each of these to
+    /// `WebUIServer.refresh(session:)`. A snapshot rather than a stream: the
+    /// caller needs one pass per push, and the set can change under it without
+    /// the caller's pass becoming wrong.
+    func snapshot() -> [String] { order }
+
     /// True when `token` is one this host served and has not evicted.
     func contains(_ token: String) -> Bool {
         !token.isEmpty && members.contains(token)
