@@ -19,16 +19,15 @@ extension ArcWebUITestRoot {
             return try String(contentsOfFile: path, encoding: .utf8)
         }
 
-        /// A15 (no-webui 2.17.0): the ENGINE owns both the gesture and the
-        /// clear. The composer states them on its own open tag; the overlay
-        /// registers no Enter handler and no submit clear. What stays is the
-        /// one consequence the engine cannot express: its draft store re-fills
-        /// an EMPTY `[data-draft-id]` field on the next replacing patch, and
-        /// `onDocSubmit` clears the control, not `webui-draft:<identity>` —
-        /// measured, the submitted text came back ~1.3 s after Enter. The
-        /// overlay's remaining submit listener captures the payload in the
-        /// CAPTURE phase (before the engine reads and clears it) so a restored
-        /// echo of exactly that text can be cleared again.
+        /// A15 (no-webui 2.17.0) + A16d (3.1.0): the ENGINE owns the gesture, the
+        /// clear and the draft store. `data-submit-on-enter="plain"` submits,
+        /// `data-clear-on-submit` empties the field, and 3.1.0's `onDocSubmit`
+        /// drops `webui-draft:<identity>` for a cleared
+        /// `[data-clear-on-submit][data-draft-id]` control — so the post-submit
+        /// replacing patch can no longer hand the sent text back. Arc's half is
+        /// the two attributes on the composer's open tag; the overlay registers
+        /// no submit listener at all (the A15 capture-phase echo guard is
+        /// deleted with the seam it fed).
         @Test("the composer states submit-on-enter and clear-on-submit; the engine owns the submit path")
         func submitAndClearAreTheEngines() async throws {
             let source = try Self.overlaySource()
@@ -42,12 +41,12 @@ extension ArcWebUITestRoot {
                 "the engine clears the field on the submit event"
             )
             #expect(
-                !source.contains("window.addEventListener('submit'"),
-                "the overlay must not clear on submit: the engine's onDocSubmit does"
+                !source.contains("addEventListener('submit'"),
+                "the submit path (and the draft store it now clears) is the engine's; a client listener here is a second rule"
             )
             #expect(
-                source.contains("document.addEventListener('submit'") && source.contains("  }, true);"),
-                "the echo guard's memo must be captured before the engine reads and clears the control"
+                !source.contains("submittedComposerText"),
+                "3.1.0 clears the draft store with the control, so the A15 echo guard has no job left"
             )
             #expect(
                 !source.contains("form.requestSubmit()"),

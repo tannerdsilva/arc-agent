@@ -391,7 +391,7 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case off = "off"
 	case on = "on"
 	case once = "once"
-	case `open` = "open"
+	case open = "open"
 	case outlineCloseBtn = "outline-close-btn"
 	case outlineEmpty = "outline-empty"
 	case outlineEntries = "outline-entries"

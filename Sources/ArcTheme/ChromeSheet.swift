@@ -2884,12 +2884,11 @@ public static let css: String = """
       box-shadow: var(--shadow);
       padding: 5px;
     }
-    /* the row menu's open state is server-rendered `data-open` (the ⋮ dispatches
-       to the server; the engine's dismiss stack owns Escape / outside click).
-       `.open` stays for the workspace panel's own ⋮ menu (`#ws-menu`), whose two
-       rows are static and whose state is still the overlay's — it is not the
-       chat row menu and no row-map entry owns it. */
-    .chat-menu[data-open], .chat-menu.open { display: flex; }
+    /* the menu's open state is server-rendered `data-open`: the ⋮ (row and
+       workspace both) dispatches to the server's one-render latch and the
+       engine's dismiss stack owns Escape / outside click. There is no `.open`
+       client state left (A16d retired the workspace menu's overlay toggle). */
+    .chat-menu[data-open] { display: flex; }
     .chat-menu button {
       display: flex; align-items: center; gap: 9px;
       border: none; background: transparent;

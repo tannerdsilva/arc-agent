@@ -380,6 +380,20 @@ extension AppState {
         rowMenuShowsCategories = false
     }
 
+    /// Arm the workspace ⋮ menu for the next workspace-panel render (A16d).
+    /// Same contract as `openRowMenu`: the ⋮ is an OPENER, the engine's dismiss
+    /// stack closes it client-side, so the server states one open render and
+    /// every later render states it closed.
+    func armWsMenu() {
+        wsMenuSerial += 1
+        wsMenuArmed = wsMenuSerial
+    }
+
+    /// Arm the composer's one-render `FocusInto` (the new-chat caret, A16d).
+    func armComposerFocus() {
+        composerFocusArmed = true
+    }
+
     /// Mark the HTTP/WS server as bound (shown in the profile card).
     func markDaemonUp() {
         daemonRunning = true

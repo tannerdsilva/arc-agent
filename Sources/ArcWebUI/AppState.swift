@@ -974,6 +974,22 @@ actor AppState {
     /// so the menu must be re-armed on the same render that flips this.
     var rowMenuShowsCategories = false
 
+    /// The workspace ⋮ menu the next workspace-panel render emits as open — the
+    /// same one-render latch (A16d). The menu's rows are static server markup
+    /// and the open state was the overlay's `.open` class; it is `data-open` +
+    /// `data-dismiss` now, so the engine's dismiss stack owns closing and the
+    /// server only states the click's open render. The serial makes a re-open
+    /// after a client dismissal a byte-different render.
+    var wsMenuArmed: Int?
+    var wsMenuSerial = 0
+
+    /// Arm the composer's `data-focus-into` for the next composer render — the
+    /// new-chat caret (UX-45). `FocusOnAppear` cannot cover this path: the `+`
+    /// survives the patch and holds focus, and the behaviour deliberately never
+    /// steals from a live control. The latch is consumed by `composerHTML()`, so
+    /// the declarative focus statement exists for exactly one render.
+    var composerFocusArmed = false
+
     var wsSelectQuery = ""
     var modelSelectQuery = ""
     /// Settings → Storage: staged medium, connection form, picker state.

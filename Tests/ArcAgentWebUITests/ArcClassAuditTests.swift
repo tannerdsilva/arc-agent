@@ -28,9 +28,9 @@ extension ArcWebUITestRoot {
 		/// the tokens the enum deliberately does not carry.
 		///
 		/// empty, and that is the measured answer rather than an omission: every
-		/// one of the 618 tokens the sheet declares can be a case. the two whose
-		/// camelCase name is a swift keyword (`open`, `switch`) are backticked and
-		/// still spell `.open`/`.switch` at a call site, so they need no exception.
+		/// one of the tokens the sheet declares can be a case. the one whose
+		/// camelCase name is a swift keyword (`switch`) is backticked and still
+		/// spells `.switch` at a call site, so it needs no exception.
 		///
 		/// a name belongs here only when it cannot be a case at all — the shape
 		/// that would justify one is a class no rule declares, added only by client

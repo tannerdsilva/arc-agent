@@ -75,6 +75,12 @@ struct ComposerText: WebUI.View {
         // the submit event. A textarea opts in by value, never by presence.
         attributes += SubmitOnEnterAttribute(mode: .plain).attributeText
         attributes += ClearOnSubmitAttribute().attributeText
+        // focus on appearance (no-webui 3.1.0, A16d): boot and every patch that
+        // inserts/replaces this textarea put the caret here when NOTHING holds
+        // focus — the new-chat click and the post-submit re-render both land
+        // here, and a reader mid-field elsewhere is never interrupted. It
+        // retires the overlay's new-chat caret and the post-patch marker seam.
+        attributes += FocusOnAppearAttribute().attributeText
         buffer.beginElement("textarea", attributes)
         buffer.endOpenTag()
         buffer.appendEscaped(value)

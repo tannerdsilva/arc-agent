@@ -1184,12 +1184,14 @@ extension ArcWebUITestRoot {
                                        options: .regularExpression).map { String(html[$0]) }
             #expect(cancelTag?.contains("data-dismiss") == true,
                     "Cancel must be the [data-dismiss] control the engine's Escape fires — never Delete")
-            // focus ENTERS and RETURNS by emission at 2.14.0: `autofocus` is the
-            // HTML flush on insertion (F3 — no behavior moves focus into a patched
-            // dialog), and `data-focus-return` names the opener the engine focuses
-            // once the dialog's removal patch lands. Neither is the overlay's.
-            #expect(cancelTag?.contains("autofocus") == true,
-                    "without `autofocus` the patched-in dialog gets no focus at all")
+            // focus ENTERS and RETURNS by emission: 3.1.0's `FocusInto` on the
+            // dialog's region root is the entry (first and every later open —
+            // `autofocus` was once per document), and `data-focus-return` names
+            // the opener the engine focuses once the removal patch lands.
+            #expect(!(cancelTag?.contains("autofocus") ?? false),
+                    "`autofocus` is once per document — the second open would strand focus")
+            #expect(html.contains("data-focus-into=\"modal-cancel\""),
+                    "the dialog's region root must carry the 3.1.0 entry declaration")
             #expect(cancelTag?.contains("data-focus-return=") == true,
                     "Cancel must name the control focus returns to — the engine's opener memo stays empty without it")
             // Escape with focus INSIDE the dialog and the Tab wrap are the
@@ -1987,11 +1989,12 @@ extension ArcWebUITestRoot {
                 kind: "chat", id: "sess-a",
                 title: "Delete conversation?",
                 body: "The chat “A” will be deleted.")
-            let cancel = openTag(await AppState(renderFixture: armed).modalHTML().markup.html, "modal-cancel")
+            let html = await AppState(renderFixture: armed).modalHTML().markup.html
+            let cancel = openTag(html, "modal-cancel")
             #expect(cancel?.contains("data-focus-return=\"s-menu-\(enc("sess-a"))\"") == true,
                     "a chat delete must return focus to the row's ⋮ button, not the menu entry it was armed from (UX-08)")
-            #expect(cancel?.contains("autofocus") == true,
-                    "the dialog must carry its entry path (`autofocus`) — the patch that inserts it moves no focus by itself (UX-08)")
+            #expect(html.hasPrefix("<div id=\"modal-overlay\"") && html.contains("data-focus-into=\"modal-cancel\""),
+                    "the dialog's region root must carry `data-focus-into=\"modal-cancel\"` — 3.1.0's entry path (UX-08)")
         }
 
         // MARK: - UX-07 (2026-10-18 wave 2) collapse the rail on narrow widths
@@ -2228,12 +2231,21 @@ extension ArcWebUITestRoot {
             #expect(graph.contains("peak "), "the peak callout carries the number once")
         }
 
-        @Test("form fragments can ask the post-patch seam for the caret")
-        func formFocusHandoff() {
-            #expect(Self.overlay.contains("data-focus-after-patch"),
-                    "overlay must honour data-focus-after-patch (round-3 UX-34/35)")
-            #expect(Self.views.contains("data-focus-after-patch"),
-                    "the add-card / skill forms must request focus after a patch")
+        @Test("form fragments take the caret through the engine's FocusOnAppear")
+        func formFocusHandoff() async {
+            let views = Self.views
+            // 3.1.0 replaced the `[data-focus-after-patch]` seam consumer: the
+            // add-card form and the first-invalid skill field ask with the
+            // behaviour, and the composer carries it too (the new-chat caret).
+            #expect(!views.contains("data-focus-after-patch"),
+                    "the retired post-patch marker is back — `FocusOnAppear` owns the consequence")
+            #expect(views.contains("FocusOnAppear().attribute()"),
+                    "the form fragments must request focus through the typed behaviour")
+            let composer = await RenderedMarkup.composer()
+            #expect(composer.contains("data-focus-on-appear"),
+                    "the composer textarea must carry `data-focus-on-appear` (boot + new-chat caret)")
+            #expect(!Self.overlay.contains("data-focus-after-patch"),
+                    "the overlay must not consume the retired marker")
         }
 
         @Test("the skip link carries the engine's skip target")

@@ -295,9 +295,15 @@ extension AppState {
                             .id("modal-title")
                         Paragraph(req.body)
                         Div(class: .modalActions) {
+                            // `tabindex="0"` is explicit because `FocusInto` adds
+                            // `tabindex="-1"` to a target that has none — on a
+                            // button that would remove the dialog's only tab stop
+                            // from the engine's Tab-wrap set (framework defect,
+                            // 3.1.1 candidate: skip the fallback for natively
+                            // focusable elements).
                             ArcButton("Cancel", id: "modal-cancel", component: nil, class: .ghostBtn,
                                       extraAttributes: DismissStack().attribute().attributeText
-                                          + confirmFocusReturn(req) + " autofocus")
+                                          + confirmFocusReturn(req) + " tabindex=\"0\"")
                             ArcButton("Delete", id: "modal-confirm", component: nil, class: .dangerBtn)
                         }
                         .wire("modal")
@@ -306,6 +312,14 @@ extension AppState {
                     .aria(.modal(.yes))
                     .aria(.labelledby("modal-title"))
                 }
+                // the ENTRY path is 3.1.0's `FocusInto`: the dialog is inserted
+                // by a patch, and the binder focuses its Cancel when live focus
+                // is vacant or outside this region. Unlike `autofocus` (once per
+                // document), it fires on the first AND every later open. It sits
+                // on the overlay root — a fresh element whose chain carries no
+                // other modifier, so the `modalHTML()` render-stack cliff the
+                // Cancel button's `extraAttributes` works around is untouched.
+                .attribute(FocusInto(id: "modal-cancel").attribute())
             }
         }
     }
@@ -531,10 +545,13 @@ extension AppState {
             if let pane = contextPane {
                 Div(id: "ctx-pane-overlay", class: .modalOverlay) {
                     Div(id: "ctx-pane-card", class: .ctxPaneCard) {
+                        // tabindex="0": FocusInto would otherwise stamp `-1`
+                        // on this button and drop it from the Tab wrap (see the
+                        // confirm Cancel's note).
                         ArcButton(id: "ctx-pane-close", component: nil, class: ClassName(.ghostBtn, .ctxPaneClose),
                                   extraAttributes: DismissStack().attribute().attributeText
                                       + FocusReturn(id: "ctx-chip-summary").attribute().attributeText
-                                      + " autofocus") {
+                                      + " tabindex=\"0\"") {
                             WebUIIcon(.x, size: .small)
                         }
                         Heading("Context breakdown", level: .h3)
@@ -562,6 +579,11 @@ extension AppState {
                     .aria(.labelledby("ctx-pane-title"))
                     .control(id: "ctxpane", perform: contextPaneBoundary)
                 }
+                // entry (A16d): `FocusInto` on the inserted region root — first
+                // and every later open, not `autofocus`'s once. Same placement
+                // as the confirm dialog: the overlay root, whose chain carries
+                // no other modifier.
+                .attribute(FocusInto(id: "ctx-pane-close").attribute())
             }
         }
     }
@@ -2886,6 +2908,10 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
         // states it closed — the engine's dismissal removes `data-open`
         // client-side, so a durable server copy would re-open it on the next
         // patch of this region.
+        // the new-chat focus latch is consumed by this render too: `+` arms it,
+        // this render states `data-focus-into`, and no later render can.
+        let focusComposer = composerFocusArmed
+        composerFocusArmed = false
         let openPopover = composerPopover
         composerPopover = nil
         let openSerial = composerPopoverSerial
@@ -2999,6 +3025,7 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
             .dismissibleOpen(openPopover == .file ? openSerial : nil)
         }
         .id("composer-wrap")
+        .focusInto(focusComposer ? "composer-input" : nil)
     }
 
     // MARK: Mid-stream queue chips (UX-04)
@@ -3876,7 +3903,7 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                     field
                         .aria(.invalid(true))
                         .aria(.describedby(describedBy))
-                        .data("focus-after-patch", "")
+                        .attribute(FocusOnAppear().attribute())
                 } else {
                     field
                         .aria(.invalid(true))
@@ -5954,8 +5981,11 @@ extension AppState {
                             ("data-component-id", "kb-addcard-name"),
                             ("class", addErr == nil ? "text-input" : "text-input input-invalid"),
                             ("aria-invalid", addErr == nil ? "false" : "true"),
-                            ("data-focus-after-patch", ""),
                           ] + describedBy)
+                        // the form lands by patch: take the caret when nothing
+                        // holds it (3.1.0 `FocusOnAppear`, the retired
+                        // retired post-patch marker consumer's job).
+                        .attribute(FocusOnAppear().attribute())
                     Span { Text(addErr ?? "") }
                         .id("kb-addcard-err")
                         .addClass(.inlineErr)
@@ -6362,6 +6392,13 @@ extension AppState {
 
     /// The right-hand workspace panel (same width as the left panel).
     func workspacePanelHTML() -> some WebUI.View {
+        // the workspace ⋮ menu is a ONE-RENDER latch (A16d), the same shape as
+        // `composerPopover`/`rowMenu`: the ⋮ arms it, this render states
+        // `data-open`, and every later render states it closed. The engine's
+        // dismiss stack owns Escape and the outside click, so there is no
+        // client toggle and no `.open` class left to keep in sync.
+        let wsMenuOpen = wsMenuArmed
+        wsMenuArmed = nil
         // ws-enter plays the slide-in animation only on the open transition
         // (set right after toggling open); the flag is consumed/reset here so
         // background re-renders of an already-open panel don't re-animate.
@@ -6414,6 +6451,7 @@ extension AppState {
                                 Text("Show hidden files")
                             }
                         }
+                        .dismissibleOpen(wsMenuOpen)
                     }
                     .wire(ComponentID("workspace"))
                     // the header ✕ is the panel's single close control while open

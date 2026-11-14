@@ -15,7 +15,7 @@ import WebUICore
 /// parameter type, and leading-dot spelling resolves against these members
 /// instead of against a concrete `ArcClass` parameter added per element.
 ///
-/// two case names are keywords (`open`, `switch`) and are declared backticked,
+/// one case name is a keyword (`switch`) and is declared backticked,
 /// exactly as `ArcClass` declares them.
 
 extension ClassName {
@@ -370,7 +370,7 @@ extension ClassName {
 	public static var off: ClassName { ClassName(ArcClass.off.token) }
 	public static var on: ClassName { ClassName(ArcClass.on.token) }
 	public static var once: ClassName { ClassName(ArcClass.once.token) }
-	public static var `open`: ClassName { ClassName(ArcClass.`open`.token) }
+	public static var open: ClassName { ClassName(ArcClass.open.token) }
 	public static var outlineCloseBtn: ClassName { ClassName(ArcClass.outlineCloseBtn.token) }
 	public static var outlineEmpty: ClassName { ClassName(ArcClass.outlineEmpty.token) }
 	public static var outlineEntries: ClassName { ClassName(ArcClass.outlineEntries.token) }

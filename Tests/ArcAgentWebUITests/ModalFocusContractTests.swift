@@ -21,9 +21,10 @@ import ArcAgentCore
 //    removal by the closing patch is what makes `restoreRemovedOpener` focus
 //    `openerMemo[<removed control id>]`, i.e. the opener, re-queried by id
 //    after the patch replaced it.
-// entry is `autofocus` on that same close control: the dialog is inserted by a
-// patch, and the HTML autofocus flush is the only entry path no-webui ships
-// (F3 — there is no `FocusInto` behavior at 2.14.0); the engine's
+// entry is `FocusInto(id:)` on the dialog's region ROOT (no-webui 3.1.0, A16d):
+// the dialog is inserted by a patch and the binder focuses the named control
+// when live focus is vacant or outside the region — the first open AND every
+// later one, unlike `autofocus`'s once-per-document flush (F3). The engine's
 // `.modal-overlay` keydown trap then keeps Tab inside the card, and Escape
 // still fires the layer's `[data-dismiss]` control.
 //
@@ -121,8 +122,13 @@ extension ArcWebUITestRoot {
             #expect(cancel != nil, "the dialog's Cancel did not render")
             #expect(cancel?.contains("data-focus-return=\"\(openerID)\"") == true,
                     "Cancel must name the control focus returns to — here the workspace ✕ (`data-focus-return=\"\(openerID)\"`). a bare opener id or a `modal-overlay` value leaves focus on <body> after the close patch")
-            #expect(cancel?.contains("autofocus") == true,
-                    "Cancel must carry `autofocus`: the dialog is inserted by a patch and the HTML autofocus flush is the only entry path at 2.14.0 (F3)")
+            #expect(cancel?.contains("autofocus") == false,
+                    "Cancel must NOT carry `autofocus`: it fires once per document, so the second open would leave focus on the opener (A12 row (f))")
+            let overlay = Self.openTag(html, id: "modal-overlay")
+            #expect(overlay?.contains("data-focus-into=\"modal-cancel\"") == true,
+                    "the dialog's region root must declare `data-focus-into=\"modal-cancel\"` — 3.1.0's entry path, first and every later open")
+            #expect(cancel?.contains("tabindex=\"0\"") == true,
+                    "Cancel must state tabindex=\"0\": FocusInto stamps `-1` on a target that has none, which would drop the dialog's only tab stop from the engine's Tab wrap")
             #expect(cancel?.contains("data-dismiss") == true,
                     "Cancel must stay the layer's `[data-dismiss]` control — the engine's Escape fires it, and Delete must never be the one Escape presses")
             #expect(Self.openTag(html, id: "modal-confirm")?.contains("data-focus-return") == false,
@@ -228,8 +234,12 @@ extension ArcWebUITestRoot {
             let close = String(views[closeStart.lowerBound..<closeEnd.lowerBound])
             #expect(close.contains("FocusReturn(id: \"ctx-chip-summary\").attribute().attributeText"),
                     "the pane's close must declare `data-focus-return=\"ctx-chip-summary\"` — without it Escape/close leaves focus on <body>")
-            #expect(close.contains("\" autofocus\""),
-                    "the pane's close must carry `autofocus` — it is the pane's only entry path (F3)")
+            #expect(!close.contains("autofocus"),
+                    "the pane's close must not carry `autofocus`: 3.1.0's FocusInto is the entry path, first and every later open")
+            #expect(close.contains("tabindex=\\\"0\\\""),
+                    "the pane's close must state tabindex=\"0\" — FocusInto would otherwise stamp `-1` and the Tab wrap would have nothing to wrap")
+            #expect(views.contains("FocusInto(id: \"ctx-pane-close\").attribute()"),
+                    "the pane's region root must declare `data-focus-into=\"ctx-pane-close\"` (A16d entry)")
         }
 
         @Test("the served overlay keeps no second modal focus implementation")
@@ -243,8 +253,11 @@ extension ArcWebUITestRoot {
                 #expect(!js.contains(name),
                         "`\(name)` is back in the served overlay: that is the block 2.14.0's by-id focus return replaced, and a second restore path double-fires against the engine's. a capability the engine lacks arrives under its own name with its own pin")
             }
-            #expect(js.contains("data-focus-return") && js.contains("autofocus"),
-                    "the overlay's modal comment must name the two attributes the engine reads — the block's absence is only defensible while the emission is documented where the block used to be")
+            // the overlay is down to its three classified survivors: no modal
+            // focus code and no focus vocabulary. The declarations live on the
+            // rendered bytes above; a name reappearing here is a second owner.
+            #expect(!js.contains("autofocus") && !js.contains("data-focus-into") && !js.contains("data-focus-return"),
+                    "the overlay carries focus vocabulary again — the engine owns it")
         }
     }
 }

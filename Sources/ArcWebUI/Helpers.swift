@@ -133,6 +133,18 @@ extension WebUI.View {
             " data-open=\"\(serial)\" data-dismiss=\"\""))
     }
 
+    /// emit `data-focus-into="<id>"` when `id` is non-nil, and nothing otherwise
+    /// — the same contribution shape as `dismissibleOpen`, for a one-render
+    /// focus statement (the new-chat caret). Typed: the attribute text comes
+    /// from `FocusInto`, never a hand-written string.
+    func focusInto(_ id: String?) -> ModifiedView<Self, AttributeContribution> {
+        guard let id else {
+            return ModifiedView(content: self, modifier: AttributeContribution(""))
+        }
+        return ModifiedView(content: self, modifier: AttributeContribution(
+            FocusInto(id: id).attribute().attributeText))
+    }
+
     /// attach an `AttributeRepresentable` value (a behavior's attribute, e.g.
     /// `UploadDestination`) to this element.
     ///

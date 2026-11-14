@@ -5,27 +5,21 @@ import WebUI
 import ArcAgentCore
 @testable import ArcWebUI
 
-// A16c: the post-patch seam is down to the three consumers a framework
-// behaviour owns, and every one of them is named here so a fourth cannot ride in
-// unnoticed.
+// A16d: the post-patch seam is GONE. Its three consumers were each blocked on
+// a framework behaviour, and 3.1.0 shipped all three:
 //
-// The retired seam: `bootOverlay` (a DOMContentLoaded boot), `bootOnReady` (a
-// helper with no callers since the workspace boot went), `enhanceAll` (a pass
-// whose only job was the staged copy marker) and the `on.ready` registration.
-// What survives is ONE `afterPatch` registration and the three consumers
-// blocked on A16d:
+//  1. the A15 draft-store guard — `onDocSubmit` now drops
+//     `webui-draft:<identity>` for a cleared `[data-clear-on-submit]
+//     [data-draft-id]` control, so the post-submit refill cannot happen;
+//  2. the new-chat caret (UX-45) — `FocusOnAppear()` on the composer textarea
+//     covers "an element that appears and nothing holds focus";
+//  3. `[data-focus-after-patch]` — the same behaviour, now emitted by the
+//     form fragments that ask for the caret.
 //
-//  1. `clearRestoredComposer` — no-webui 2.17.0 clears the composer CONTROL on
-//     submit but not its `webui-draft:<identity>` store, so the next replacing
-//     patch refills the field with the text that was just sent.
-//  2. the new-chat caret (UX-45) — `autofocus` is once per document (A12/F3).
-//  3. `[data-focus-after-patch]` — the same missing focus-on-appearance
-//     behaviour, for a form fragment that asks for the caret when it lands.
-//
-// The second half pins the T26 ids the slice added: the engine's input-state
-// memo keys on `formScope|id-or-name`, so a control without an id either
-// collides with its siblings (the kanban rename field, one key for every
-// column) or shifts it (the attachment ✕, keyed by index).
+// The seam's whole vocabulary (`enhanceAll`, `bootOnReady`, `on.ready`,
+// `WebUIEngine.on.afterPatch`, `registerSeam`) must not come back: a new client
+// consequence is either a framework behaviour or a defect report, never a
+// second registration. The remaining tests pin the T26 ids the A16c slice added.
 extension ArcWebUITestRoot {
 
 	@Suite("Overlay seam", .serialized)
@@ -41,29 +35,58 @@ extension ArcWebUITestRoot {
 			return String(html[r])
 		}
 
-		@Test("the seam is one afterPatch registration and exactly three consumers")
-		func seamIsThreeConsumers() {
+		@Test("the seam is dead: no afterPatch registration and no seam consumer survives")
+		func seamIsDead() {
 			let js = Self.overlay
-			#expect(js.contains("WebUIEngine.on.afterPatch(enhancePatched)"),
-			        "the three consumers below have no registration — nothing runs after a patch")
-			#expect(js.components(separatedBy: "WebUIEngine.on.afterPatch").count - 1 == 1,
-			        "more than one afterPatch registration is a second seam")
-			for retired in ["on.ready", "enhanceAll", "bootOverlay", "bootOnReady"] {
+			for retired in ["WebUIEngine.on.afterPatch", "on.ready", "enhanceAll",
+			                "enhancePatched", "bootOverlay", "bootOnReady",
+			                "registerSeam", "DOMContentLoaded",
+			                "clearRestoredComposer", "submittedComposerText",
+			                "focusComposerWanted", "[data-focus-after-patch]"] {
 				#expect(!js.contains(retired),
-				        "the served overlay still mentions `\(retired)`: the retired seam is back")
+				        "the dead seam's `\(retired)` is back — 3.1.0 owns every consumer it had")
 			}
-			#expect(js.contains("function registerSeam()") && js.contains("document.addEventListener('DOMContentLoaded', registerSeam)"),
-			        "the hook must still defer to the engine's script: /ui/init.js precedes /ui/webui-engine.js in the head, so `WebUIEngine` does not exist while this file parses — a parse-time registration silently leaves the seam dead")
-			for consumer in ["function clearRestoredComposer()",
-			                 "focusComposerWanted",
-			                 "[data-focus-after-patch]"] {
-				#expect(js.contains(consumer),
-				        "the A16d-blocked consumer `\(consumer)` is gone — either A16d shipped the behaviour (then delete this row) or the guard was lost silently")
+			// the three survivors the engine still has no consequence for, named
+			// so a fourth cannot ride in unnoticed.
+			for survivor in ["ws-panel", "outline-panel", ".cat-swatch", "ws-closing"] {
+				#expect(js.contains(survivor),
+				        "a classified survivor `\(survivor)` is gone — delete it deliberately, not by drift")
 			}
 			// the blank canvas is the engine's skip target now, so its old
 			// client hook must not survive.
 			#expect(!js.contains("focus-composer"),
 			        "the blank canvas' client focus hook is back; `data-skip-to` owns that consequence")
+		}
+
+		@Test("the new-chat caret is a one-render FocusInto on the composer root")
+		func composerFocusIsAOneRenderLatch() async {
+			let app = AppState(renderFixture: .init())
+			let unarmed = await app.composerHTML().markup.html
+			#expect(!unarmed.contains("data-focus-into"),
+			        "an unarmed composer render must not move focus — a durable statement would yank the caret on every patch")
+			await app.armComposerFocus()
+			let armed = await app.composerHTML().markup.html
+			let root = Self.openTag(armed, id: "composer-wrap")
+			#expect(root?.contains("data-focus-into=\"composer-input\"") == true,
+			        "`newChat` arms the latch, and the render states `data-focus-into` on the composer root — FocusOnAppear cannot take focus from the surviving `+`")
+			let later = await app.composerHTML().markup.html
+			#expect(!later.contains("data-focus-into"),
+			        "the latch is ONE render: a later render must not steal the caret")
+		}
+
+		@Test("the workspace ⋮ menu is one server render of data-open, then closed")
+		func wsMenuIsAOneRenderLatch() async {
+			let app = AppState(renderFixture: .init())
+			await app.armWsMenu()
+			let armed = await app.workspacePanelHTML().markup.html
+			let open = Self.openTag(armed, id: "ws-menu")
+			#expect(open?.contains("data-open=") == true,
+			        "the armed render must state `data-open` — the ⋮ has no client toggle any more")
+			#expect(open?.contains("data-dismiss") == true,
+			        "the menu must arm the engine's dismiss stack in the same contribution, or Escape/outside-click cannot close it")
+			let later = await app.workspacePanelHTML().markup.html
+			#expect(Self.openTag(later, id: "ws-menu")?.contains("data-open") == false,
+			        "the latch is ONE render: a later render that re-asserted data-open would reopen a menu the engine dismissed")
 		}
 
 		@Test("the kanban rename field carries a per-row id (T26)")

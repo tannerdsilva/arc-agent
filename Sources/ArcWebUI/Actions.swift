@@ -2434,6 +2434,9 @@ extension Controller {
         // draft instead — it only hits the store on the first send.
         let session = Session()
         await app.bindDefaultWorkspace(session.id)
+        // the new chat's render is the one that puts the caret in the composer
+        // (`data-focus-into`, A16d); a pristine-chat `+` has nothing to patch.
+        await app.armComposerFocus()
         await app.setDraftSession(session)
         await app.setActiveSession(session.id)
         _ = await app.hint("New chat.")
@@ -3553,10 +3556,10 @@ extension Controller {
     }
 
     /// Right-hand workspace panel actions (dock toggle, create, hidden files,
-    /// folder expand/collapse, preview). The ⋮ menu's open state is still a
-    /// client toggle; uploads arrive as the zone's `upload-complete` event, not
-    /// a click (the `#w-upload` control retired with A16c — the zone opens the
-    /// picker from its own surface).
+    /// folder expand/collapse, preview). The ⋮ menu's open state is the
+    /// server's one-render latch (`data-open`, A16d); uploads arrive as the
+    /// zone's `upload-complete` event, not a click (the `#w-upload` control
+    /// retired with A16c — the zone opens the picker from its own surface).
     private func workspaceAction(_ tid: String) async -> HandlerOutcome {
         if tid == "w-dock" {
             await app.toggleWorkspace()
@@ -3567,7 +3570,9 @@ extension Controller {
         } else if tid == "w-newfolder" {
             await app.setWsNewMode("folder")
         } else if tid == "w-menu" {
-            return .fragments([])   // client-side: menu toggle
+            // the ⋮ is an opener: arm the one-render latch and let the render
+            // state `data-open`; the engine's dismiss stack closes it.
+            await app.armWsMenu()
         } else if tid == "w-hidden" {
             await app.toggleShowHiddenFiles()
         } else if tid.hasPrefix("w-del-"), let path = dec(String(tid.dropFirst("w-del-".count))) {
