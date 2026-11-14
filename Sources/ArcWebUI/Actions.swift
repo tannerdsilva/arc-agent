@@ -1458,8 +1458,20 @@ extension Controller {
         return []
     }
 
-    @Wired("composer-form", events: [.submit])
+    // the composer form is an upload zone in 2.11.0: the engine's transport
+    // dispatches `upload-complete` on the zone's own component id with the
+    // route's answer (`{name, path, bytes}`), and `path` is the workspace-
+    // relative path the route wrote. One registration carries both events —
+    // a second `@Wired("composer-form")` in this group is a compile error.
+    @Wired("composer-form", events: [.submit, .custom("upload-complete")])
     func handleComposerForm(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "upload-complete" {
+            guard let relPath = event.string("path"), !relPath.isEmpty else { return [] }
+            // the attach wire wants a real filesystem path; the render names
+            // the same root the upload route resolved at request time.
+            let absolute = await self.app.workspaceRootURL().appendingPathComponent(relPath).path
+            return await self.attachFile(absolute)
+        }
         let text = event.string("composer-input") ?? ""
         return await self.submitChat(text: text)
     }

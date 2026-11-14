@@ -107,3 +107,19 @@ func render<V: WebUI.View>(_ view: V) -> String { view.markup.html }
 /// still needs to become bytes at the push edge.
 @inlinable
 func render(_ view: any WebUI.View) -> String { view.markup.html }
+
+// MARK: - Vocabulary attributes
+
+extension WebUI.View {
+    /// attach an `AttributeRepresentable` value (a behavior's attribute, e.g.
+    /// `UploadDestination`) to this element.
+    ///
+    /// the vocabulary owns the name *and* the spelling: `attributeText` escapes
+    /// the value and emits the bare form for an empty one, so a call site never
+    /// writes a `data-` literal (the attribute census fails on those) and an
+    /// empty value cannot become the second spelling `name=""`. this is the same
+    /// text the framework's own components splice into a tag.
+    func attribute<A: AttributeRepresentable>(_ value: A) -> ModifiedView<Self, AttributeContribution> {
+        ModifiedView(content: self, modifier: AttributeContribution(value.attributeText))
+    }
+}

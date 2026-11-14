@@ -2770,6 +2770,16 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
             .data("component-id", "composer-form")
+            // 2.11.0's upload zone: the engine owns the transport — drag & drop
+            // (folders recurse), image paste, the XHR, progress and the tray —
+            // and composes `X-Upload-Path` from the destination plus the
+            // templated name. `attachments` is the directory the deleted client
+            // uploader used. The template applies to EVERY file through this
+            // zone, not only pastes: the route renames onto the destination, so
+            // two drops of `photo.png` would silently overwrite without it.
+            .attribute(UploadDestination.attachments)
+            .attribute(UploadNameTemplate(template: "{name}-{ts}-{seq}.{ext}"))
+            .data("upload-to", "/api/upload")
             Span {}
                 .id("dd-dismiss")
                 .wire("dd-dismiss")

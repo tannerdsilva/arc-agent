@@ -785,15 +785,11 @@ extension ArcWebUITestRoot {
             // to the truth: the control keeps a client owner.)
             #expect(overlay.contains("#ws-preview-copy"),
                     "the preview copy control reads sibling text, so the overlay owns it")
-            // D-10: `attachUploadedPath` was CALLED at both upload success sites
-            // and DEFINED nowhere, so a composer upload or paste landed the file
-            // and then threw ReferenceError — the file never reached the message.
-            // Pin the definition beside the call sites so the pair cannot drift
-            // apart again.
-            #expect(overlay.contains("function attachUploadedPath"),
-                    "the upload success path needs the attach function it calls")
-            #expect(overlay.contains("attachUploadedPath(workspaceAbsolutePath(path))"),
-                    "composer upload and paste must both route the landed file to the attach wire")
+            // D-10's `attachUploadedPath` pin is gone with the function: 2.11.0's
+            // upload zone dispatches `upload-complete` on `#composer-form`, and
+            // `handleComposerForm` routes the answer to the same attach wire. the
+            // route test (`UploadRouteTests`) and the upload gate prove that path
+            // end to end; there is no client upload code left to pin.
         }
 
 
