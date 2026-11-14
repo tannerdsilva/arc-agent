@@ -69,6 +69,15 @@ actor UploadTokenStore {
 /// temporary workspace, and drives real requests.
 enum WorkspaceUpload {
 
+    /// The head's two tag names, spelled once.
+    ///
+    /// A refresh render is shipped as the page region's replacement, so its
+    /// head must not ride along (`pageRoute`). Naming the tags here keeps the
+    /// exception visible to the no-markup-strings guard, which allowlists this
+    /// one file's two literals rather than a hidden escape.
+    static let headOpen = "<head>"
+    static let headClose = "</head>"
+
     /// The route the client posts to.
     static let routePath = "/api/upload"
 
@@ -146,7 +155,35 @@ enum WorkspaceUpload {
         Route.render(pattern) { render in
             let token = render.renderToken.value
             await tokens.record(token)
-            return HTTPResponse(await provider(render.query["s"], token, render.intent).markup)
+            let document = await provider(render.query["s"], token, render.intent)
+            guard render.intent == .refresh else {
+                return HTTPResponse(document.markup)
+            }
+            // A refresh render is a PATCH PAYLOAD, never a document a browser
+            // installs: the server sends these bytes as the page region's
+            // replacement (`WebUIServer.diffFrame` → `#webui-page`), and the
+            // engine applies them as a fragment. A document's `<head>` then
+            // parses into the BODY — the browser logs its CSP meta as
+            // "delivered via a <meta> element outside the document's <head>"
+            // and ignores the policy, and the head's nodes are left behind as
+            // siblings of the region on every whole-page patch.
+            //
+            // So the payload is the same document with its head emptied and
+            // nothing else touched: every byte outside the head is the byte the
+            // served page carried, which is what keeps the snapshot's `<body>`
+            // diff root identical to the one the page was recorded under
+            // (`RenderSnapshot`) — i.e. what keeps a refresh a region diff
+            // instead of a whole-page patch.
+            let markup = document.markup.html
+            guard let headOpen = markup.range(of: Self.headOpen),
+                  let headClose = markup.range(of: Self.headClose, range: headOpen.upperBound..<markup.endIndex)
+            else {
+                return HTTPResponse(body: .html(UnsafeMarkup.trusted(markup)))
+            }
+            let payload = String(markup[..<headOpen.lowerBound])
+                + Self.headOpen + Self.headClose
+                + String(markup[headClose.upperBound...])
+            return HTTPResponse(body: .html(UnsafeMarkup.trusted(payload)))
         }
     }
 

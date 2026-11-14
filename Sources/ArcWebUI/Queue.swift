@@ -689,8 +689,8 @@ extension AppState {
 extension Controller {
 
     @Wired("queue", events: [.click, .submit])
-    func handleQueue(_ event: EventData) async -> [FragmentUpdate] {
-        guard let tid = event.string("targetId") else { return [] }
+    func handleQueue(_ event: EventData) async -> HandlerOutcome {
+        guard let tid = event.string("targetId") else { return .fragments([]) }
 
         if tid == "queue-tab-tasks" || tid == "queue-tab-queue" {
             await self.app.setTodosTab(tid == "queue-tab-tasks" ? .tasks : .queue)
@@ -701,7 +701,7 @@ extension Controller {
             return await self.changed()
         }
         if tid == "queue-run-sync" || tid == "queue-run-async" {
-            guard await self.app.queueRunActive == false else { return [] }
+            guard await self.app.queueRunActive == false else { return .fragments([]) }
             let pusher = self.push
             let sequential = tid == "queue-run-sync"
             let app = self.app
@@ -753,37 +753,37 @@ extension Controller {
     }
 
     @Wired("queue-order", events: [.change])
-    func handleQueueOrder(_ event: EventData) async -> [FragmentUpdate] {
+    func handleQueueOrder(_ event: EventData) async -> HandlerOutcome {
         let order = (event.string("value") ?? "").split(separator: ",").map(String.init)
-        guard !order.isEmpty else { return [] }
+        guard !order.isEmpty else { return .fragments([]) }
         await self.app.reorderQueue(order)
         return await self.changed()
     }
 
     @Wired("queue-loop-toggle", events: [.change])
-    func handleQueueLoopToggle(_ event: EventData) async -> [FragmentUpdate] {
+    func handleQueueLoopToggle(_ event: EventData) async -> HandlerOutcome {
         await self.app.setQueueLoopEnabled(!(await self.app.settings.queueLoopEnabled))
         return await self.changed()
     }
 
     @Wired("queue-loop-count", events: [.change])
-    func handleQueueLoopCount(_ event: EventData) async -> [FragmentUpdate] {
+    func handleQueueLoopCount(_ event: EventData) async -> HandlerOutcome {
         await self.app.setQueueLoopCount(event.string("value") ?? "")
         return await self.changed()
     }
 
     @Wired("qpick", events: [.change])
-    func handleQueuePick(_ event: EventData) async -> [FragmentUpdate] {
+    func handleQueuePick(_ event: EventData) async -> HandlerOutcome {
         let todoID = event.string("value") ?? ""
-        guard !todoID.isEmpty else { return [] }
+        guard !todoID.isEmpty else { return .fragments([]) }
         await self.app.queueToggleCandidate(todoID)
         return await self.changed()
     }
 
     @Wired("qlink", events: [.change])
-    func handleQueueLink(_ event: EventData) async -> [FragmentUpdate] {
+    func handleQueueLink(_ event: EventData) async -> HandlerOutcome {
         let entryID = event.string("value") ?? ""
-        guard !entryID.isEmpty else { return [] }
+        guard !entryID.isEmpty else { return .fragments([]) }
         await self.app.queueToggleLinkSel(entryID)
         return await self.changed()
     }

@@ -1706,16 +1706,16 @@ extension AppState {
 extension Controller {
 
     @Wired("todos", events: [.click, .submit])
-    func handleTodos(_ event: EventData) async -> [FragmentUpdate] {
+    func handleTodos(_ event: EventData) async -> HandlerOutcome {
         if event.event == "submit" {
             let text = event.string("todo-text") ?? ""
             await self.app.addTodo(text)
             return await self.changed()
         }
-        guard let tid = event.string("targetId") else { return [] }
+        guard let tid = event.string("targetId") else { return .fragments([]) }
         // Clicks on the add-todo text field/form are cursor placement, not
         // actions — never re-render from them (that would wipe the draft).
-        if tid.hasPrefix("todo-add") { return [] }
+        if tid.hasPrefix("todo-add") { return .fragments([]) }
         if tid.hasPrefix("todo-toggle-") {
             await self.app.toggleTodo(String(tid.dropFirst("todo-toggle-".count)))
         } else if tid.hasPrefix("todo-del-") {
@@ -1759,61 +1759,61 @@ extension Controller {
     // one wire per field identity.
 
     @Wired("task-kind", events: [.change])
-    func handleTaskKind(_ event: EventData) async -> [FragmentUpdate] {
+    func handleTaskKind(_ event: EventData) async -> HandlerOutcome {
         await self.app.setTaskJobKind(event.string("value") ?? "")
         return await self.changed()
     }
 
     @Wired("task-when", events: [.change])
-    func handleTaskWhen(_ event: EventData) async -> [FragmentUpdate] {
+    func handleTaskWhen(_ event: EventData) async -> HandlerOutcome {
         await self.app.setTaskSchedWhen(event.string("value") ?? "")
         return await self.changed()
     }
 
     @Wired("task-sched-preset", events: [.change])
-    func handleSchedPreset(_ event: EventData) async -> [FragmentUpdate] {
+    func handleSchedPreset(_ event: EventData) async -> HandlerOutcome {
         await self.app.setTaskSchedPreset(event.string("value") ?? "")
         return await self.changed()
     }
 
     @Wired("task-sched-every", events: [.change])
-    func handleSchedEvery(_ event: EventData) async -> [FragmentUpdate] {
+    func handleSchedEvery(_ event: EventData) async -> HandlerOutcome {
         await self.app.setTaskSchedEvery(event.string("value") ?? "")
         return await self.changed()
     }
 
     @Wired("task-sched-unit", events: [.change])
-    func handleSchedUnit(_ event: EventData) async -> [FragmentUpdate] {
+    func handleSchedUnit(_ event: EventData) async -> HandlerOutcome {
         await self.app.setTaskSchedUnit(event.string("value") ?? "")
         return await self.changed()
     }
 
     @Wired("task-sched-time", events: [.change])
-    func handleSchedTime(_ event: EventData) async -> [FragmentUpdate] {
+    func handleSchedTime(_ event: EventData) async -> HandlerOutcome {
         await self.app.setTaskSchedTime(event.string("value") ?? "")
         return await self.changed()
     }
 
     @Wired("task-sched-dow", events: [.change])
-    func handleSchedDow(_ event: EventData) async -> [FragmentUpdate] {
+    func handleSchedDow(_ event: EventData) async -> HandlerOutcome {
         await self.app.setTaskSchedDow(event.string("value") ?? "")
         return await self.changed()
     }
 
     @Wired("task-sched-custom", events: [.change])
-    func handleSchedCustom(_ event: EventData) async -> [FragmentUpdate] {
+    func handleSchedCustom(_ event: EventData) async -> HandlerOutcome {
         await self.app.setTaskSchedCustom(event.string("value") ?? "")
         return await self.changed()
     }
 
     @Wired("task-search", events: [.input])
-    func handleTaskSearch(_ event: EventData) async -> [FragmentUpdate] {
+    func handleTaskSearch(_ event: EventData) async -> HandlerOutcome {
         await self.app.setTasksSearch(event.string("value") ?? "")
         return await self.changed()
     }
 
     @Wired("task-deliver-preset", events: [.change])
-    func handleDeliverPreset(_ event: EventData) async -> [FragmentUpdate] {
+    func handleDeliverPreset(_ event: EventData) async -> HandlerOutcome {
         await self.app.setTaskDeliverPreset(event.string("value") ?? "local")
         return await self.changed()
     }
@@ -1823,15 +1823,15 @@ extension Controller {
 extension Controller {
 
     @Wired("regen", events: [.click])
-    func handleRegen(_ event: EventData) async -> [FragmentUpdate] {
+    func handleRegen(_ event: EventData) async -> HandlerOutcome {
         // Two controls share this boundary: the per-message button names its turn
         // (`regen-<session>.<index>`) and the chat header's `#regen-btn` carries
         // no targetId at all. Requiring one left the header button inert — the
         // click reached the server and was answered with nothing, with no error
         // on either side. Both mean "redo this chat's last reply", so only a
         // foreign targetId is refused.
-        if let tid = event.string("targetId"), !tid.hasPrefix("regen-") { return [] }
-        guard let lastUser = await self.app.regenText() else { return [] }
+        if let tid = event.string("targetId"), !tid.hasPrefix("regen-") { return .fragments([]) }
+        guard let lastUser = await self.app.regenText() else { return .fragments([]) }
         return await self.submitChat(text: lastUser)
     }
 }

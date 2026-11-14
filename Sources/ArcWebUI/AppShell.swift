@@ -7,6 +7,12 @@ import WebUIServer
 /// through, and the two `WebUIAsset`s the server answers with.
 public enum AppShell {
 
+    /// The page region's id — `WebUIServer.pageRegionID`, spelled here because the
+    /// framework keeps the constant internal and the id is the wire contract. The
+    /// server patches this element when a re-render cannot be expressed as a
+    /// region diff; without it, it reloads the document instead.
+    static let pageRegionID = "webui-page"
+
     /// `data-scheme`/`data-theme` for `<html>`, escaped like every other attribute the
     /// framework emits.
     public static func themeAttrs(_ theme: (scheme: String, mode: String)) -> String {
@@ -87,9 +93,38 @@ public enum AppShell {
             // separate upload meta this file used to emit is gone: two copies of
             // one credential could disagree, and the engine never read it.
             let runtime = RuntimeConfig(renderToken: token, maxFrameBytes: maxFrameBytes)
+            // The page region, named by the server's own contract.
+            //
+            // A re-render the region differ cannot express — a first render, a
+            // change outside every control, a region that appeared or vanished —
+            // ships as this element's replacement (`WebUIServer.pageRegionID`,
+            // a constant the framework keeps internal; the id is the wire
+            // contract). Without it the server has nowhere to put those bytes
+            // and honestly answers a full document load instead, which is what
+            // every structural `@Wired` handler would turn into: a handler that
+            // answers `.refresh` would reload the page (no-webui 2.12.0). With
+            // it, the whole-page patch lands in place exactly as the producer
+            // push's `#app` frame did.
+            //
+            // It wraps, it does not replace: `#app` keeps its id, its
+            // `data-size` and its stylesheet rules, and the wrapper takes no
+            // style of its own (`#app` is viewport-height, not parent-height).
+            //
+            // `data-webui-transition="off"` is the engine's page-level opt-out,
+            // and it states the same policy this host already declares on every
+            // diff it derives (`PushEdge.livePolicy.transition == false`: "the
+            // diff is not a navigation and must not animate"). It is load
+            // bearing for the whole-page patch: the server builds that frame
+            // itself (`WebUIServer.diffFrame`) and does not stamp the policy's
+            // transition flag on it, so without this the client wraps the patch
+            // in `startViewTransition` and a viewport change mid-transition
+            // throws `InvalidStateError: Transition was aborted…`.
+            let page = Div(id: Self.pageRegionID) { Raw(body) }
+                .data("webui-transition", "off")
+                .markup
             return WebUI.HTMLDocument(
                 title: "ARC Agent",
-                body: body,
+                body: page,
                 rawStyles: [],
                 // typed head: the overlay script is an `externalScript`, so the
                 // document adds the render nonce itself and the url is escaped

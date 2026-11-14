@@ -10,14 +10,15 @@ import WebUIState
 /// The push edge: the door arc's producers push through, standing on no-webui's
 /// `PageDiffer` instead of re-deriving a patch per handler.
 ///
-/// **Two things still cross it, and one no longer does.**
+/// **What still crosses it, and what no longer does.**
 ///
 /// - Render-time handlers do not: they answer `HandlerOutcome.refresh` (no-webui
 ///   2.9.0), and the server re-renders the dispatch session's page against the
 ///   baseline it owns, then fans the frames out itself.
-/// - The `@Wired` host handlers do, because `@WireGroup`'s generated registrar
-///   spells `register({ … }, for:)` — the `EventHandler` door — so their empty
-///   batch has no outcome spelling at this pin (`Controller.changed()`).
+/// - The `@Wired` host handlers do not either (no-webui 2.12.0): a handler's
+///   return type picks its registration, so a structural handler declares
+///   `HandlerOutcome` and answers `.refresh` (`Controller.changed()`) through
+///   `register(outcome:)`. Nothing a handler returns reaches this door.
 /// - The turn loop's structural boundaries and token deltas do: a turn runs in a
 ///   detached `Task`, and `.refresh` is only reachable from an event dispatch.
 ///
@@ -434,10 +435,12 @@ public struct WebUIHost: Service {
             logger: logger
         )
 
-        // The one push edge. Every producer's batch crosses this door — handlers
-        // through `Controller.changed()`, the turn loop through the pusher it is
-        // handed — and the frame that reaches the wire is derived from a fresh
-        // render rather than trusted from the producer.
+        // The one push edge. The producers that still cross this door — the turn
+        // loop's structural boundaries and its token deltas — get the door's own
+        // decision: a structural batch is re-derived from a fresh render, a delta
+        // is forwarded verbatim. Handlers no longer cross it: `Controller.changed()`
+        // answers `HandlerOutcome.refresh`, and the server re-renders the dispatch
+        // session's page itself (no-webui 2.12.0).
         //
         // Three producers do NOT cross it, by design: the log and workspace
         // streamers broadcast their fragments straight to `server.broadcast`

@@ -230,6 +230,15 @@ enum MarkupAllowlist {
 	//: bucket d — the `.md` container around rendered markdown.
 	static let mdBox = "<div class=\"md\">(renderMarkdown(markdown, tableEnhance: tableEnhance))</div>"
 
+	//: bucket d — the page-region payload's envelope (`WorkspaceUpload`). A
+	//: refresh render is shipped as `#webui-page`'s replacement, so its head must
+	//: not ride into the body: the browser logs the csp meta there as a policy
+	//: outside `<head>` and ignores it, and the head's nodes are left behind on
+	//: every whole-page patch. Two tag names, no attributes — every byte around
+	//: them is the framework's own render.
+	static let pageHeadOpen = "<head>"
+	static let pageHeadClose = "</head>"
+
 	static let entries: [String: Set<String>] = [
 		"Sources/ArcWebUI/SidecarPlugin.swift": [sidecarFallback],
 		"Sources/ArcWebUI/SidebarTabBridge.swift": [
@@ -237,6 +246,7 @@ enum MarkupAllowlist {
 		],
 		"Sources/ArcWebUI/Components/ArcRing.swift": [ringTrack, ringValue],
 		"Sources/ArcWebUI/Views.swift": [codeFence, mdBox],
+		"Sources/ArcWebUI/WorkspaceUpload.swift": [pageHeadOpen, pageHeadClose],
 	]
 }
 

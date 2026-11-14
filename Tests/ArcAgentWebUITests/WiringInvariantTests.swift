@@ -20,8 +20,10 @@ extension ArcWebUITestRoot {
     /// migrated group drive the group's own `wireGroup_<g>(router)` into a
     /// fresh router and assert the exact handler count. Deleting a `@Wired`
     /// annotation drops exactly one group's count, so this pin turns only one
-    /// way. `wireAll` must register exactly 151: 149 generated + the two
-    /// literal escapes `sidebar-plugin-toggle` + `cat-pick`.
+    /// way. `wireAll` must register exactly 152: 150 generated + the two
+    /// literal escapes `sidebar-plugin-toggle` + `cat-pick`. The extra one over
+    /// the local line's count is `kb-addcol`, the kanban lane-row control that
+    /// only this tree renders as its own component.
     ///
     /// The count is read from `hostHandlerCount`, not `handlerCount(in: .default)`:
     /// since no-webui 2.8.0 a registration made without a session lands in the
@@ -77,7 +79,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_settings_admin(router)
-            #expect(router.hostHandlerCount == 36, "settings_admin group registration drifted")
+            #expect(router.hostHandlerCount == 37, "settings_admin group registration drifted")
         }
 
         @Test("every skills handler is registered after wireGroup_skills")
@@ -182,16 +184,16 @@ extension ArcWebUITestRoot {
             #expect(router.hostHandlerCount == 1, "message_actions group registration drifted")
         }
 
-        @Test("wireAll registers exactly 151 handlers (149 generated + sidebar-plugin-toggle + cat-pick - toasts, insights, logs, cron, tools, ctxpane, settings)")
-        func wireAllRegistersExactly151() async throws {
+        @Test("wireAll registers exactly 152 handlers (150 generated + sidebar-plugin-toggle + cat-pick - toasts, insights, logs, cron, tools, ctxpane, settings)")
+        func wireAllRegistersExactly152() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             await controller.wireAll(router)
 
             let count = router.hostHandlerCount
             #expect(
-                count == 151,
-                "wireAll must register exactly 151 handlers: 149 generated (toasts, insights, logs, the scheduled-tasks boundary, tools, ctxpane and settings register at render time) + sidebar-plugin-toggle + cat-pick, got \(count)"
+                count == 152,
+                "wireAll must register exactly 152 handlers: 150 generated (toasts, insights, logs, the scheduled-tasks boundary, tools, ctxpane and settings register at render time) + sidebar-plugin-toggle + cat-pick, got \(count)"
             )
         }
 
@@ -211,11 +213,10 @@ extension ArcWebUITestRoot {
         /// Prove the pin turns: `chat-new` is @Wired in source, so it answers.
         /// The ratchet only turns one direction — `@Wired` ids cannot be untyped.
         ///
-        /// "Answers" is a push now, not a payload: the handler signals a structural
-        /// change through the door and returns nothing for the server to write on
-        /// the originating socket. `@WireGroup`'s generated registrar registers an
-        /// `EventHandler`, so a `@Wired` handler has no way to answer an outcome
-        /// at 2.9.0 (see `Controller.changed()`).
+        /// "Answers" is an outcome now (no-webui 2.12.0), not a push: the
+        /// handler's return type picks the registration, so `chat-new` declares
+        /// `HandlerOutcome` and answers `.refresh` — the server re-renders the
+        /// dispatch session's page and the edge is never asked.
         @Test("the ratchet turns one direction: @Wired ids cannot be untyped")
         func ratchetTurnsOneDirection() async throws {
             let door = Door()
@@ -225,17 +226,19 @@ extension ArcWebUITestRoot {
 
             let outcome = await router.dispatch(
                 EventData(component: ComponentID("chat-new"), event: "click", data: [:]))
-            #expect(await door.batches == [[]],
-                    "chat-new answers: it asks the door to look, and an empty batch is the nudge")
+            #expect(outcome.isRefresh,
+                    "chat-new answers .refresh: the server re-renders the dispatch session's page")
+            #expect(await door.batches.isEmpty,
+                    "a handler's structure is an outcome, not a push — the edge is not asked")
             #expect(outcome.fragments.isEmpty,
-                    "the batch crossed the door, not the socket — the server has nothing to write")
+                    "the refresh crosses the outcome, not the socket — the server has nothing to write")
         }
 
         /// The upload repaint seam: an HTTP upload returns no `FragmentUpdate`,
         /// and 2.11.0's zone dispatches `upload-complete` on the workspace-panel
         /// zone (`ws-drop`) or on the composer form. The panel handler must be
-        /// registered, carry no payload work, and ask the door for exactly one
-        /// render — the tree is re-rendered by the server, never by the client.
+        /// registered, carry no payload work, and answer exactly one refresh —
+        /// the tree is re-rendered by the server, never by the client.
         @Test("ws-drop asks the door for a render and writes nothing on the socket")
         func workspaceUploadAsksForRender() async throws {
             let door = Door()
@@ -248,9 +251,11 @@ extension ArcWebUITestRoot {
                           event: .custom("upload-complete"),
                           data: ["path": .string("notes.txt"), "bytes": .string("3")]))
             #expect(outcome.fragments.isEmpty,
-                    "the refresh crosses the door, not the originating socket")
-            #expect(await door.batches == [[]],
-                    "a landed panel upload must ask for exactly one render and do nothing else")
+                    "the refresh crosses the outcome, not the originating socket")
+            #expect(outcome.isRefresh,
+                    "a landed panel upload must ask for exactly one render")
+            #expect(await door.batches.isEmpty,
+                    "the refresh is the server's, not the edge's — nothing is pushed")
         }
     }
 }

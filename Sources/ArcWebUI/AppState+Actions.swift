@@ -84,11 +84,12 @@ extension AppState {
     /// batch still asks the edge to look (see its `hasStructure`), which is why
     /// this is not a no-op.
     ///
-    /// producers that can reach the door spell this through
-    /// `Controller.changed()`, which pushes it *and* returns `[]`: a handler's
-    /// returned batch is written to the originating socket by no-webui's
-    /// dispatcher and never diffed, so returning the signal alone would be
-    /// silence.
+    /// producers that can reach a dispatch spell this through
+    /// `Controller.changed()`, which answers `.refresh`: the server re-renders
+    /// the dispatch session's page against the baseline it served and ships the
+    /// diff itself (no-webui 2.12.0). a producer with no dispatch session — the
+    /// turn loop, a background task — has no page to name, so it hands this
+    /// empty batch to the pusher it was given and the edge looks instead.
     func structuralChange() -> [FragmentUpdate] { [] }
 
     func setCreateSkill(_ on: Bool) {

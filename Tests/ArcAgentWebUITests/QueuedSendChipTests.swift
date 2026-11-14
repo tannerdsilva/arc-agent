@@ -75,15 +75,20 @@ struct QueuedSendChipTests {
 
         // The composer submit crosses the real @Wired handler, dispatched the
         // way the engine would deliver it.
-        _ = await router.dispatch(Self.submitEvent("queued while running"))
+        let outcome = await router.dispatch(Self.submitEvent("queued while running"))
 
         // (a) The queue branch stored the text server-side.
         let queued = await app.queuedSends["sess-a"]
         #expect(queued?.count == 1, "the submit during a live turn must be queued")
 
-        // (b) The chip reached the wire — some frame's bytes carry it.
-        let chipFrame = box.flat.first { $0.html.contains("queued-sends") }
-        #expect(chipFrame != nil, "no frame shipped the queue chip — the page never learns a message was queued")
+        // (b) The handler answers a refresh (no-webui 2.12.0): the chip is in
+        // the page the server re-renders for this dispatch session, not in a
+        // batch handed to the edge. So the pin is the outcome plus the bytes.
+        #expect(outcome.isRefresh,
+                "a queued submit must refresh the page it was dispatched in")
+        let page = await app.appShell().markup.html
+        #expect(page.contains("queued-sends"),
+                "the refreshed page does not carry the queue chip — the reader never learns a message was queued")
     }
 }
 extension QueuedSendChipTests {
