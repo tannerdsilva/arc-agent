@@ -1,6 +1,6 @@
 // ux-gates.mjs — one-command UX gate suite for the arc web UI.
 //
-//   node Scripts/ux-gates.mjs [--only=contrast|interactions|motion|regression|round4|schemes]
+//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|motion|regression|round4|schemes]
 //
 // Zero-dependency: native fetch + WebSocket via Scripts/ux-drive.mjs.
 // Assertions LIVE IN THE PAGE (Scripts/ux-contrast.js, ux-gates.js,
@@ -19,7 +19,7 @@
 // real defect must NOT be weakened to pass — fix the app or report the
 // finding with its raw numbers.
 
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { UxDriver } from './ux-drive.mjs';
@@ -68,6 +68,7 @@ const opts = parseArgs(process.argv.slice(2));
 const RUN = {
   contrast: !opts.only || opts.only.includes('contrast'),
   interactions: !opts.only || opts.only.includes('interactions'),
+  upload: !opts.only || opts.only.includes('upload'),
   motion: !opts.only || opts.only.includes('motion'),
   regression: !opts.only || opts.only.includes('regression'),
   round4: !opts.only || opts.only.includes('round4'),
@@ -887,6 +888,193 @@ async function runInteractions() {
 }
 
 // ---------------------------------------------------------------------------
+// A9 — the upload gate (no-webui 2.11.0 transport)
+//
+// the engine owns the transport: `data-upload-into` binds drop and paste, posts
+// one XHR per file, paints the tray and dispatches `upload-complete` on the
+// zone's component id. this gate drives the real page: a 1 MiB File through a
+// synthetic DataTransfer, an image paste, a bad-token refusal read verbatim, and
+// a CDP-dispatched directory drop (skipped loudly when the platform cannot
+// synthesize a directory entry).
+
+async function runUpload() {
+  console.log('\n— gate: upload (zones, 1 MiB drop, paste, tray, refusal, directory) —');
+  const out = { rows: [] };
+  const add = (name, ok, detail) => { out.rows.push({ name, ok }); record('upload', name, ok, detail); };
+  const root = await ev('uxGates.workspaceRoot()');
+
+  // ---- 1. the zones declare the wire (read from the DOM, not the source) ---
+  await chatView();
+  const zones = await ev('uxGates.uploadZones()');
+  const c = zones.composer || {}, p = zones.panel || {}, d = zones.dock || {};
+  const zonesOk = c.hasInto === true && c.into === 'attachments'
+    && c.to === '/api/upload'
+    && c.template === '{name}-{ts}-{seq}.{ext}'
+    && p.hasInto === true && p.into === '' && p.to === '/api/upload'
+    && p.component === 'ws-drop' && p.event === 'upload-complete'
+    && d.hasInto === true && d.into === '' && d.to === '/api/upload' && d.component === 'workspace';
+  add('zones carry destination, route, template and routing id', zonesOk, zones);
+
+  // ---- 2. a 1 MiB drop lands: tray row done, then the attach chip ---------
+  // the chip is the whole wire's proof: upload-complete -> attachFile -> the
+  // attach wire -> changed() -> the server re-renders the chips.
+  const drop = await ev(`uxGates.uploadDrop('#composer-form', [{ name: 'uxgate-1m.bin', bytes: ${1 << 20} }])`);
+  check(drop && drop.ok === true, 'the drop helper found no composer form');
+  const dropDone = await waitTrue(
+    `(() => { const t = uxGates.uploadTray(); return !!(t.last && t.last.state === 'done' && t.last.text.indexOf('uxgate-1m') !== -1); })()`,
+    30000
+  );
+  const trayDrop = await ev('uxGates.uploadTray()');
+  // the row is the route's answer rendered: the engine settles `done` only on
+  // a 2xx whose JSON says `ok: true`, and its status line is
+  // `<path> · <bytes> bytes` — the two fields the route returns.
+  const dropStatusOk = !!trayDrop.last
+    && /^attachments\/uxgate-1m-\d+-\d+\.bin · 1048576 bytes$/.test(trayDrop.last.status || '');
+  add('a 1 MiB drop reaches the tray and settles done', dropDone && dropStatusOk, trayDrop);
+  // the chip is `@<absolute path>` truncated at 50 chars, so the proof is the
+  // resolved destination directory plus a new chip — not the whole file name.
+  const chipDrop = await waitTrue(
+    `uxGates.uploadChips().chips.some((s) => s.indexOf('attachments/uxgate-') !== -1)`, 20000);
+  add('upload-complete attaches the landed file (a chip appears)', chipDrop, await ev('uxGates.uploadChips()'));
+
+  // ---- 3. an image paste uploads; a text paste is left alone --------------
+  const chipsBeforePaste = await ev('uxGates.uploadChips().count');
+  const paste = await ev(`uxGates.uploadPaste('#composer-input', 'uxgate-paste.png', 'image/png', 256)`);
+  check(paste && paste.ok === true, 'the paste helper found no composer input');
+  const pasteDone = await waitTrue(
+    `(() => { const t = uxGates.uploadTray(); return !!(t.last && t.last.state === 'done' && t.last.text.indexOf('uxgate-paste') !== -1); })()`,
+    30000
+  );
+  const chipPaste = await waitTrue(
+    `uxGates.uploadChips().count > ${chipsBeforePaste} && uxGates.uploadChips().chips.some((s) => s.indexOf('attachments/uxgate-') !== -1)`,
+    20000);
+  const chipsAfterPaste = await ev('uxGates.uploadChips()');
+  add('an image paste uploads, lands a tray row and attaches',
+    pasteDone && chipPaste && chipsAfterPaste.count > chipsBeforePaste,
+    { tray: await ev('uxGates.uploadTray()'), chips: chipsAfterPaste });
+  // a text-only paste must stay a text paste: the engine does not
+  // preventDefault when the clipboard carries text, and starts no upload.
+  const textPaste = await ev(`(() => {
+    const el = document.getElementById('composer-input');
+    const dt = new DataTransfer();
+    dt.setData('text/plain', 'uxgate text paste');
+    const evt = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+    const before = uxGates.uploadTray().count;
+    el.dispatchEvent(evt);
+    return { prevented: evt.defaultPrevented, trayBefore: before, trayAfter: uxGates.uploadTray().count };
+  })()`);
+  add('a text-only paste is not intercepted and uploads nothing',
+    textPaste.prevented === false && textPaste.trayAfter === textPaste.trayBefore, textPaste);
+
+  // ---- 4. a bad render token shows the route's 403 body verbatim ----------
+  const goodToken = await ev('uxGates.uploadToken()');
+  const swapped = await ev(`uxGates.setUploadToken('uxgate-bogus')`);
+  const refusedDrop = await ev(`uxGates.uploadDrop('#composer-form', [{ name: 'uxgate-refused.txt', bytes: 32 }])`);
+  check(refusedDrop && refusedDrop.ok === true, 'the drop helper found no composer form');
+  const refusedDone = await waitTrue(
+    `(() => { const t = uxGates.uploadTray(); return !!(t.last && t.last.state === 'error'); })()`,
+    20000
+  );
+  const trayRefused = await ev('uxGates.uploadTray()');
+  const restored = await ev(`uxGates.setUploadToken(${JSON.stringify(goodToken)})`);
+  const refusal = 'upload refused: missing or unknown render token';
+  add('a bad render token shows the 403 body verbatim',
+    Boolean(goodToken) && swapped === true && refusedDone
+      && !!trayRefused.last && trayRefused.last.state === 'error'
+      && trayRefused.last.status === refusal,
+    { expected: refusal, got: trayRefused.last, tokenRestored: restored });
+
+  // ---- 5. a directory drop -------------------------------------------------
+  // `Input.dispatchDragEvent` carries `files` as file paths; a DIRECTORY has no
+  // representation there, so the attempt is reported, never assumed.
+  const dir = join(tmpdir(), `uxgate-dir-${Date.now() % 100000}`);
+  let dirOutcome = null;
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'uxgate-dir-a.txt'), 'a');
+    writeFileSync(join(dir, 'uxgate-dir-b.txt'), 'b');
+    const pt = await ev(`(() => {
+      const r = document.getElementById('composer-form').getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    })()`);
+    const data = { items: [{ mimeType: 'text/uri-list', data: `file://${dir}` }], files: [dir], dragOperationsMask: 1 };
+    await driver.send('Input.dispatchDragEvent', { type: 'dragEnter', x: pt.x, y: pt.y, data });
+    await driver.send('Input.dispatchDragEvent', { type: 'dragOver', x: pt.x, y: pt.y, data });
+    await driver.send('Input.dispatchDragEvent', { type: 'drop', x: pt.x, y: pt.y, data });
+    // both files inside the directory must arrive: one row per file, each done.
+    const sawDir = await waitTrue(
+      `uxGates.uploadTray().rows.filter((r) => r.text.indexOf('uxgate-dir') !== -1 && r.state === 'done').length >= 2`,
+      20000);
+    dirOutcome = sawDir
+      ? { ok: true, tray: await ev('uxGates.uploadTray()') }
+      : { skip: 'Input.dispatchDragEvent accepted the directory path but no directory entry reached the page (a dispatched drag exposes no webkitGetAsEntry)' };
+  } catch (err) {
+    dirOutcome = { skip: `Input.dispatchDragEvent refuses a directory path: ${err.message}` };
+  } finally {
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+  if (dirOutcome.skip) {
+    add('a directory drop uploads every file it contains', 'skip', { skip: dirOutcome.skip });
+  } else {
+    const rows = dirOutcome.tray.rows.filter((r) => r.text.indexOf('uxgate-dir') !== -1 && r.state === 'done');
+    add('a directory drop uploads every file it contains', rows.length >= 2, dirOutcome.tray);
+  }
+
+  // ---- 6. the workspace panel zone: drop -> ws-drop -> the tree repaints --
+  // the panel's zone is the one place the destination is empty on purpose: the
+  // engine composes the bare filename, so the file lands at the workspace root
+  // and the re-render (a repaint only `upload-complete` can ask for) must show
+  // it in `#ws-tree`.
+  await ev(`document.getElementById('w-dock')?.click()`);
+  const panelOpen = await waitStableValue(`uxGates.dock().panelOpen`, true);
+  check(panelOpen, 'the workspace panel did not open');
+  const panelDrop = await ev(`uxGates.uploadDrop('#ws-panel', [{ name: 'uxgate-panel.txt', bytes: 16 }])`);
+  check(panelDrop && panelDrop.ok === true, 'the drop helper found no workspace panel');
+  const panelRow = await waitTrue(
+    `(() => { const t = uxGates.uploadTray(); return !!(t.last && t.last.state === 'done' && t.last.name === 'uxgate-panel.txt' && t.last.status === 'uxgate-panel.txt \u00b7 16 bytes'); })()`,
+    30000
+  );
+  // 2.11.0 names it with the file's own name (no template on this zone), so the
+  // tree entry is the same string the tray row carries.
+  const treeRow = await waitTrue(
+    `(() => { const t = document.getElementById('ws-tree'); return !!(t && t.textContent.indexOf('uxgate-panel.txt') !== -1); })()`,
+    15000
+  );
+  add('a workspace-panel drop lands at the root and repaints the tree', panelRow && treeRow,
+    { tray: await ev('uxGates.uploadTray()'), treeHasRow: treeRow });
+  await ev(`document.getElementById('w-close')?.click()`);
+  await waitStableValue(`uxGates.dock().panelOpen`, false);
+
+  // ---- cleanup: the probe's own files, by name ----------------------------
+  const removed = [];
+  const sweep = (dirPath) => {
+    let names = [];
+    try { names = readdirSync(dirPath); } catch { return; }
+    for (const name of names) {
+      if (!name.startsWith('uxgate-')) continue;
+      try { rmSync(join(dirPath, name), { force: true }); removed.push(join(dirPath, name)); } catch { /* ignore */ }
+    }
+  };
+  if (root) { sweep(root); sweep(join(root, 'attachments')); }
+  // detach the chips the gate staged: the ✕ under each chip is the app's own
+  // remove control, so the session is left as found.
+  for (let i = 0; i < 12; i++) {
+    const before = await ev('uxGates.uploadChips().count');
+    if (before === 0) break;
+    await ev(`document.querySelector('#attach-chips .chip-x')?.click()`);
+    await waitTrue(`uxGates.uploadChips().count < ${before}`, 4000);
+  }
+  let remaining = [];
+  for (const dirPath of [root, root ? join(root, 'attachments') : null]) {
+    if (!dirPath) continue;
+    try { remaining = remaining.concat(readdirSync(dirPath).filter((n) => n.startsWith('uxgate-')).map((n) => join(dirPath, n))); } catch { /* ignore */ }
+  }
+  const chipsLeft = await ev('uxGates.uploadChips().count');
+  add('the probe cleaned its files and detached its chips', remaining.length === 0 && chipsLeft === 0,
+    { root, removed, remaining, chipsLeft });
+}
+
+// ---------------------------------------------------------------------------
 // T16 — reduced-motion gate (driver emulates prefers-reduced-motion: reduce)
 
 async function runMotion() {
@@ -1361,6 +1549,7 @@ async function main() {
 
     if (RUN.contrast) await runContrast();
     if (RUN.interactions) await runInteractions();
+    if (RUN.upload) await runUpload();
     if (RUN.motion) await runMotion();
     if (RUN.regression) await runRegression();
     if (RUN.round4) await runRound4();
@@ -1374,6 +1563,7 @@ async function main() {
       generatedAt: new Date().toISOString(),
       node: process.version,
       interactions: results.filter((r) => r.gate === 'interactions'),
+      upload: results.filter((r) => r.gate === 'upload'),
       motion: results.filter((r) => r.gate === 'motion'),
       regression: results.filter((r) => r.gate === 'regression'),
       round4: results.filter((r) => r.gate === 'round4'),

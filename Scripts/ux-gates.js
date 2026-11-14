@@ -231,6 +231,102 @@
       .filter((el) => shown(el))
       .map((el) => ({ id: el.id, tag: el.tagName.toLowerCase(), label: text(el).slice(0, 30) }))
       .slice(0, 40),
+
+    // ---- upload zone (no-webui 2.11.0) -------------------------------------
+    //
+    // the engine owns the transport: `data-upload-into` binds drop/paste, posts
+    // one XHR per file, paints `[data-webui-upload-tray]` rows with
+    // `data-webui-upload-state`, and dispatches `upload-complete`. these helpers
+    // only build real `File`s and read the result — no assertion lives here.
+
+    /// the tray the engine paints, oldest row first. `state` is the row's
+    /// `data-webui-upload-state` (`uploading|done|error|cancelled`).
+    uploadTray: () => {
+      const tray = document.querySelector('[data-webui-upload-tray]');
+      if (!tray) return { present: false, count: 0, rows: [] };
+      // `text` is the row's whole textContent (name + status); `status` is the
+      // status span alone, which is where the route's refusal sentence lands
+      // verbatim. a gate that compares the row's text would compare the name too.
+      const rows = Array.from(tray.querySelectorAll('[data-webui-upload-state]')).map((r) => ({
+        state: r.getAttribute('data-webui-upload-state'),
+        name: text(r.querySelector('.upload-tray__name')) || null,
+        text: text(r),
+        status: text(r.querySelector('.upload-tray__status')) || null,
+      }));
+      return { present: true, count: rows.length, rows, last: rows[rows.length - 1] || null };
+    },
+
+    /// the composer's attachment chips, as `@path` text.
+    uploadChips: () => {
+      const host = document.querySelector('#attach-chips');
+      if (!host) return { present: false, count: 0, chips: [] };
+      const chips = Array.from(host.querySelectorAll('.chip')).map((c) => text(c));
+      return { present: true, count: chips.length, chips };
+    },
+
+    /// the zones' attribute contract, read from the DOM rather than the source.
+    uploadZones: () => {
+      const pick = (id) => {
+        const el = document.getElementById(id);
+        if (!el) return { present: false };
+        return {
+          present: true,
+          hasInto: el.hasAttribute('data-upload-into'),
+          into: el.getAttribute('data-upload-into'),
+          to: el.getAttribute('data-upload-to'),
+          template: el.getAttribute('data-upload-name-template'),
+          component: el.getAttribute('data-component-id'),
+          event: el.getAttribute('data-event'),
+        };
+      };
+      return { composer: pick('composer-form'), panel: pick('ws-panel'), dock: pick('ws-dock') };
+    },
+
+    /// drop real `File`s on `selector`. a synthetic `DataTransfer` item has no
+    /// `webkitGetAsEntry`, so this exercises the engine's `getAsFile` fallback —
+    /// the same branch a browser takes for a file with no filesystem backing.
+    uploadDrop: (selector, specs) => {
+      const el = document.querySelector(selector);
+      if (!el) return { ok: false, reason: 'no ' + selector };
+      const dt = new DataTransfer();
+      for (const s of specs) {
+        dt.items.add(new File([new Uint8Array(s.bytes || 8)], s.name, { type: s.type || 'application/octet-stream' }));
+      }
+      el.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      return { ok: true, names: specs.map((s) => s.name) };
+    },
+
+    /// paste an image `File` on `selector` (the composer input). the engine's
+    /// paste binder only uploads `image/*`, and leaves a text-only paste alone.
+    uploadPaste: (selector, name, type, bytes) => {
+      const el = document.querySelector(selector);
+      if (!el) return { ok: false, reason: 'no ' + selector };
+      const dt = new DataTransfer();
+      dt.items.add(new File([new Uint8Array(bytes || 64)], name, { type: type || 'image/png' }));
+      el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+      return { ok: true, name };
+    },
+
+    /// the engine's live render token — the upload credential. read/write so a
+    /// gate can prove the route's refusal without a second page.
+    uploadToken: () => {
+      const engine = window.WebUIEngine && window.WebUIEngine._getInstance ? window.WebUIEngine._getInstance() : null;
+      return engine && engine.config ? (engine.config.renderToken || null) : null;
+    },
+    setUploadToken: (value) => {
+      const engine = window.WebUIEngine && window.WebUIEngine._getInstance ? window.WebUIEngine._getInstance() : null;
+      if (!engine || !engine.config) return false;
+      engine.config.renderToken = value;
+      return true;
+    },
+
+    /// the workspace root the panel is showing (`#ws-tree[data-root]`), so a
+    /// gate can name and clean the files it caused to land.
+    workspaceRoot: () => {
+      const tree = document.getElementById('ws-tree');
+      return tree ? tree.getAttribute('data-root') : null;
+    },
   };
   window.uxGates = api;
   return 'uxGates installed — helpers on window.uxGates';
