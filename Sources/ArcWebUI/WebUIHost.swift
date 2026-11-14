@@ -352,11 +352,13 @@ public struct WebUIHost: Service {
         // deprecated `requestRender:` init predates — and the reason arc needs no
         // materializer of its own.
         //
-        // The token is the one THIS response was minted for: it rides the
-        // document's `webui-config` (the engine echoes it, so every frame
-        // resolves to the session this render's `controlAttributes` handlers
-        // registered into), its `arc-upload-token` meta (the upload route's
-        // credential until A6) and the store the upload route validates against.
+        // The token is the one THIS response was minted for, and it is both
+        // credentials at once: `webui-config`'s `renderToken` (the engine echoes
+        // it, so every frame resolves to the session this render's
+        // `controlAttributes` handlers registered into) and the upload route's
+        // `X-Render-Token` (validated against the store below). no-webui 2.11.0
+        // deleted the reason for a second meta — its upload transport reads
+        // `engine.config.renderToken`, which is this value.
         // The shell above is rendered OUTSIDE a render pass — it is the same
         // document skeleton on every response — so it registers no session
         // handlers; the app's `appShell()` render is the one that runs inside the

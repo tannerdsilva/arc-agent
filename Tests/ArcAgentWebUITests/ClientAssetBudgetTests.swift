@@ -19,10 +19,10 @@ extension ArcWebUITestRoot {
 	struct ClientAssetBudgetTests {
 
 		/// measured 55,956 bytes / 1,230 lines in the merged tree.
-		/// this commit: the engine owns workspace upload (panel + dock zones) — its
-		/// own deletion lands in full. the local line landed at 54,843; the
-		/// 1,113-byte residue above it is upstream's staged-chip and popover
-		/// surface, which this program has not retired.
+		/// this commit: the render token is the upload token — the page meta deleted.
+		/// the local line measured 77,120: the -21,164-byte delta is the
+		/// upstream composer-attachment, workspace-delete and popover blocks this
+		/// program has not retired yet.
 		/// one byte of headroom, which is the ratchet working as intended.
 		private static let ceiling = 55_957
 

@@ -33,16 +33,17 @@ public enum AppShell {
     /// three colliding `:root` tokens (`--radius-sm/md/lg`) and ten like-named classes
     /// (`chip`, `kv`, `toast`, …) silently change ownership.
     /// - parameter renderToken: the token this response was rendered for. The page
-    ///   publishes it twice, deliberately: in the `arc-upload-token` meta (the
-    ///   upload route's credential, until 2.10.0's upload transport replaces it)
-    ///   and as `RuntimeConfig.renderToken`. The runtime-config copy is what
-    ///   makes the engine echo the token on every event and ping, so the server
-    ///   resolves each frame to the render session it minted for this response —
-    ///   the session this page's render-time `controlAttributes` handlers
-    ///   registered into. Everything the render did not wire still answers from
-    ///   the router's host table (2.8.0: session first, host second — §22.1/D1).
-    ///   nil/empty leaves both out of the page — a page rendered with no other
-    ///   runtime knob still carries the `{}` shape, byte for byte.
+    ///   publishes it once, as `RuntimeConfig.renderToken`: the engine echoes it on
+    ///   every event and ping — so the server resolves each frame to the render
+    ///   session it minted for this response (the session this page's render-time
+    ///   `controlAttributes` handlers registered into) — and, since no-webui
+    ///   2.11.0, it is the upload credential as well: the engine's upload
+    ///   transport sends it as `X-Render-Token`, and the host validates it against
+    ///   the same `UploadTokenStore` the page route records into. There is no
+    ///   second token and no second meta. Everything the render did not wire still
+    ///   answers from the router's host table (2.8.0: session first, host second —
+    ///   §22.1/D1). nil/empty leaves the token out of the page — a page rendered
+    ///   with no other runtime knob still carries the `{}` shape, byte for byte.
     /// - parameter maxFrameBytes: the frame budget the server this page is served
     ///   from enforces (`WebUIServerConfig.maxFrameSize`), published so the engine
     ///   can refuse an over-budget frame before it closes the socket with 1009.
@@ -59,7 +60,7 @@ public enum AppShell {
             // only a real token goes into the page: an empty one would say "a
             // token exists" to the client without ever validating.
             let token = (renderToken?.isEmpty == false) ? renderToken : nil
-            // The token rides the runtime config AND its own meta.
+            // The token rides the runtime config, once.
             //
             // `RuntimeConfig.renderToken` makes the engine echo the token on
             // every event frame, and the server resolves such a frame to the
@@ -80,9 +81,11 @@ public enum AppShell {
             // render did not wire still answers from the host table: publishing
             // the token is what makes BOTH populations reachable from one page.
             //
-            // The `arc-upload-token` meta stays alongside it: that is the
-            // upload route's credential until 2.10.0 (A6) makes the render
-            // token the upload token and deletes the meta.
+            // 2.11.0's upload transport reads the same value
+            // (`engine.config.renderToken`) and sends it as `X-Render-Token`, so
+            // the page's one runtime knob is also its upload credential. The
+            // separate upload meta this file used to emit is gone: two copies of
+            // one credential could disagree, and the engine never read it.
             let runtime = RuntimeConfig(renderToken: token, maxFrameBytes: maxFrameBytes)
             return WebUI.HTMLDocument(
                 title: "ARC Agent",
@@ -93,7 +96,6 @@ public enum AppShell {
                 // like every other attribute — no markup string in this file.
                 headContent: HeadContent {
                     .script(src: overlayURL)
-                    if let token { .meta(name: "arc-upload-token", content: token) }
                 },
                 htmlAttributes: themeAttrs,
                 devMode: false,
