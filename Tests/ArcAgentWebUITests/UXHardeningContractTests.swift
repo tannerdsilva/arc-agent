@@ -358,44 +358,54 @@ extension ArcWebUITestRoot {
                     "the overlay must not keep its own resizer beside the engine's")
         }
 
-        // MARK: - UX-28 slash menu whole-row scroll + initial active row (T25)
+        // MARK: - the slash palette is a FilterList region (A16d, no-webui 3.1.0)
 
-        @Test("the slash dropdown sizes itself to whole rows and opens with the first row active")
-        func slashMenuWholeRows() {
-            let overlay = Self.overlay
+        @Test("the slash palette is one FilterList region: server rows, engine-owned open state")
+        func slashPaletteIsAFilterList() async {
+            let composer = await RenderedMarkup.composer()
             let css = Self.sheetSource
-            // The regression (w1v-02, w2f-02): a 232px max-height against 57.5px
-            // rows showed a 2px sliver of the next row. The scroll region is now a
-            // borderless `.cmd-list` inner wrapper, and the overlay sizes it to a
-            // floor of the available space over the measured row pitch — so the
-            // border-box height IS the content height and lands exactly on a row
-            // boundary.
-            #expect(overlay.contains(".cmd-list"),
-                    "the rows must live in the borderless inner wrapper whose box owns the clip")
-            #expect(overlay.contains("list.style.maxHeight = (Math.round((whole * rowH) * 4) / 4) + 'px'"),
-                    "the scroll region's max-height must be an exact multiple of the row pitch")
-            #expect(overlay.contains("var whole = Math.max(1, Math.floor(avail / rowH));"),
-                    "the visible row count must be floored, never truncated mid-row")
-            #expect(overlay.contains("list.scrollTop"), "revealing the active row must scroll the inner list")
-            // UX-54: the cap rose 232 → 460px (8 of 10 commands visible instead
-            // of a four-row fold) and the inner list shows a slim always-visible
-            // scrollbar so the remaining rows advertise themselves.
-            #expect(css.contains(".cmd-list { max-height: 460px; overflow-y: auto; scrollbar-gutter: stable; }"),
-                    "the clip lives on the inner borderless list, not the bordered dropdown")
-            #expect(css.contains(".cmd-list::-webkit-scrollbar-thumb"),
-                    "UX-54: the inner list must advertise overflow with a visible scrollbar")
-            #expect(overlay.contains("Math.min(460, composerTop - 12)"),
-                    "UX-54: the menu must claim the available space up to 460px, not a four-row fold")
-            // Opening the menu must reset the highlight to the first row so Enter's
-            // target is unambiguous after a prior interaction moved the selection.
-            #expect(overlay.contains("if (!wasOpen) slashSel = 0;"),
-                    "a fresh open must mark the first item active")
-            // The active row carries the class the visible treatment keys on, and
-            // the sheet gives it an accent-tinted fill plus a left accent bar.
-            #expect(overlay.contains("b.className = 'cmd-item' + (idx === slashSel ? ' active' : '')"),
-                    "the selected row must carry the .active class")
-            #expect(css.contains(".cmd-item.active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent-strong); }"),
-                    "the active row must read as active: accent fill + left bar")
+            // ONE `.combo` region around the textarea and the panel carries the
+            // three declarations 3.1.0 reads: the prefix-gated source, the
+            // write-back target and the token template. The value is
+            // `prefix|source` — the token form, not the whole-field one.
+            let region = composer.range(of: #"<div class="combo"[^>]*>"#,
+                                        options: .regularExpression).map { String(composer[$0]) }
+            #expect(region != nil, "the composer must render one `.combo` region (the FilterList root)")
+            #expect(region?.contains("data-filter-list=\"/|#composer-input\"") == true,
+                    "the region must state the token form `prefix|source`; the whole-field form would filter on the entire draft")
+            #expect(region?.contains("data-filter-insert=\"composer-input\"") == true,
+                    "the insert target is the composer field")
+            #expect(region?.contains("data-filter-template=\"/{value} \"") == true,
+                    "the template restores the slash and the trailing space around the row's bare name")
+            // The rows are SERVER markup: `[role=option]` inside `.combo__panel`,
+            // the panel keyed on `data-open` (the engine's latch). Their
+            // textContent is the bare command name because FilterInsert writes
+            // exactly it; the description rides `data-desc` and the sheet paints
+            // it — the old `/name` + description look without a client row builder.
+            #expect(composer.contains("id=\"cmd-dropdown\""), "the panel keeps its id for the gate + sheet")
+            #expect(composer.contains("class=\"combo__panel\""), "the engine locates the panel by this class")
+            #expect(composer.range(of: #"<div class="combo__option"[^>]*>help</div>"#,
+                                   options: .regularExpression) != nil,
+                    "a row's textContent must be the BARE command name — `FilterInsert` inserts it verbatim")
+            #expect(composer.contains("data-desc=\"Show available slash commands\""),
+                    "the description must ride `data-desc`")
+            #expect(!composer.contains("slash-data"),
+                    "the JSON payload is retired: the server renders the rows directly")
+            for retired in ["function slashItems()", "function slashToken(", "function slashFiltered(",
+                            "function renderSlashMenu(", "function chooseSlash(", "function syncSlashMenu("] {
+                #expect(!Self.overlay.contains(retired),
+                        "the client slash block `\(retired)` is back — the region owns it")
+            }
+            // CSS: visibility is the engine's `data-open`; the hidden attribute
+            // must beat the author display rule; the description is a pseudo.
+            #expect(css.contains(".combo__panel[data-open] { display: block; }"),
+                    "the panel's open state must be the engine's `data-open`, never a class")
+            #expect(css.contains(".combo__option[hidden] { display: none; }"),
+                    "the engine hides filtered rows with `[hidden]`; an author `display` would outrank the UA rule")
+            #expect(css.contains(".combo__option::after { content: attr(data-desc)"),
+                    "the row description is painted from `data-desc`, not inserted as text")
+            #expect(css.contains(".combo__panel::-webkit-scrollbar-thumb"),
+                    "UX-54: the panel must advertise overflow with a visible scrollbar")
         }
 
         // MARK: - UX-33 focus survives the fragment patch (T26)
@@ -861,58 +871,34 @@ extension ArcWebUITestRoot {
         }
 
 
-        // MARK: - UX-01 slash autocomplete consumer
+        // MARK: - UX-01 the slash palette's server consumer (A16d)
 
-        @Test("the slash menu payload has a client consumer wired to open/filter/insert")
-        func slashMenuIsConsumed() async {
+        @Test("the slash palette's rows are server markup and no client consumer survives")
+        func slashMenuIsServerRendered() async {
             let overlay = Self.overlay
-            // The regression: `#slash-data` and `#cmd-dropdown` were rendered but
-            // nothing consumed them after the engine migration — `/` did nothing.
-            #expect(overlay.contains("function slashItems()"),
-                    "the overlay must parse the server-rendered slash payload")
-            #expect(overlay.contains("JSON.parse(host.textContent || '{}')"),
-                    "the menu must read `#slash-data`, not a hardcoded copy")
-            #expect(overlay.contains("function syncSlashMenu(value)"),
-                    "opening/filtering must be driven by composer input")
-            #expect(overlay.contains("e.key === 'ArrowDown' || e.key === 'ArrowUp'"),
-                    "ArrowUp/Down must move the selection")
-            #expect(overlay.contains("e.key === 'Enter' || e.key === 'Tab'"),
-                    "Enter/Tab must insert the highlighted command")
-            #expect(overlay.contains("chooseSlash("), "an insert path must exist")
-            #expect(overlay.contains("function closeSlashMenu()"),
-                    "Escape/outside-click must be able to close it")
-            // Enter with the menu open must insert, not submit. A15 moved the
-            // ownership: no-webui 2.17.0's `data-submit-on-enter` binds on the
-            // textarea ELEMENT, so the menu's listener registers in the CAPTURE
-            // phase and stops propagation for the keys it owns — a document-level
-            // bubble check would run after the engine already submitted.
-            #expect(overlay.contains("e.preventDefault();\n      e.stopPropagation();\n      chooseSlash("),
-                    "Enter with the menu open must not reach the engine's submit listener")
-            #expect(overlay.contains("  }, true);\n\n  // Clicking anywhere outside the dropdown closes it"),
-                    "the menu's keydown listener must be a capture-phase registration")
-            #expect(overlay.contains("document.addEventListener('keydown', function (e) {\n    if (!slashMenuOpen()) return;"),
-                    "the listener still only runs while the menu is open")
-            let composer = await RenderedMarkup.composer()
-            // the plan asks for a stronger pin than a substring: the payload must
-            // PARSE as JSON, because a malformed blob silently kills autocomplete.
-            let slashTag = composer.range(of: #"<div id="slash-data"[^>]*>[\s\S]*?</div>"#,
-                                          options: .regularExpression).map { String(composer[$0]) }
-            #expect(slashTag != nil, "the slash payload node must exist")
-            if let slashTag {
-                let inner = slashTag
-                    .replacingOccurrences(of: #"^<div[^>]*>"#, with: "", options: .regularExpression)
-                    .replacingOccurrences(of: "</div>", with: "")
-                    .replacingOccurrences(of: "&quot;", with: "\"")
-                    .replacingOccurrences(of: "&#39;", with: "'")
-                    .replacingOccurrences(of: "&lt;", with: "<")
-                    .replacingOccurrences(of: "&gt;", with: ">")
-                    .replacingOccurrences(of: "&amp;", with: "&")
-                let decoded = (try? JSONSerialization.jsonObject(with: Data(inner.utf8))) as? [String: Any]
-                #expect(decoded?["items"] != nil,
-                        "the slash payload must parse as JSON with an items array")
+            // The A16-era regression was the OPPOSITE shape: `#slash-data` and
+            // `#cmd-dropdown` were rendered and nothing consumed them. 3.1.0's
+            // `FilterList(token:)` is the consumer, declared ON the markup — so
+            // the honest pin is that the client block is gone and the region is
+            // there, not that a function name exists.
+            for retired in ["function slashItems()", "function slashToken(",
+                            "function renderSlashMenu(", "function chooseSlash(",
+                            "function closeSlashMenu()", "function syncSlashMenu(value)",
+                            "slashMenuOpen()", "slashSel", "slashSuppressed"] {
+                #expect(!overlay.contains(retired),
+                        "the retired client slash block `\(retired)` is back")
             }
-            #expect(composer.contains("id=\"slash-data\""),
-                    "the payload node must stay in the composer markup")
+            #expect(!overlay.contains("JSON.parse(host.textContent"),
+                    "the payload parse is the server's rows now")
+            let composer = await RenderedMarkup.composer()
+            // ten builtin commands, each a row the engine can list and select
+            #expect(Self.count("class=\"combo__option\"", in: composer) >= 10,
+                    "every builtin command must be a server-rendered option row")
+            #expect(composer.contains("role=\"option\""),
+                    "rows must carry the role the filter list enumerates")
+            // `/` still reaches the field, so the shortcut is preserved without JS
+            #expect(composer.contains("data-filter-list=\"/|#composer-input\""),
+                    "the `/` gate is the region's declaration")
         }
 
         // MARK: - UX-04 honest mid-stream queue

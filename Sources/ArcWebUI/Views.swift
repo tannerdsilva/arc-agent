@@ -2778,32 +2778,72 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
         ("model", "Switch model configuration", "<name>"),
     ]
 
-    /// JSON payload for the client-side slash autocomplete (reference
-    /// `/api/skills` + COMMANDS merged into one list).
-    func slashDataJSON() -> String {
-        func jstr(_ v: String) -> String {
-            var out = ""
-            for ch in v {
-                switch ch {
-                case "\"": out += "\\\""
-                case "\\": out += "\\\\"
-                case "\n": out += "\\n"
-                case "\r": out += "\\r"
-                case "\t": out += "\\t"
-                default: out.append(ch)
+    /// The slash palette (A16d): server-rendered `[role=option]` rows for the
+    /// composer's `FilterList(source:token:)` region (no-webui 3.1.0).
+    ///
+    /// The whole client-side menu — payload parse, token regex, filter, row
+    /// construction, highlight, insertion, keyboard — is the framework's now:
+    /// the region states `data-filter-list="/|#composer-input"` (prefix, then
+    /// source), `data-filter-insert` names the field the value is written back
+    /// to, and `data-filter-template="/{value} "` puts the slash and the
+    /// trailing space around the row's text. A row's `textContent` is therefore
+    /// the BARE command name — the engine inserts exactly that — while the
+    /// description rides `data-desc` and the sheet paints it with
+    /// `.combo__option::after`. Enter selects only while a row is the ACTIVE
+    /// element (3.1.0's contract); with focus in the textarea Enter submits,
+    /// which is `SubmitOnEnter`'s key.
+    func slashPanel() -> some WebUI.View {
+        Div(class: .combo) {
+            ComposerText(field: FieldID("composer-input"),
+                         component: "composer-input",
+                         placeholder: composerPlaceholder(),
+                         value: composerDraftValue(),
+                         session: activeSessionID ?? "",
+                         rows: 1)
+            Div(class: .comboPanel) {
+                for b in Self.slashBuiltins {
+                    Div(class: .comboOption) { Text(b.name) }
+                        .attribute("role", "option")
+                        .attribute("tabindex", "-1")
+                        .attribute(RowDescription(b.arg.map { "\($0) · \(b.desc)" } ?? b.desc))
+                }
+                for skill in skills {
+                    Div(class: .comboOption) { Text(skill.name) }
+                        .attribute("role", "option")
+                        .attribute("tabindex", "-1")
+                        .attribute(RowDescription(skill.description.isEmpty ? "Skill" : skill.description))
                 }
             }
-            return "\"\(out)\""
+            .id("cmd-dropdown")
+            .attribute("role", "menu")
+            .aria(.label("Slash commands"))
         }
-        var items: [String] = []
-        for b in Self.slashBuiltins {
-            let arg = b.arg.map { ",\"arg\":" + jstr($0) } ?? ""
-            items.append("{\"name\":\(jstr(b.name)),\"desc\":\(jstr(b.desc)),\"kind\":\"builtin\"\(arg)}")
-        }
-        for skill in skills {
-            items.append("{\"name\":\(jstr(skill.name)),\"desc\":\(jstr(skill.description)),\"kind\":\"skill\"}")
-        }
-        return "{\"items\":[\n      " + items.joined(separator: ",\n      ") + "\n    ]}"
+        .attribute(FilterList(source: "#composer-input", token: "/").attribute())
+        .attribute(FilterInsert(target: "composer-input").attribute())
+        .attribute(FilterTemplate(text: "/{value} ").attribute())
+    }
+
+    /// `data-desc` for a slash row: the description is CONTENT the sheet paints
+    /// with `.combo__option::after`, so it can never join the row's
+    /// `textContent` (which `FilterInsert` writes verbatim). A typed value, not
+    /// `.attribute("data-desc", …)`: the attribute census requires the
+    /// vocabulary's escaping and spelling to own it.
+    struct RowDescription: AttributeRepresentable {
+        static let name = "data-desc"
+        let value: String
+        init(_ value: String) { self.value = value }
+    }
+
+    /// the composer's placeholder and server seed, named once so the slash
+    /// region and the form cannot disagree about them.
+    private func composerPlaceholder() -> String {
+        activeTurns[activeSessionID ?? ""] != nil
+            ? "Send another message — queued after this reply."
+            : "Message ARC…"
+    }
+
+    private func composerDraftValue() -> String {
+        settings.composerDrafts[activeSessionID ?? ""] ?? ""
     }
 
     /// "Context N" chips above the composer (reference `_renderSelectionChips`).
@@ -2840,8 +2880,6 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
 
     func composerHTML() -> some WebUI.View {
         let running = activeTurns[activeSessionID ?? ""] != nil
-        let sid = activeSessionID ?? ""
-        let draft = settings.composerDrafts[sid] ?? ""
         let isBooked = activeSessionID.map { isBookmarked($0) } ?? false
         // the open latch is CONSUMED here (see `AppState.composerPopover`): this
         // render is the one that states a popover open, and every later render
@@ -2855,9 +2893,6 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
         return Div(class: .composerWrap) {
             Div { composerFlyoutHTML() }
                 .id("composer-flyout")
-            Div(class: .cmdDropdown) {}
-                .id("cmd-dropdown")
-                .aria(.label("Slash commands"))
             queuedSendsHTML()
             selectionChipsHTML()
             Form(action: "", method: nil, id: "composer-form",
@@ -2886,17 +2921,10 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                 }
                 .id("attach-chips")
                 .wire("att-chips")
-                // the composer's textarea is a component, not a modifier chain:
-                // the two draft behaviors (no-webui 2.16.0) segfaulted every
-                // render once they joined this chain (D-5(a′)). It writes the
-                // autogrow, the draft identity + server seed and the routing
-                // attributes into its own open tag.
-                ComposerText(field: FieldID("composer-input"),
-                             component: "composer-input",
-                             placeholder: running ? "Send another message — queued after this reply." : "Message ARC…",
-                             value: draft,
-                             session: sid,
-                             rows: 1)
+                // the slash menu is ONE `FilterList(token: "/")` region around
+                // the textarea and its `.combo__panel` (A16d): 3.1.0 owns the
+                // open latch, the token query, the row filter and the insert.
+                slashPanel()
                 Div(class: .composerToolbar) {
                     ArcButton(id: "cb-file", component: "cb-file",
                               class: ClassName("tool-btn" + (openPopover == .file ? " on" : ""))) {
@@ -2969,9 +2997,6 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
             // topmost layer while it is open and `data-dismiss` arms Escape and
             // the outside click — the pair is one contract, one contribution.
             .dismissibleOpen(openPopover == .file ? openSerial : nil)
-            Div { Text(slashDataJSON()) }
-                .id("slash-data")
-                .flag(.hidden)
         }
         .id("composer-wrap")
     }

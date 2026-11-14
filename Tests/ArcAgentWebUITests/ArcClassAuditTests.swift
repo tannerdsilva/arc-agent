@@ -40,14 +40,14 @@ extension ArcWebUITestRoot {
 		static let exceptions: Set<String> = []
 
 		/// the sheet's declared token count, measured when the enum was generated
-		/// — a throwaway script over the built `ThemeSheetAssets.text`, 685 tokens
+		/// — a throwaway script over the built `ThemeSheetAssets.text`, 680 tokens
 		/// in the merged tree (upstream's kanban and attachment rules included,
-		/// less the `drawer-open` token the engine's dismiss arming retires).
+		/// less the tokens the engine's behaviours retire as they arrive).
 		///
 		/// this literal is not the guard by itself: `sheetStillMatchesTheMeasurement`
 		/// re-counts the live sheet, so a sheet edit fails there with the difference
 		/// rather than quietly redefining what the enum was built from.
-		static let declaredTokenCount = 685
+		static let declaredTokenCount = 680
 
 		// MARK: - both directions
 

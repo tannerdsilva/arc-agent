@@ -118,16 +118,11 @@ extension ClassName {
 	public static var clarifyQuestion: ClassName { ClassName(ArcClass.clarifyQuestion.token) }
 	public static var clarifyResponse: ClassName { ClassName(ArcClass.clarifyResponse.token) }
 	public static var clarifySubmit: ClassName { ClassName(ArcClass.clarifySubmit.token) }
-	public static var cmdDropdown: ClassName { ClassName(ArcClass.cmdDropdown.token) }
-	public static var cmdItem: ClassName { ClassName(ArcClass.cmdItem.token) }
-	public static var cmdItemArg: ClassName { ClassName(ArcClass.cmdItemArg.token) }
-	public static var cmdItemBadge: ClassName { ClassName(ArcClass.cmdItemBadge.token) }
-	public static var cmdItemBadgeSkill: ClassName { ClassName(ArcClass.cmdItemBadgeSkill.token) }
-	public static var cmdItemDesc: ClassName { ClassName(ArcClass.cmdItemDesc.token) }
-	public static var cmdItemName: ClassName { ClassName(ArcClass.cmdItemName.token) }
-	public static var cmdList: ClassName { ClassName(ArcClass.cmdList.token) }
 	public static var codeWrap: ClassName { ClassName(ArcClass.codeWrap.token) }
 	public static var collapsed: ClassName { ClassName(ArcClass.collapsed.token) }
+	public static var combo: ClassName { ClassName(ArcClass.combo.token) }
+	public static var comboOption: ClassName { ClassName(ArcClass.comboOption.token) }
+	public static var comboPanel: ClassName { ClassName(ArcClass.comboPanel.token) }
 	public static var composerBar: ClassName { ClassName(ArcClass.composerBar.token) }
 	public static var composerFlyout: ClassName { ClassName(ArcClass.composerFlyout.token) }
 	public static var composerToolbar: ClassName { ClassName(ArcClass.composerToolbar.token) }

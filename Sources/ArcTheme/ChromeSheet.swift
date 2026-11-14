@@ -3383,39 +3383,40 @@ public static let css: String = """
     .blank-sub { font-size: 13px; color: var(--muted); max-width: 38ch; }
     .blank-cta { margin-top: 12px; display: inline-flex; align-items: center; gap: 7px; }
 
-    /* ── Slash autocomplete (reference commands.js parity) ── */
-    .cmd-dropdown { display: none; position: fixed; width: min(560px, calc(100vw - 24px));
+    /* ── Slash palette: a FilterList(token: "/") region (no-webui 3.1.0) ──
+       The region wraps the composer textarea and the panel. Its open state is
+       the ENGINE's `data-open` on `.combo__panel` (the filter list reconciles
+       it on input/focus/caret), so no class and no display rule of ours can
+       disagree with it. The panel keeps the old dropdown's absolute geometry:
+       anchored above the textarea, full width up to 560px. */
+    .combo { position: relative; }
+    .combo__panel { display: none; position: absolute; left: 0; bottom: calc(100% + 8px);
+      width: min(560px, calc(100vw - 24px)); max-height: 460px; overflow-y: auto;
+      scrollbar-gutter: stable;
       background: var(--bg); border: 1px solid var(--border-strong); border-radius: 10px;
-      box-shadow: 0 -8px 24px rgba(0,0,0,.4); z-index: 200; overflow: hidden; }
-    .cmd-dropdown.open { display: block; }
-    /* T25: the scroll region is a borderless inner wrapper, so its border-box
-       height IS the content height — the JS sizes it to an exact whole-number
-       multiple of the row pitch and the last visible row lands flush on the
-       box edge instead of being sliced in half. */
-    .cmd-list { max-height: 460px; overflow-y: auto; scrollbar-gutter: stable; }
+      box-shadow: 0 -8px 24px rgba(0,0,0,.4); z-index: 200; }
+    .combo__panel[data-open] { display: block; }
     /* UX-54: macOS overlay scrollbars are invisible at rest, which hid 6 of
        the 10 commands behind a silent fold. A slim, always-visible track lets
        the remaining rows advertise themselves. */
-    .cmd-list::-webkit-scrollbar { width: 11px; }
-    .cmd-list::-webkit-scrollbar-track { background: transparent; }
-    .cmd-list::-webkit-scrollbar-thumb {
+    .combo__panel::-webkit-scrollbar { width: 11px; }
+    .combo__panel::-webkit-scrollbar-track { background: transparent; }
+    .combo__panel::-webkit-scrollbar-thumb {
       background: var(--border-strong); border-radius: 999px;
       border: 3px solid transparent; background-clip: content-box;
     }
-    .cmd-list::-webkit-scrollbar-thumb:hover { background: var(--muted); border: 3px solid transparent; background-clip: content-box; }
-    .cmd-item { display: block; width: 100%; text-align: left; padding: 8px 14px; cursor: pointer;
-      transition: background .12s; background: transparent; border: 0; color: inherit; font: inherit; }
-    .cmd-item:hover { background: rgba(140,140,140,.12); }
-    /* T25: the active row is unmistakable — accent-tinted fill plus a left
-       accent bar (inset shadow so the row pitch is untouched by the marker). */
-    .cmd-item.active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent-strong); }
-    .cmd-item-name { font-size: 13px; color: var(--text); font-weight: 500; }
-    .cmd-item-arg { color: var(--muted); font-weight: 400; font-style: italic; }
-    .cmd-item-desc { font-size: 12px; color: var(--muted); margin-top: 1px; }
-    .cmd-item-badge { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 700;
-      letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px;
-      border: 1px solid var(--border-strong); color: var(--muted); background: var(--hover-bg); vertical-align: 1px; }
-    .cmd-item-badge-skill { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-strong); }
+    .combo__panel::-webkit-scrollbar-thumb:hover { background: var(--muted); border: 3px solid transparent; background-clip: content-box; }
+    /* a row's textContent is the BARE command name (the insert writes exactly
+       it); the description rides `data-desc` and is painted below the name. */
+    .combo__option { display: block; width: 100%; text-align: left; padding: 8px 14px;
+      cursor: pointer; transition: background .12s; font-size: 13px; font-weight: 500;
+      color: var(--text); box-sizing: border-box; }
+    /* the engine hides a filtered-out row with the `hidden` attribute, and an
+       author `display` rule would otherwise outrank the UA's [hidden]. */
+    .combo__option[hidden] { display: none; }
+    .combo__option:hover, .combo__option:focus-visible { background: rgba(140,140,140,.12); outline: none; }
+    .combo__option::after { content: attr(data-desc); display: block; margin-top: 1px;
+      font-size: 12px; font-weight: 400; color: var(--muted); }
 
     /* ── Context chips (reference _renderSelectionChips parity) ── */
     .selection-chips-wrap { display: flex; flex-direction: column; gap: 8px; max-width: 100%;
