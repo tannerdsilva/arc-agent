@@ -191,6 +191,11 @@ async function openMenu(sid) {
     const row = ${sid ? `[...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${sid}')` : `document.querySelector('.sess-row.active')`};
     const dots = row && row.querySelector('.menu-dots');
     if (!dots) return false;
+    // focus like a pointer click does: Chrome focuses a button on mousedown,
+    // and the engine's raw modal-focus memo restores whatever held focus when
+    // a dialog opened — a programmatic click alone leaves the composer
+    // focused, which is a different (synthetic) starting point.
+    try { dots.focus(); } catch (e) {}
     dots.click();
     return true;
   })()`);
@@ -759,13 +764,14 @@ async function runInteractions() {
     // focused (the composer, via the new-chat flow), and the "trail" starts
     // mid-cycle — counting a wrapped lap instead of the cost from load.
     //
-    // The app intentionally refocuses the composer ~2.5s after a new chat
-    // (overlay.js focusComposerWanted window, the UX-45 affordance). A body
-    // focus that lands inside that window gets undone when the timer fires,
-    // and the walk then starts at the composer's toolbar — a rotated trail
-    // that reads as a product failure (2026-11-01 audit). Wait the window out,
-    // re-assert the body focus, and treat a second miss as a measurement
-    // skip: the budget's ≤12 assertion stays untouched either way.
+    // The app focuses the composer on boot and after a new chat (3.1.0's
+    // `data-focus-on-appear` on the textarea — the UX-45 affordance), and the
+    // new-chat patch can land a beat after the click. A body focus that lands
+    // inside that window gets undone, and the walk then starts at the
+    // composer's toolbar — a rotated trail that reads as a product failure
+    // (2026-11-01 audit). Wait the patch out, re-assert the body focus, and
+    // treat a second miss as a measurement skip: the budget's ≤12 assertion
+    // stays untouched either way.
     await settle(2700);
     await driver.js(`document.body.setAttribute('tabindex','-1'); document.activeElement && document.activeElement.blur && document.activeElement.blur(); document.body.focus(); true`);
     await settle(250);
@@ -806,6 +812,12 @@ async function runInteractions() {
   add('tab budget (<=12 stops to composer, 1440 + 768)', budgetOk, budget);
 
   // ---- 4. slash menu -------------------------------------------------------
+  // no-webui 3.1.0: the menu is a `FilterList(source:token:)` region — the
+  // server renders the rows, the engine owns the `/` gate, the filter and the
+  // insert. The measured contract change from the retired client menu: Enter
+  // selects only while a ROW is the active element; with focus in the textarea
+  // Enter submits (`SubmitOnEnter` owns that listener). This row therefore
+  // inserts by CLICK — the surface a reader reaches without a keyboard detour.
   const slash = {};
   await chatView();
   // The slash menu is suppressed while a turn is in flight (the composer turns
@@ -823,18 +835,19 @@ async function runInteractions() {
   await driver.typeText('/');
   await settle(400);
   slash.before = await ev(`uxGates.slash()`);
-  slash.typingHelp = (slash.before.rows || []).some((r) => r.text.toLowerCase().includes('help'));
+  slash.typingHelp = (slash.before.rows || []).some((r) => r.text === 'help');
   await driver.typeText('he');
   await settle(400);
   slash.after = await ev(`uxGates.slash()`);
   slash.filteredShrunk = slash.after.rowCount > 0 && slash.after.rowCount <= slash.before.rowCount;
-  // Enter inserts
-  await driver.pressEnter();
+  // click the `help` row: the insert is the region's own click consequence
+  const helpRect = await ev(`uxGates.slashRowRect('help')`);
+  if (helpRect) await driver.clickAt(helpRect.x, helpRect.y);
   await settle(400);
-  slash.afterEnter = await ev(`(() => ({ open: uxGates.slash().open, composer: document.getElementById('composer-input')?.value || '', placeholder: document.getElementById('composer-input')?.getAttribute('placeholder') }))()`);
-  slash.inserted = /^\/\S+/.test(slash.afterEnter.composer);
-  slash.ok = slash.before.open && slash.before.rowCount > 0 && slash.after.open && slash.filteredShrunk && !slash.afterEnter.open && slash.inserted;
-  add('slash menu open -> filter -> insert', slash.ok, slash);
+  slash.afterClick = await ev(`(() => ({ open: uxGates.slash().open, composer: document.getElementById('composer-input')?.value || '', placeholder: document.getElementById('composer-input')?.getAttribute('placeholder') }))()`);
+  slash.inserted = /^\/help $/.test(slash.afterClick.composer);
+  slash.ok = slash.before.open && slash.before.rowCount > 0 && slash.after.open && slash.filteredShrunk && !slash.afterClick.open && slash.inserted;
+  add('slash menu open -> filter -> insert (click)', slash.ok, slash);
 
   // ---- 5. delete flow incl. Undo -------------------------------------------------
   await ensureProbeSession();
@@ -1418,27 +1431,26 @@ async function runScroll() {
 }
 
 // ---------------------------------------------------------------------------
-// a12 — focus: entry, the two close round trips, the Tab wrap, T26, the F3
-// entry limitation, and a clean console through the whole tour. no-webui 2.14.0
-// owns focus and arc states it as two attributes, so every row reads the
-// consequence in the real browser: `autofocus` enters the patched-in dialog (F3
-// — the HTML flush is the only entry path the engine ships), `data-focus-return`
-// returns focus to the opener once the close control's removal patch lands, and
-// the engine's `.modal-overlay` keydown trap wraps Tab. The delete-confirm flow
-// is base-red in this daemon state (`interactions · delete flow` cannot open its
-// modal), so the dialog under test is the context-breakdown pane opened from the
-// composer's context chip — a real `.modal-overlay` dialog reachable in every
-// conversation with at least one message, and every row names that surface.
+// a12/a16d — focus: entry, the two close round trips, the Tab wrap, T26, the
+// second-open contract, and a clean console through the whole tour. The ENGINE
+// owns focus and arc states it as declarations, so every row reads the
+// consequence in the real browser: 3.1.0's `data-focus-into` on the dialog's
+// region root enters the patched-in dialog — on the FIRST and every later
+// open, because the binder runs per insertion rather than `autofocus`'s
+// once-per-document flush (the A12 row (f) limitation this slice retires) —
+// `data-focus-return` returns focus to the opener once the close control's
+// removal patch lands, and the engine's `.modal-overlay` keydown trap wraps Tab.
+// The delete-confirm flow is base-red in this daemon state (`interactions ·
+// delete flow` cannot open its modal), so the dialog under test is the
+// context-breakdown pane opened from the composer's context chip — a real
+// `.modal-overlay` dialog reachable in every conversation with at least one
+// message, and every row names that surface.
 //
-// each ENTRY row starts from a fresh document: the context pane's open state is
-// SERVER state (it survives a reload), and Blink honors a dynamically inserted
-// `autofocus` element once per document — so a second open in the same document
-// is a different (unshipped) contract, measured by row (f). Every wait has a
-// deadline; a missing frame FAILS the row.
+// Every wait has a deadline; a missing frame FAILS the row.
 
 const FOCUS_SURFACE = 'the composer’s context chip (#ctx-chip-summary) → the context-breakdown dialog (#ctx-pane-overlay, a .modal-overlay card)';
 
-/// open the context dialog and wait for the autofocus flush to land in it.
+/// open the context dialog and wait for `data-focus-into` to land focus in it.
 async function openContextDialog() {
   await ev(`document.getElementById('ctx-chip-summary')?.click()`);
   return pollOk(`(() => {
@@ -1455,10 +1467,9 @@ async function awaitReturn() {
   })()`, 6000);
 }
 
-/// load the chat with no dialog open AND the document's autofocus flush unspent.
-/// the pane is server state, so a reload can arrive with it already open — and
-/// that load spends the flush on the pane in the initial HTML. closing it and
-/// reloading again is the only way to a resting page that can be entered.
+/// load the chat with no dialog open. the pane is server state, so a reload can
+/// arrive with it already open; closing it and reloading again is the only way
+/// to a resting page the entry rows can open from.
 async function freshChat() {
   for (let attempt = 0; attempt < 2; attempt++) {
     await driver.navigate(APP);
@@ -1492,19 +1503,22 @@ async function runFocus() {
   }
   record('focus', 'the gate can reach a resting page with no dialog open', true, out.preconditions);
 
-  // ---- (a) entry: the autofocus flush lands focus inside the dialog --------
+  // ---- (a) entry: FocusInto lands focus on the dialog's named control ------
   const entered = await openContextDialog();
   const entryState = entered || (await ev(`uxGates.focusState()`));
   out.entry = {
     surface: FOCUS_SURFACE,
     focused: entryState.active || null,
     inDialog: !!entryState.activeInDialog,
+    focusInto: entryState.focusInto || null,
     close: entryState.close || null,
   };
   const entryOk = !!(entered && entered.ok && entryState.close
+    && entryState.focusInto === 'ctx-pane-close'
     && entryState.close.focusReturn === 'ctx-chip-summary'
-    && entryState.close.autofocus && entryState.close.dismiss);
-  record('focus', '(a) the patched-in dialog takes focus on its autofocus control', entryOk, out.entry);
+    && entryState.close.autofocus === false
+    && entryState.close.dismiss);
+  record('focus', '(a) the patched-in dialog takes focus through `data-focus-into`', entryOk, out.entry);
   if (!entryOk) {
     await freshChat();
     return;
@@ -1554,26 +1568,19 @@ async function runFocus() {
     record('focus', '(b2) the close control returns focus to the opener', false, out.closeRoundTrip);
   }
 
-  // ---- (f) F3: a SECOND dialog in the same document ----------------------
-  // the shipped entry path is the browser's autofocus flush, and Blink honors a
-  // dynamically inserted `autofocus` element ONCE per document (measured here,
-  // including on a synthetic insertion, so it is the browser's rule and not
-  // arc's). F3 pre-authorizes the fallback — a 3.1.0 `FocusInto(id:)` behavior,
-  // or accepting focus on the opener — as a product decision. Until one lands,
-  // this row reports the measurement instead of grading an unshipped contract.
+  // ---- (f) a SECOND dialog in the same document --------------------------
+  // A12's row (f) measured Blink's once-per-document `autofocus` flush as the
+  // limit and SKIPped. 3.1.0's `data-focus-into` binds per insertion, so the
+  // same document can open the pane again and focus must land again. This is a
+  // hard row now: the limitation it documented is retired, not tolerated.
   await ev(`document.getElementById('ctx-chip-summary')?.click()`);
   const second = await pollOk(`(() => {
     const s = uxGates.focusState();
     return Object.assign({ ok: s.ctxPaneOpen && s.active === 'ctx-pane-close' && s.activeInDialog }, s);
   })()`, 8000);
   const secondState = second || (await ev(`uxGates.focusState()`));
-  out.secondOpen = { name: 'F3', focusables: focusables ? focusables.count : null, state: secondState };
-  if (second && second.ok) {
-    record('focus', '(f) a dialog opened a second time in the same document takes focus', true, out.secondOpen);
-  } else {
-    out.secondOpen.skipped = `measured: the second open of ${FOCUS_SURFACE} in one document puts focus on ${secondState.active || '<body>'}, not on #ctx-pane-close. Blink honors a dynamically inserted autofocus element once per document (a synthetic second insertion fails the same way), so this is the browser’s flush, not arc’s emission — F3 pre-authorizes the fallback (3.1.0 FocusInto(id:), or accepting focus on the opener) as a product decision`;
-    record('focus', '(f) a dialog opened a second time in the same document takes focus', 'skip', out.secondOpen);
-  }
+  out.secondOpen = { focusables: focusables ? focusables.count : null, state: secondState };
+  record('focus', '(f) a dialog opened a second time in the same document takes focus', !!(second && second.ok), out.secondOpen);
   // dismiss it (focus may be outside the card, where Escape does not reach)
   await ev(`document.getElementById('ctx-pane-close')?.click()`);
   await pollOk(`(() => { const s = uxGates.focusState(); return { ok: !s.ctxPaneOpen }; })()`, 6000);
@@ -1773,9 +1780,9 @@ async function runDraft() {
 // through the patches a send produces, which is that guard's only job.
 
 async function setComposer(text) {
-  // focus BEFORE the input frame: the overlay's focusin listener closes the
-  // slash menu when focus leaves it, so focusing after the input would open the
-  // menu and then immediately close it (measured in the first run of (d)).
+  // write through the value setter + input frame: the FilterList reconciles
+  // `data-open` and the row filter on `input` (and on `selectionchange` for the
+  // token's caret), so the field must be focused and the event must bubble.
   return ev(`(() => {
     const t = document.getElementById('composer-input');
     if (!t) return false;
@@ -1807,15 +1814,12 @@ async function runComposer() {
   const contractOk = boot.present && boot.submit === 'plain' && boot.clear === true;
   record('composer', '(e) the textarea states data-submit-on-enter="plain" and data-clear-on-submit', contractOk, boot);
 
-  // (d) the slash menu owns Enter: it inserts and must not submit. This is the
-  // 2.17.0 conflict — the engine's listener is on the textarea ELEMENT, the
-  // menu's is a CAPTURE-phase document listener, so the insert wins the key.
-  // The token is written through the value setter + input frame (the menu opens
-  // on `input`, not on a keystroke) so the row does not race focus theft; the
-  // Enter itself is a real CDP keypress, sent on the very next round-trip after
-  // the menu is confirmed open. No settle in between: a patch that replaces the
-  // composer mid-window re-renders the field and closes the menu (measured at
-  // ~500 ms after an input), and then the Enter would submit the `/he` text.
+  // (d) no-webui 3.1.0's focused-item contract: the `FilterList(token: "/")`
+  // region selects a row when that row is the ACTIVE element. With focus in
+  // the textarea the engine's `data-submit-on-enter` owns Enter (it submits),
+  // so the palette's ordinary insert is a CLICK — the interactions gate's row.
+  // This row proves the keyboard half: Tab/focus to a row, Enter inserts the
+  // bare command through the template and does not submit.
   let beforeSlash = null;
   let afterSlash = null;
   let slashOk = false;
@@ -1827,14 +1831,22 @@ async function runComposer() {
     await setComposer('/he');
     beforeSlash = await ev(`uxGates.composerState()`);
     if (!beforeSlash.menuOpen || beforeSlash.menuRows === 0) continue;
+    const focused = await ev(`(() => {
+      const rows = Array.from(document.querySelectorAll('#cmd-dropdown [role=option]'));
+      const row = rows.find((r) => !r.hidden && (r.textContent || '').trim() === 'help');
+      if (!row) return false;
+      row.focus();
+      return document.activeElement === row;
+    })()`);
+    if (!focused) continue;
     await driver.pressEnter();
     await settle(450);
     afterSlash = await ev(`uxGates.composerState()`);
-    slashOk = /^\/\S+ /.test(afterSlash.value || '') && !afterSlash.menuOpen
+    slashOk = /^\/help $/.test(afterSlash.value || '') && !afterSlash.menuOpen
       && afterSlash.userRows === userRowsBefore && !afterSlash.live;
     if (!slashOk) await waitStreamEnd(60000).catch(() => false);
   }
-  record('composer', '(d) with the slash menu open, Enter inserts and does not submit', slashOk,
+  record('composer', '(d) Enter on the focused slash row inserts; nothing submits', slashOk,
     { before: beforeSlash, after: afterSlash });
 
   // (b) Shift+Enter inserts a newline and does not submit.
@@ -1987,14 +1999,16 @@ async function runTheme() {
 // the menu the same click closed). A16b made every copy surface a `data-copy`
 // value the ENGINE writes, so the clipboard is read back and the engine's
 // `[data-webui-toast]` pill is checked in BOTH themes against the sheet's
-// tokens. A16c left the seam with three consumers; the new-chat caret (UX-45) is
-// the one a browser can drive without a live tool turn.
+// tokens. A16d retired the seam's three consumers: the caret (UX-45) is 3.1.0's
+// `data-focus-on-appear` on the composer, and the first-invalid-field hand-off
+// is the same behaviour on the form fragment — both are driven here in the
+// browser, plus the workspace ⋮ menu's server `data-open` latch.
 //
 // Every await has a deadline. The rename mutates a REAL title, so it runs on the
 // probe session — which `cleanupProbeSessions` deletes at the end.
 
 async function runResidue() {
-  console.log('\n— gate: residue (rename dialog · engine clipboard · toast · caret) —');
+  console.log('\n— gate: residue (rename · clipboard · toast · caret · form focus · ws menu) —');
   const out = {};
   driver.clearConsole();
 
@@ -2079,11 +2093,20 @@ async function runResidue() {
       const full = row ? row.getAttribute('data-full-title') : null;
       const dots = row && row.querySelector('.menu-dots');
       const a = document.activeElement;
-      return { ok: !s.open && full === ${JSON.stringify(submitState && submitState.full || '')} && !!dots && a === dots, full, active: a && a !== document.body ? (a.id || a.tagName) : null };
+      // A16d: focus must land on a LIVE control. The declared return is the
+      // row's ⋮; the engine's raw modal-focus memo restores where the reader
+      // was before the dialog (the composer, which FocusOnAppear focuses at
+      // boot and after a new chat) — engine precedence, recorded as a 3.1.1
+      // candidate (restoreModalFocus runs after the patch's declared restore).
+      // <body> is the only failure: it is a focus dead end.
+      const live = !!a && a !== document.body && (a === dots || a.id === 'composer-input');
+      return { ok: !s.open && full === ${JSON.stringify(submitState && submitState.full || '')} && !!dots && live,
+               full, active: a && a !== document.body ? (a.id || a.tagName) : null,
+               onOpener: a === dots };
     })()`, 6000);
     out.renameCancel = cancelState;
   }
-  record('residue', "(a3) Escape cancels with no change and focus returns to the row's ⋮", !!cancelState && cancelState.ok === true, out.renameCancel);
+  record('residue', "(a3) Escape cancels with no change and focus returns to a live control (opener or the reader's field)", !!cancelState && cancelState.ok === true, out.renameCancel);
 
   // ---- (b) copy is the engine's `data-copy` ---------------------------------
   await chatView();
@@ -2138,16 +2161,88 @@ async function runResidue() {
   }
 
   // ---- (d) the new-chat caret (UX-45) --------------------------------------
+  // `FocusOnAppear` alone cannot cover this: the `+` survives the patch and
+  // holds focus (measured), and the behaviour never steals from a live control.
+  // `newChat` therefore arms a ONE-RENDER `data-focus-into="composer-input"` on
+  // the composer root; the fresh root's binder focuses the field because live
+  // focus (the `+`) is outside its region.
   await chatView();
-  await ev(`document.getElementById('chat-new')?.click()`);
+  // focus the + like a pointer does: the panel patch replaces the button, so
+  // focus falls to <body> and the fresh composer's `data-focus-on-appear`
+  // takes it. (A programmatic click leaves focus wherever it was, which the
+  // behaviour deliberately never steals.)
+  await ev(`(() => { const b = document.getElementById('chat-new'); if (b) { b.focus(); b.click(); } return !!b; })()`);
   const caret = await pollOk(`(() => { const a = document.activeElement; return { ok: !!a && a.id === 'composer-input', active: a && a !== document.body ? (a.id || a.tagName) : null }; })()`, 5000);
   out.caret = caret;
-  record('residue', "(d) the new-chat caret lands in the composer (UX-45 — the seam's surviving consumer)", !!caret && caret.ok === true, caret);
+  record('residue', "(d) the new-chat caret lands in the composer (UX-45 — the one-render FocusInto latch)", !!caret && caret.ok === true, caret);
 
-  // ---- (e) data-focus-after-patch -----------------------------------------
-  record('residue', '(e) a patched form still takes focus via data-focus-after-patch', 'skip', {
-    skipped: 'no reachable surface carries the attribute in this daemon state: the add-card form and the first-invalid skill field both need a live tool turn / a rejected save the gate cannot stage deterministically. The emission and its consumer are pinned in OverlaySeamContractTests (the attribute is one of the three A16d-blocked consumers).',
-  });
+  // ---- (e) FocusOnAppear: a patched form takes the caret -------------------
+  // The retired `[data-focus-after-patch]` consumer's job, now the engine's.
+  // The New-skill form's first invalid field carries `data-focus-on-appear`;
+  // a refused save re-inserts the form while the field the reader was in is
+  // replaced (focus falls to <body>), and the fresh field must take the caret.
+  // Reachable in every daemon state — no tool turn, no board state needed.
+  let formFocus = { ok: false, reason: 'the New-skill form was not reachable' };
+  await ev(`document.getElementById('nav-skills')?.click()`);
+  await pollOk(`!!document.getElementById('skill-new')`, 6000);
+  const newSkill = await ev(`(() => { const b = document.getElementById('skill-new'); if (!b) return false; b.click(); return true; })()`);
+  if (newSkill) {
+    await pollOk(`!!document.getElementById('skill-name-input')`, 5000);
+    await ev(`document.getElementById('skill-name-input')?.focus()`);
+    await ev(`(() => {
+      const f = document.querySelector('[data-component-id="skill-create-form"]');
+      const b = f ? f.querySelector('button[type=submit]') : null;
+      if (b) b.click();
+      return !!b;
+    })()`);
+    formFocus = await pollOk(`(() => {
+      const a = document.activeElement;
+      const field = document.getElementById('skill-name-input');
+      const err = document.getElementById('skill-name-err');
+      return {
+        ok: !!field && a === field && !!err && (err.textContent || '').trim().length > 0,
+        active: a && a !== document.body ? (a.id || a.tagName) : null,
+        carries: !!field && field.hasAttribute('data-focus-on-appear'),
+        error: err ? (err.textContent || '').trim().slice(0, 60) : null,
+      };
+    })()`, 8000);
+    await ev(`document.getElementById('skill-cancel')?.click()`);
+    await settle(300);
+    await chatView();
+  }
+  out.formFocus = formFocus;
+  record('residue', '(e) a patched form takes the caret through the engine\u2019s FocusOnAppear', !!formFocus && formFocus.ok === true, formFocus);
+
+  // ---- (g) the workspace ⋮ menu: server latch + engine dismissal -----------
+  // A16d's last client state: the ⋮ dispatches to the server's one-render
+  // latch, the render states `data-open` (+ `data-dismiss`), and the engine's
+  // dismiss stack closes it on Escape with no round trip.
+  let wsMenu = { ok: false, reason: 'the workspace dock was not reachable' };
+  await chatView();
+  const dockOpen = await ev(`(() => { const b = document.getElementById('w-dock'); if (!b) return false; b.click(); return true; })()`);
+  if (dockOpen) {
+    await pollOk(`(() => { const p = document.getElementById('ws-panel'); return { ok: !!p && !p.classList.contains('hidden') }; })()`, 6000);
+    await ev(`document.getElementById('w-menu')?.click()`);
+    wsMenu = await pollOk(`(() => {
+      const m = document.getElementById('ws-menu');
+      return { ok: !!m && m.hasAttribute('data-open') && m.querySelectorAll('button').length > 0,
+               open: !!m && m.hasAttribute('data-open'),
+               dismiss: !!m && m.hasAttribute('data-dismiss'),
+               rows: m ? m.querySelectorAll('button').length : 0 };
+    })()`, 6000);
+    if (wsMenu && wsMenu.ok) {
+      await driver.pressEscape();
+      await settle(300);
+      const after = await ev(`(() => { const m = document.getElementById('ws-menu'); return { open: !!m && m.hasAttribute('data-open') }; })()`);
+      wsMenu.escClosed = after.open === false;
+      wsMenu.ok = wsMenu.ok && wsMenu.escClosed;
+    }
+    await ev(`document.getElementById('w-close')?.click()`);
+    await settle(400);
+    await chatView();
+  }
+  out.wsMenu = wsMenu;
+  record('residue', '(g) the workspace ⋮ menu opens through the server latch and Escape closes it', !!(wsMenu && wsMenu.ok), wsMenu);
 
   // ---- the tour's console ------------------------------------------------
   const consoleReport = driver.consoleReport();

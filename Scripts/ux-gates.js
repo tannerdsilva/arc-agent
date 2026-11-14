@@ -83,7 +83,7 @@
     const menu = $$('.chat-menu').find((m) => m.hasAttribute('data-open'));
     out.sessionMenu = { present: !!menu, open: shown(menu) };
     const slash = $('#cmd-dropdown');
-    out.slash = { present: !!slash, open: slash ? slash.classList.contains('open') && shown(slash) : false, rowCount: slash ? slash.querySelectorAll('.cmd-item').length : 0 };
+    out.slash = { present: !!slash, open: slash ? slash.hasAttribute('data-open') && shown(slash) : false, rowCount: slash ? slash.querySelectorAll('[role=option]:not([hidden])').length : 0 };
     const wsPanel = $('#ws-panel');
     out.wsPanel = { present: !!wsPanel, open: shown(wsPanel), enter: wsPanel ? wsPanel.classList.contains('ws-enter') : false };
     return out;
@@ -118,8 +118,20 @@
     slash: () => {
       const dd = $('#cmd-dropdown');
       if (!dd) return { present: false };
-      const rows = Array.from(dd.querySelectorAll('.cmd-item')).map((r) => ({ text: text(r).slice(0, 60), active: r.classList.contains('active') }));
-      return { present: true, open: dd.classList.contains('open') && shown(dd), rowCount: rows.length, activeCount: rows.filter((r) => r.active).length, rows };
+      const rows = Array.from(dd.querySelectorAll('[role=option]'))
+        .filter((r) => !r.hidden)
+        .map((r) => ({ text: text(r).slice(0, 60), active: r === document.activeElement }));
+      return { present: true, open: dd.hasAttribute('data-open') && shown(dd), rowCount: rows.length, activeCount: rows.filter((r) => r.active).length, rows };
+    },
+    /// the rect of a visible slash row whose bare textContent is `name` — the
+    /// driver clicks it (3.1.0 selects a row by click, or by Enter while the
+    /// row itself is the active element).
+    slashRowRect: (name) => {
+      const rows = Array.from(document.querySelectorAll('#cmd-dropdown [role=option]'));
+      const row = rows.find((r) => !r.hidden && (r.textContent || '').trim() === name);
+      if (!row) return null;
+      const b = row.getBoundingClientRect();
+      return { x: b.left + b.width / 2, y: b.top + b.height / 2, top: b.top, bottom: b.bottom };
     },
     sessions: () => ({
       count: $$('.sess-row').length,
@@ -551,12 +563,13 @@
       return !!t && t.getAttribute('data-gate-mark') === 'a14';
     },
 
-    // ---- focus contract (a12) ----------------------------------------------
-    // no-webui 2.14.0 owns focus. `autofocus` is the entry flush on a
-    // patched-in dialog, `data-focus-return` names where focus goes when the
-    // control that DECLARED it is removed by a patch (and, around a focused
-    // control, the T26 target to re-query), and `.modal-overlay` wraps Tab.
-    // these helpers only read the consequence — the driver performs the input.
+    // ---- focus contract (a12 / a16d) ---------------------------------------
+    // the ENGINE owns focus. 3.1.0's `data-focus-into` on the dialog's region
+    // root is the entry path (first and every later open), `data-focus-return`
+    // names where focus goes when the control that DECLARED it is removed by a
+    // patch (and, around a focused control, the T26 target to re-query), and
+    // `.modal-overlay` wraps Tab. `autofocus` is gone from these dialogs — it
+    // fires once per document. These helpers only read the consequence.
 
     focusState: () => {
       const a = document.activeElement;
@@ -568,6 +581,7 @@
         activeIsBody: !a || a === document.body,
         activeInDialog: !!(a && dialog && dialog.contains(a)),
         dialog: dialog ? dialog.id : null,
+        focusInto: dialog ? dialog.getAttribute('data-focus-into') : null,
         ctxPaneOpen: !!document.getElementById('ctx-pane-overlay'),
         modalOpen: !!document.getElementById('modal-overlay'),
         opener: chip ? { id: chip.id, tag: chip.tagName.toLowerCase() } : null,
@@ -726,8 +740,8 @@
         userRows: users.length,
         lastUser: users.length ? (users[users.length - 1].textContent || '').trim().slice(0, 160) : null,
         live: !!document.getElementById('live-turn'),
-        menuOpen: !!dd && dd.classList.contains('open'),
-        menuRows: dd ? dd.querySelectorAll('.cmd-item').length : 0,
+        menuOpen: !!dd && dd.hasAttribute('data-open') && shown(dd),
+        menuRows: dd ? dd.querySelectorAll('[role=option]:not([hidden])').length : 0,
       };
     },
 
