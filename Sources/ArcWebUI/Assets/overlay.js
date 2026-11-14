@@ -313,110 +313,10 @@
     }
   });
 
-  // ---- Scroll-to-bottom. Follows new content while the user is at the
-  // bottom. #chat-scroll carries no engine follow attribute: A3.1 withdrew
-  // `data-scroll-key="chat"` and the one-shot `data-follow="bottom"` so the
-  // engine's handlers could not double-drive the scroll position; A11 restores
-  // the consequence as `ScrollFollow`/`data-follow-state` when this block dies.
-  //
-  // The stick is USER INTENT, not distance. A wheel-up, a reading key
-  // (Up/PageUp/Home), a touch drag, or any net upward movement releases it —
-  // even one line from the bottom — and only arriving back at the very bottom
-  // re-engages. The old distance-only rule (release only beyond a 120px pad)
-  // made a short scroll-up impossible mid-stream: the next push snapped the
-  // viewport back to the live text (measured: 80px up -> +309px re-pin).
-  // Distance still guards the degenerate case: a content-shrink clamp must
-  // not read as a scroll-up, so the bottom test runs first.
-  var RESTICK_EPS = 6;   // px from the bottom that re-engages follow
-  var KEY_STEP = 48;     // ArrowUp/ArrowDown step
-  function chatScroller() { return document.getElementById('chat-scroll'); }
-  function atBottom(s) { return s.scrollHeight - s.scrollTop - s.clientHeight <= RESTICK_EPS; }
-  var stick = true;
-  var lastTop = null;
-  var seenChatScroll = null;
-  // Round-4 scroll/draft memory (UX-39/40/41): a rail switch re-renders the
-  // chat and panel fragments, and the engine's input preservation keeps the
-  // old chat's composer text across the swap. These maps live for the page's
-  // lifetime so a return can put the reader back where they were.
-  var chatScrollMemory = {};
+  // Draft/focus memory for the post-patch seam (UX-40/45): both live for the
+  // page's lifetime so a session switch and a new chat can be aimed.
   var lastComposerSession = null;
   var focusComposerWanted = false;
-  // ---- Post-patch seam. The engine hands `afterPatch` the array of elements a
-  // fragment batch replaced, so enhancement is scoped to what actually changed
-  // instead of rescanning the whole document on every mutation — the old
-  // MutationObserver also fired on the overlay's own edits, so it thrashed while
-  // a turn streamed. `ready` only fires for hooks registered before the engine
-  // boots; this overlay is a separate script that runs first, so registration
-  // happens on DOMContentLoaded (after the engine's synchronous boot) and the
-  // initial pass is invoked directly. Every pass is idempotent — rendered blocks
-  // and enhanced tables are marked, the scroll listener is bound once — which is
-  // what makes the extra call safe.
-  function stickToChat() {
-    var s = chatScroller();
-    if (!s) return;
-    if (!s.__bound) {
-      s.__bound = true;
-      s.addEventListener('scroll', function () {
-        var top = s.scrollTop;
-        var prev = lastTop === null ? top : lastTop;
-        lastTop = top;
-        var sid = s.getAttribute('data-session') || '';
-        if (sid) chatScrollMemory[sid] = top; // per-session position (UX-39)
-        if (atBottom(s)) {
-          // Back at the very bottom (a deliberate return, the jump button,
-          // End, or a content-shrink clamp): follow again. Must run before
-          // the up-move test — a clamp reads as "moved up".
-          stick = true;
-        } else if (top < prev - 1) {
-          // Net upward movement without a wheel/key signal (scrollbar or
-          // touch drag): the user is reading back.
-          stick = false;
-        }
-        updateJumpBtn(s);
-      });
-      // Intent signals beat distance. Wheel events fire for wheels and
-      // trackpad gestures; touch and scrollbar drags land in the up-move
-      // rule above (they emit no wheel events).
-      s.addEventListener('wheel', function (e) {
-        if (e.deltaY < 0) { stick = false; updateJumpBtn(s); }
-      }, { passive: true });
-    }
-    if (s !== seenChatScroll) {
-      // The scroll container was (re)created — a chat open, a streaming
-      // refresh, or a rail return.
-      seenChatScroll = s;
-      lastTop = s.scrollTop;
-      if (stick) {
-        s.scrollTop = s.scrollHeight;
-      } else {
-        // A rail return re-renders the chat fragment WITHOUT a follow flag:
-        // put the reader back where they were for THIS session instead of
-        // at the top of the thread (UX-39). Clamped; re-applied after the
-        // layout settles.
-        var returnSid = s.getAttribute('data-session') || '';
-        if (returnSid && chatScrollMemory[returnSid] != null) {
-          var restoreTop = chatScrollMemory[returnSid];
-          var restore = function () {
-            var cur = chatScroller();
-            if (cur !== s) return;
-            var max = Math.max(0, s.scrollHeight - s.clientHeight);
-            s.scrollTop = Math.min(restoreTop, max);
-            lastTop = s.scrollTop;
-          };
-          restore();
-          requestAnimationFrame(restore);
-          setTimeout(restore, 60);
-        }
-      }
-    } else if (stick) {
-      s.scrollTop = s.scrollHeight;
-    }
-    // Re-evaluate the jump button on every (re)render, not just on scroll:
-    // a finalize patch can shrink the thread under the fold, and the stale
-    // "Jump to latest" must not linger with nowhere to jump (UX-42).
-    updateJumpBtn(s);
-  }
-
   // ---- Composer draft seam (UX-40): the engine preserves the pre-patch
   // textarea value across fragment patches, so a session switch used to keep
   // the OLD chat's text. The server renders the intended draft as
@@ -777,7 +677,6 @@
   }
 
   function enhanceAll() {
-    stickToChat();
     syncComposerDraft();
     syncModalFocus();
     syncThemePickers();
@@ -789,7 +688,6 @@
 
   function enhancePatched(changed) {
     clearRestoredComposer();
-    stickToChat();
     syncComposerDraft();
     syncModalFocus();
     syncThemePickers();
@@ -847,12 +745,6 @@
     // handler, so `ready` may never fire — the initial pass runs here, and
     // covers anything that arrived before registration.
     enhanceAll();
-    // A resize changes what fits under the fold; keep the jump button honest
-    // about whether there is anywhere to jump (UX-42).
-    window.addEventListener('resize', function () {
-      var s = chatScroller();
-      if (s) updateJumpBtn(s);
-    });
   }
 
   if (document.readyState === 'loading') {
@@ -860,52 +752,6 @@
   } else {
     bootOverlay();
   }
-
-  // ---- Jump-to-latest circle button (arc parity): appears the moment the
-  // stick releases — not at some distance threshold, so a one-line scroll-up
-  // surfaces it too; click returns to the end.
-  function updateJumpBtn(s) {
-    var b = document.getElementById('scroll-to-bottom');
-    if (!b) return;
-    b.hidden = stick || atBottom(s);
-  }
-  document.addEventListener('click', function (e) {
-    var b = e.target && e.target.closest ? e.target.closest('#scroll-to-bottom') : null;
-    if (!b) return;
-    var s = chatScroller();
-    if (!s) return;
-    stick = true;
-    s.scrollTo({ top: s.scrollHeight, behavior: 'smooth' });
-    updateJumpBtn(s);
-  });
-
-  // ---- Reading keys: the transcript scrolls on Up/PageUp/Home and returns on
-  // End/PageDown, with the stick following the intent. Never while a text
-  // field has focus — the composer owns those keys.
-  document.addEventListener('keydown', function (e) {
-    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
-    var t = e.target;
-    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
-    // A session row owns its arrows (UX-07 roving); never steal them to
-    // scroll the transcript.
-    if (t && t.closest && t.closest('.sess-row[tabindex]')) return;
-    var s = chatScroller();
-    if (!s) return;
-    var k = e.key;
-    var page = Math.round(s.clientHeight * 0.9);
-    if (k === 'ArrowUp' || k === 'PageUp' || k === 'Home') {
-      stick = false;
-      s.scrollTop = k === 'Home' ? 0 : Math.max(0, s.scrollTop - (k === 'PageUp' ? page : KEY_STEP));
-      updateJumpBtn(s);
-      e.preventDefault();
-    } else if (k === 'ArrowDown' || k === 'PageDown' || k === 'End') {
-      s.scrollTop = k === 'End' ? s.scrollHeight
-        : Math.min(s.scrollHeight, s.scrollTop + (k === 'PageDown' ? page : KEY_STEP));
-      if (atBottom(s)) stick = true; // the scroll listener settles this too
-      updateJumpBtn(s);
-      e.preventDefault();
-    }
-  });
 
   // ---- Disclosures (context chip, session groups, skill categories) are
   // native `<details>` elements now: the platform owns open/closed, and the

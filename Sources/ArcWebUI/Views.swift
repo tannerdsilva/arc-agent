@@ -1423,33 +1423,38 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // the follow flag is consumed once: the render that scrolls to the
         // bottom clears it, so a later re-render must not re-scroll.
         forceScrollBottom = false
-        // A3.1 owns this scroller. `data-scroll-key="chat"` and the one-shot
-        // `data-follow="bottom"` emission are REMOVED here until `stickToChat`
-        // is deleted: the engine's data-scroll-key/data-follow handlers do not
-        // exempt chat, so leaving them on this element would double-drive the
-        // same scroll position (engine restore + stickToChat) and jitter.
-        // `stickToChat` still runs and still reads `data-follow`, so its
-        // force-bottom branch is dormant until A3.1 restores both attributes.
-        let scroller = ChatScroll {
+        // a11: the engine owns follow, the reading keys and the per-session
+        // position. `ChatScroller` writes all three attributes (and the
+        // focusability `ReadingKeys` needs) into its own open tag — four more
+        // modifiers here segfault the shell render (D-5(a′)). The engine
+        // answers with `data-follow-state="away"` while the reader is off the
+        // tail, and the sheet keys the jump control on that attribute — never
+        // on `[hidden]`.
+        let scroller = ChatScroller(session: activeSessionID ?? "") {
             ChatInner {
                 messagesHTML(session?.messages ?? [], sessionID: session?.id)
             }
             .id("chat-inner")
+            // the jump control's target: zero-height, after the message
+            // column's own padding, so `scrollIntoView` lands at the true
+            // scroll bottom (a 32px-gap landing would leave `away` set).
+            Span {}
+                .id("chat-end")
         }
-        .id("chat-scroll")
-        .data("session", activeSessionID ?? "")
         let scroll = Div(class: .chatScrollWrap) {
             scroller
             // The jump button anchors to its own wrapping container so it sits
             // just above the composer (never overlapping it), at the bottom-right
-            // of the scroll viewport.
-            ArcButton(id: "scroll-to-bottom", component: "scroll-to-bottom",
+            // of the scroll viewport. Visibility is the sheet's, keyed on the
+            // engine's `data-follow-state="away"`; the click is the engine's
+            // `ScrollTo` contract. No component id: no handler ever existed.
+            ArcButton(id: "scroll-to-bottom", component: nil,
                       class: .scrollToBottomBtn) {
                 Text("↓")
             }
             .title("Jump to latest")
             .aria(.label("Jump to latest"))
-            .flag(.hidden)
+            .behavior(ScrollTo(id: "chat-end"))
             outlinePanelHTML
         }
         return Group {

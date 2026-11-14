@@ -1404,6 +1404,14 @@ public static let css: String = """
     .chat-scroll::-webkit-scrollbar { width: 8px; }
     .chat-scroll::-webkit-scrollbar-track { background: transparent; }
     .chat-scroll::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
+    /* a11: the jump control's target. Zero height and OUTSIDE `.chat-inner`'s
+       bottom padding, so `scrollIntoView` clamps to the true scroll bottom and
+       the engine clears `data-follow-state`. */
+    #chat-end { display: block; height: 0; }
+    /* The scroller is a keyboard region now (`data-reading-keys`), so it takes
+       focus: a focused region has to say so. Inset so the ring is never clipped
+       by `overflow-y: auto`. */
+    #chat-scroll:focus-visible { outline: 2px solid var(--accent-border); outline-offset: -2px; }
 
     /* Conversation column. `--chat-measure` is shared by the transcript, the
        queued-send chips and the composer, so all three share their left and
@@ -1885,7 +1893,12 @@ public static let css: String = """
       outline: var(--border-width-2) solid var(--accent);
       outline-offset: 2px;
     }
-    /* Jump-to-latest circle button (reference .scroll-to-bottom-btn mirror). */
+    /* Jump-to-latest circle button (reference .scroll-to-bottom-btn mirror).
+       a11: visibility is keyed on the ENGINE's output — it writes
+       `data-follow-state="away"` on the scroller while the reader is off the
+       live tail. The button is display:none otherwise, so it is not a tab
+       stop while the reader is at the bottom, and no script or server handler
+       touches it. */
     .scroll-to-bottom-btn {
       position: absolute; left: 50%; right: auto; bottom: 14px;
       transform: translateX(-50%);
@@ -1897,7 +1910,7 @@ public static let css: String = """
       color: var(--muted);
       font-size: 15px; line-height: 1;
       cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
+      display: none; align-items: center; justify-content: center;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
       z-index: 10;
       transition: color .12s, border-color .12s, background .12s, transform .12s;
@@ -1908,7 +1921,9 @@ public static let css: String = """
       background: var(--surface-2);
       transform: translate(-50%, -1px);
     }
-    .scroll-to-bottom-btn[hidden] { display: none; }
+    .chat-scroll-wrap:has(#chat-scroll[data-follow-state="away"]) .scroll-to-bottom-btn {
+      display: flex;
+    }
 
     /* The outline toggle's lane geometry and states live with `#outline-toggle`
        (see the conversation-outline block above) — the markup's class stays

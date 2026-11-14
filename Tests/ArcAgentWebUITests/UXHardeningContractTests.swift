@@ -947,14 +947,31 @@ extension ArcWebUITestRoot {
             let overlay = Self.overlay
             // 2.6.0 roving: the ENGINE owns arrow-key roving inside a
             // `data-roving` container. The overlay's own row walker and
-            // tabindex mover are gone; the reading keys still refuse to steal a
-            // session row's arrows (below), so the two handlers cannot fight.
+            // tabindex mover are gone. a11 (2.13.0): the reading keys are the
+            // engine's too — `data-reading-keys` acts only while its own
+            // region contains focus (`webui-engine.js:1828`), and the session
+            // list is outside `#chat-scroll`, so the two never fight and the
+            // overlay's document-level walker (with its `.sess-row[tabindex]`
+            // guard) is gone.
             #expect(!overlay.contains("function visibleSessionRows()"),
                     "the overlay must not keep a second roving key handler")
             #expect(!overlay.contains("roveRowFocus("),
                     "tabindex movement is the engine's job inside data-roving")
-            #expect(overlay.contains(".sess-row[tabindex]')) return;"),
-                    "the transcript-scroll keys must never steal a session row's arrows")
+            #expect(!overlay.contains(".sess-row[tabindex]") && !overlay.contains("function updateJumpBtn"),
+                    "the transcript-scroll keys and the jump-button updater are the engine's now")
+            let chatMain = await RenderedMarkup.chatMain()
+            let scrollerTag = chatMain.range(of: #"<div [^>]*id=\"chat-scroll\"[^>]*>"#,
+                                             options: .regularExpression).map { String(chatMain[$0]) }
+            #expect(scrollerTag?.contains("data-follow=\"bottom\"") == true,
+                    "the scroller must state the follow policy: \(scrollerTag ?? "no tag")")
+            #expect(scrollerTag?.contains("data-reading-keys") == true,
+                    "the scroller must carry the reading-keys region: \(scrollerTag ?? "no tag")")
+            #expect(scrollerTag?.contains("data-scroll-key=\"sess-a\"") == true,
+                    "the scroll memory must be keyed by session: \(scrollerTag ?? "no tag")")
+            #expect(scrollerTag?.contains("tabindex=\"0\"") == true,
+                    "a reading-keys region must be focusable: \(scrollerTag ?? "no tag")")
+            #expect(scrollerTag?.contains("data-follow-state") != true,
+                    "data-follow-state is the engine's output — the server must never emit it")
             let sessionsPanel = await RenderedMarkup.panelWithRows()
             let rowsTag = sessionsPanel.range(of: #"<div [^>]*class="sess-group-rows"[^>]*>"#,
                                               options: .regularExpression).map { String(sessionsPanel[$0]) }
