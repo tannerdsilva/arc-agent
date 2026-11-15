@@ -122,8 +122,8 @@ extension ArcWebUITestRoot {
             let overlay = Self.openTag(html, id: "modal-overlay")
             #expect(overlay?.contains("data-focus-into=\"modal-cancel\"") == true,
                     "the dialog's region root must declare `data-focus-into=\"modal-cancel\"` — 3.1.0's entry path, first and every later open")
-            #expect(cancel?.contains("tabindex=\"0\"") == true,
-                    "Cancel must state tabindex=\"0\": FocusInto stamps `-1` on a target that has none, which would drop the dialog's only tab stop from the engine's Tab wrap")
+            #expect(cancel?.contains("tabindex=") == false,
+                    "Cancel must NOT state a tabindex: it is a native `button`. no-webui 3.1.1's `FocusInto` leaves an intrinsically focusable target alone, so the dialog's only tab stop survives without arc's help — a `0` here is a redundant second statement (the 3.1.0 workaround this pin removed), and a `-1` would drop the dialog's only tab stop")
             #expect(cancel?.contains("data-dismiss") == true,
                     "Cancel must stay the layer's `[data-dismiss]` control — the engine's Escape fires it, and Delete must never be the one Escape presses")
             #expect(Self.openTag(html, id: "modal-confirm")?.contains("data-focus-return") == false,
@@ -231,8 +231,8 @@ extension ArcWebUITestRoot {
                     "the pane's close must declare `data-focus-return=\"ctx-chip-summary\"` — without it Escape/close leaves focus on <body>")
             #expect(!close.contains("autofocus"),
                     "the pane's close must not carry `autofocus`: 3.1.0's FocusInto is the entry path, first and every later open")
-            #expect(close.contains("tabindex=\\\"0\\\""),
-                    "the pane's close must state tabindex=\"0\" — FocusInto would otherwise stamp `-1` and the Tab wrap would have nothing to wrap")
+            #expect(!close.contains("tabindex="),
+                    "the pane's close must NOT state a tabindex: 3.1.1's `FocusInto` leaves an intrinsically focusable `button` alone, so the Tab wrap keeps its stop without arc overriding the engine (the 3.1.0 `tabindex=\"0\"` compensation is gone)")
             #expect(views.contains("FocusInto(id: \"ctx-pane-close\").attribute()"),
                     "the pane's region root must declare `data-focus-into=\"ctx-pane-close\"` (A16d entry)")
         }

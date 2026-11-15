@@ -295,15 +295,9 @@ extension AppState {
                             .id("modal-title")
                         Paragraph(req.body)
                         Div(class: .modalActions) {
-                            // `tabindex="0"` is explicit because `FocusInto` adds
-                            // `tabindex="-1"` to a target that has none — on a
-                            // button that would remove the dialog's only tab stop
-                            // from the engine's Tab-wrap set (framework defect,
-                            // 3.1.1 candidate: skip the fallback for natively
-                            // focusable elements).
                             ArcButton("Cancel", id: "modal-cancel", component: nil, class: .ghostBtn,
                                       extraAttributes: DismissStack().attribute().attributeText
-                                          + confirmFocusReturn(req) + " tabindex=\"0\"")
+                                          + confirmFocusReturn(req))
                             ArcButton("Delete", id: "modal-confirm", component: nil, class: .dangerBtn)
                         }
                         .wire("modal")
@@ -546,13 +540,9 @@ extension AppState {
             if let pane = contextPane {
                 Div(id: "ctx-pane-overlay", class: .modalOverlay) {
                     Div(id: "ctx-pane-card", class: .ctxPaneCard) {
-                        // tabindex="0": FocusInto would otherwise stamp `-1`
-                        // on this button and drop it from the Tab wrap (see the
-                        // confirm Cancel's note).
                         ArcButton(id: "ctx-pane-close", component: nil, class: ClassName(.ghostBtn, .ctxPaneClose),
                                   extraAttributes: DismissStack().attribute().attributeText
-                                      + FocusReturn(id: "ctx-chip-summary").attribute().attributeText
-                                      + " tabindex=\"0\"") {
+                                      + FocusReturn(id: "ctx-chip-summary").attribute().attributeText) {
                             WebUIIcon(.x, size: .small)
                         }
                         Heading("Context breakdown", level: .h3)
