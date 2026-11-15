@@ -604,7 +604,15 @@ async function cleanupProbeSessions() {
   // A session with an in-flight (or queued) turn cannot be deleted while it
   // streams, so wait the turn out, then verify the delete actually landed.
   const attempted = new Map();
-  const rowsBefore = await ev(`document.querySelectorAll('.sess-row').length`).catch(() => null);
+  // Read the counts from the CHAT view: the run ends wherever the last gate left
+  // the page (schemes leaves the settings grid mounted), and a view without a
+  // session list reads 0 rows — a misleading "0 -> 145" on a clean run.
+  await chatView().catch(() => {});
+  const countRows = () => ev(`(() => {
+    const rows = [...document.querySelectorAll('.sess-row')];
+    return { rows: rows.length, uxgate: rows.filter(r => (r.textContent || '').includes('${PROBE}')).length };
+  })()`).catch(() => null);
+  const before = await countRows();
   const deleted = new Set();
   // Passes, not one sweep: the app HEALS a session whose store entry is missing
   // by re-creating it from memory — `healGhostSession` (Actions.swift:491), with
@@ -668,8 +676,8 @@ async function cleanupProbeSessions() {
   probeSids.clear();
   await ev(`document.getElementById('nav-chat')?.click()`);
   await settle(300);
-  const rowsAfter = await ev(`document.querySelectorAll('.sess-row').length`).catch(() => null);
-  console.log(`  cleanup: ${deleted.size} gate session(s) removed through the app's delete flow — rows ${rowsBefore} -> ${rowsAfter}`);
+  const after = await countRows();
+  console.log(`  cleanup: ${deleted.size} gate session(s) removed through the app's delete flow — rows ${before?.rows} -> ${after?.rows}, UXGATE rows ${before?.uxgate} -> ${after?.uxgate}`);
 }
 
 let stateAtStart = null;
