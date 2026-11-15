@@ -379,17 +379,11 @@ async function ensureProbeSession(text = `UXGATE probe ${Date.now() % 100000}`) 
   let created = null;
   for (let attempt = 0; attempt < 3 && !created; attempt++) {
     await chatView();
-    const prevSid = await ev(`(document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null`);
-    await ev(`document.getElementById('chat-new')?.click()`);
-    await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000, label: 'new chat composer' });
-    await settle(300);
-    // `+` reuses a pristine "New chat" (AppState.isPristineNewChat): a no-op is
-    // legitimate, but the probe then lands in the chat that was already open,
-    // so say so rather than pretend a new one was made.
-    const nowSid = await ev(`(document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null`);
-    if (prevSid && nowSid && prevSid === nowSid) {
-      console.warn(`ensureProbeSession: "+" was a no-op on a pristine chat (${nowSid}) — the probe message lands in it`);
-    }
+    // A probe chat is MINTED, never inherited: `newGateChat` opens a chat with
+    // content first when the current one is a pristine "New chat" (where `+` is
+    // a no-op), and records the sid it created — so the probe is always a chat
+    // the gates own and cleanup can delete.
+    await newGateChat('probe');
     const queued = await ev(`(() => {
       const t = document.getElementById('composer-input');
       return t ? /queued after this reply/i.test(t.getAttribute('placeholder') || '') : false;
@@ -428,6 +422,64 @@ async function ensureProbeSession(text = `UXGATE probe ${Date.now() % 100000}`) 
   // the surface. Hand back a settled session.
   await waitStreamEnd(180000).catch(() => false);
   return probeSid;
+}
+
+// ---------------------------------------------------------------------------
+// gate-created chats: tracked by sid, so cleanup never depends on a title
+//
+// A chat row's title is derived from its FIRST user message
+// (`AppState.sessionTitle`), so a gate chat whose first message is not
+// UXGATE-prefixed carries no marker in the row and the title scan cannot see
+// it. Measured (D2b.5): `ensureLiveText`'s two "Count from 1 to N" chats leaked
+// on EVERY strict run — 138 -> 143 rows across the D2 runs, 148 -> 150 store
+// sessions across D2b's baseline run — and none of them had a UXGATE row.
+// Recording the sid at creation makes deletion independent of the title.
+
+const probeSids = new Set();
+function trackProbe(sid) { if (sid) probeSids.add(sid); return sid; }
+const activeSid = () => ev(`(document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null`);
+
+/// Create a chat through the app's own `+` and record its sid.
+///
+/// `+` reuses a pristine "New chat" by design (UX-10), and a gate that then
+/// sends would land its message in a chat it did not create. When the current
+/// chat is empty, open a chat with content first (the probe session, else any
+/// row with messages) so the `+` has a view to change. Only a sid that CHANGED
+/// is recorded: an unchanged sid may be the owner's chat, and cleanup must
+/// never delete one of those.
+async function newGateChat(what = 'gate') {
+  const pristine = await ev(`(() => {
+    const a = document.querySelector('.sess-row.active');
+    return !a || document.querySelectorAll('.msg').length === 0;
+  })()`);
+  if (pristine) {
+    const target = await ev(`(() => {
+      const rows = [...document.querySelectorAll('.sess-row')];
+      const pick = rows.find(r => r.getAttribute('data-sid') === ${JSON.stringify(probeSid)})
+        || rows.find(r => { const m = (r.textContent || '').match(/(\\d+)\\s*msg/); return m && parseInt(m[1], 10) > 0; });
+      const b = pick && pick.querySelector('[id^="s-open-"]');
+      if (b) { b.click(); return pick.getAttribute('data-sid'); }
+      return null;
+    })()`);
+    if (target) await settle(1200);
+  }
+  const before = await activeSid();
+  await ev(`document.getElementById('chat-new')?.click()`);
+  await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000, label: 'new chat composer' });
+  await settle(250);
+  // the panel patch lands a round-trip after the click; poll for the new sid
+  let sid = before;
+  const deadline = Date.now() + 4000;
+  while (Date.now() < deadline) {
+    sid = await activeSid();
+    if (sid && sid !== before) break;
+    await settle(150);
+  }
+  if (!sid || sid === before) {
+    console.warn(`newGateChat(${what}): "+" minted no chat (sid unchanged: ${sid}) — the next send lands where it is`);
+    return null;
+  }
+  return trackProbe(sid);
 }
 
 
@@ -491,9 +543,7 @@ async function ensureLiveText(text, minChars, timeoutMs = 150000, perAttemptMs =
       await waitStreamEnd(20000).catch(() => false);
       if (Date.now() - t0 >= timeoutMs) break;
     }
-    await ev(`document.getElementById('chat-new')?.click()`);
-    await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000, label: 'new chat composer (ensureLiveText)' });
-    await settle(250);
+    await newGateChat('ensureLiveText');
     await chatView();
     await driver.js(`(() => {
       const t = document.getElementById('composer-input');
@@ -543,18 +593,34 @@ async function installProbes() {
 // cleanup + restore
 
 async function cleanupProbeSessions() {
-  // Any session whose title starts with UXGATE is ours: delete via the app's
-  // own delete flow (never touch the owner's conversations). A session with an
-  // in-flight (or queued) turn cannot be deleted while it streams, so wait the
-  // turn out, then verify the delete actually landed.
-  for (let guard = 0; guard < 60; guard++) {
+  // Delete every chat the GATES created, through the app's own delete flow —
+  // never one of the owner's. Two instruments, because one is not enough:
+  //   (1) the row title, which carries UXGATE only when the chat's first user
+  //       message does (a title is derived from it — `AppState.sessionTitle`);
+  //   (2) the sid recorded at creation (`newGateChat`/`trackProbe`), which
+  //       covers drafts (title "New chat") and chats a gate opened with its own
+  //       message — the leaked "Count from 1 to N" chats, measured at 2 per
+  //       strict run (D2b.5).
+  // A session with an in-flight (or queued) turn cannot be deleted while it
+  // streams, so wait the turn out, then verify the delete actually landed.
+  const attempted = new Map();
+  const rowsBefore = await ev(`document.querySelectorAll('.sess-row').length`).catch(() => null);
+  for (let guard = 0; guard < 80; guard++) {
     await chatView().catch(() => {});
     const sid = await ev(`(() => {
       const rows = [...document.querySelectorAll('.sess-row')];
-      const r = rows.find(r => (r.textContent || '').includes('${PROBE}'));
-      return r ? r.getAttribute('data-sid') : null;
+      const tracked = ${JSON.stringify([...probeSids])};
+      const byTitle = rows.find(r => (r.textContent || '').includes('${PROBE}'));
+      const bySid = tracked.length ? rows.find(r => tracked.includes(r.getAttribute('data-sid'))) : null;
+      const pick = byTitle || bySid;
+      return pick ? pick.getAttribute('data-sid') : null;
     })()`);
     if (!sid) break;
+    if ((attempted.get(sid) || 0) >= 2) {
+      console.warn(`cleanup: gate session ${sid} survived two delete attempts — leaving it (never hand-deleting)`);
+      break;
+    }
+    attempted.set(sid, (attempted.get(sid) || 0) + 1);
     const busySince = Date.now();
     while (Date.now() - busySince < 120000) {
       const busy = await ev(`!!document.getElementById('live-turn')`);
@@ -569,7 +635,7 @@ async function cleanupProbeSessions() {
         await settle(250);
       }
     }
-    if (!opened) { console.warn(`cleanup: could not open the delete modal for probe session ${sid} — leaving it`); break; }
+    if (!opened) { console.warn(`cleanup: could not open the delete modal for gate session ${sid} — leaving it`); break; }
     await ev(`document.getElementById('modal-confirm')?.click()`);
     // The app defers deletes while the session is mid-turn: verify, don't assume.
     const goneSince = Date.now();
@@ -579,10 +645,15 @@ async function cleanupProbeSessions() {
       if (gone) break;
       await waitMs(800);
     }
-    if (!gone) console.warn(`cleanup: delete of probe session ${sid} did not land — will retry`);
+    if (!gone) console.warn(`cleanup: delete of gate session ${sid} did not land — will retry`);
   }
+  // tracked sids with no row left are done (deleted, or a draft the app never
+  // persisted); keep the set clean so the next run starts empty
+  probeSids.clear();
   await ev(`document.getElementById('nav-chat')?.click()`);
   await settle(300);
+  const rowsAfter = await ev(`document.querySelectorAll('.sess-row').length`).catch(() => null);
+  console.log(`  cleanup: gate sessions removed through the app's delete flow — rows ${rowsBefore} -> ${rowsAfter}`);
 }
 
 let stateAtStart = null;
@@ -959,9 +1030,7 @@ async function runInteractions() {
     // conversation carries no turn-worklog disclosures (native `<summary>`
     // tab stops that grow with the transcript), so measuring on the restored
     // active chat is measuring the transcript, not the chrome.
-    await ev(`document.getElementById('chat-new')?.click()`);
-    await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000 });
-    await settle(300);
+    await newGateChat('tab budget');
     // Make BODY actually focusable before focusing it: without tabindex the
     // focus() call is a silent no-op, focus stays on whatever the app last
     // focused (the composer, via the new-chat flow), and the "trail" starts
@@ -1029,9 +1098,7 @@ async function runInteractions() {
   // so wait for it to drain before asserting the menu opens; otherwise this
   // gate measures the queue, not the slash surface.
   await waitStreamEnd(120000).catch(() => false);
-  await ev(`document.getElementById('chat-new')?.click()`);
-  await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000 });
-  await settle(300);
+  await newGateChat('slash');
   // type "/" via real keys into the focused composer
   await ev(`document.getElementById('composer-input')?.focus()`);
   await settle(100);
@@ -2023,9 +2090,7 @@ async function runComposer() {
   // one settle (measured: a click on a cold page left the previous chat open
   // and the first keystrokes went to a button).
   for (let attempt = 0; attempt < 3; attempt++) {
-    await ev(`document.getElementById('chat-new')?.click()`);
-    await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000 });
-    await settle(600);
+    await newGateChat('draft');
     const rows = await ev(`document.querySelectorAll('.msg.user').length`);
     if (rows === 0) break;
   }
@@ -2204,7 +2269,7 @@ async function runTheme() {
   record('theme', "(c) no client script is served and the page loads none of arc's", gone,
     { served, scriptSrcs: srcs, foreign });
 
-  await ev(`document.getElementById('chat-new')?.click()`).catch(() => {});
+  await newGateChat('theme').catch(() => {});
   await ev(`document.getElementById('nav-chat')?.click()`);
   await settle(300);
 }
@@ -2438,6 +2503,9 @@ async function runResidue() {
       focusIntoPresent: !!document.querySelector('[data-focus-into]'),
     };
   })()`);
+  // the chat the `+` minted is a gate chat: record it so cleanup deletes it
+  // even though its title is "New chat" (no message yet)
+  if (post.activeSid && post.activeSid !== pre.activeSid) trackProbe(post.activeSid);
   out.caret = Object.assign({}, caret, { startView, pre, post, patched: pre.activeSid !== post.activeSid || post.formReplaced });
   record('residue', "(d) the new-chat caret lands in the composer (UX-45 — the one-render FocusInto latch)", !!caret && caret.ok === true, out.caret);
 
@@ -2743,9 +2811,7 @@ async function runRegression() {
 
   // 4. Enter-to-send
   const beforeSid = await ev(`(document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null`);
-  await ev(`document.getElementById('chat-new')?.click()`);
-  await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000 });
-  await settle(300);
+  await newGateChat('enter-send');
   const msg = 'UXGATE enter-send ' + Date.now() % 100000;
   await driver.js(`(() => {
     const t = document.getElementById('composer-input');
@@ -2902,7 +2968,7 @@ async function runRound4() {
   // 4. UX-45 — `+` lands the caret in the composer; clean the chat up after.
   await chatView();
   await settle(250);
-  await ev(`document.getElementById('chat-new')?.click()`);
+  await newGateChat('round4 UX-45');
   await settle(1000);
   const nc = await ev(`(() => ({ active: (document.activeElement || {}).id || null, sid: (document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null }))()`);
   const ncPass = nc.active === 'composer-input' && !!nc.sid && nc.sid !== probeSid;
