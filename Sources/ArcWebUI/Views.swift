@@ -2824,7 +2824,7 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
     ]
 
     /// The slash palette (A16d): server-rendered `[role=option]` rows for the
-    /// composer's `FilterList(source:token:)` region (no-webui 3.1.0).
+    /// composer's `FilterList(source:token:)` region (no-webui 3.1.0+).
     ///
     /// The whole client-side menu — payload parse, token regex, filter, row
     /// construction, highlight, insertion, keyboard — is the framework's now:
@@ -2834,9 +2834,18 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
     /// trailing space around the row's text. A row's `textContent` is therefore
     /// the BARE command name — the engine inserts exactly that — while the
     /// description rides `data-desc` and the sheet paints it with
-    /// `.combo__option::after`. Enter selects only while a row is the ACTIVE
-    /// element (3.1.0's contract); with focus in the textarea Enter submits,
-    /// which is `SubmitOnEnter`'s key.
+    /// `.combo__option::after`.
+    ///
+    /// 3.1.1 moves the highlight to the FIELD: the lit row carries
+    /// `data-highlight`, ArrowUp/Down move it, and Enter inside the textarea
+    /// inserts that row and prevents the submit. The engine would also name the
+    /// lit row from the field (`aria-activedescendant`), but it can only do that
+    /// for a row with an `id`, and these rows carry none: `.id()` on either row
+    /// builder overflows this function's render-stack cliff (measured: the panel
+    /// collapses from 10 rows with `data-desc` to 1 bare row, 13,006 → 11,989
+    /// bytes of composer markup), which is the same arity cliff `modalHTML()`
+    /// documents. Splitting the panel into smaller view functions is what makes
+    /// the id — and with it the `aria-activedescendant` half — expressible.
     func slashPanel() -> some WebUI.View {
         Div(class: .combo) {
             ComposerText(field: FieldID("composer-input"),

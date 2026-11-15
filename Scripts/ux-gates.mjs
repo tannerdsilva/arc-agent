@@ -1334,12 +1334,14 @@ async function runInteractions() {
   add('tab budget (<=13 stops to composer, 1440 + 768)', budgetOk, budget);
 
   // ---- 4. slash menu -------------------------------------------------------
-  // no-webui 3.1.0: the menu is a `FilterList(source:token:)` region — the
-  // server renders the rows, the engine owns the `/` gate, the filter and the
-  // insert. The measured contract change from the retired client menu: Enter
-  // selects only while a ROW is the active element; with focus in the textarea
-  // Enter submits (`SubmitOnEnter` owns that listener). This row therefore
-  // inserts by CLICK — the surface a reader reaches without a keyboard detour.
+  // no-webui 3.1.1: the menu is a `FilterList(source:token:)` region — the
+  // server renders the rows, the engine owns the `/` gate, the filter, the
+  // HIGHLIGHT and the insert. Two insert paths are measured: a click on the row
+  // (3.1.0's path) and Enter with focus still IN THE SOURCE FIELD. 3.1.0 only
+  // selected while a ROW was the active element, so a reader who kept typing
+  // and pressed Enter submitted the message; 3.1.1 makes the lit row the
+  // field's `aria-activedescendant`, moves the highlight with ArrowUp/Down, and
+  // inserts on Enter from the field while preventing the submit.
   const slash = {};
   await chatView();
   // The slash menu is suppressed while a turn is in flight (the composer turns
@@ -1350,24 +1352,66 @@ async function runInteractions() {
   await waitStreamEnd(120000).catch(() => false);
   await newGateChat('slash');
   // type "/" via real keys into the focused composer
-  await ev(`document.getElementById('composer-input')?.focus()`);
+  slash.fieldFocused = await ev(`(() => { const t = document.getElementById('composer-input'); if (!t) return false; t.focus(); return document.activeElement === t; })()`);
   await settle(100);
   await driver.typeText('/');
   await settle(400);
   slash.before = await ev(`uxGates.slash()`);
   slash.typingHelp = (slash.before.rows || []).some((r) => r.text === 'help');
+  // the highlight contract on open: one lit row, named by the field
+  slash.litOpen = await ev(`uxGates.slashHighlight()`);
+  // ArrowUp/ArrowDown move the highlight, and focus never leaves the field
+  await driver.pressKey('ArrowDown');
+  await settle(200);
+  slash.litAfterDown = await ev(`uxGates.slashHighlight()`);
+  await driver.pressKey('ArrowUp');
+  await settle(200);
+  slash.litAfterUp = await ev(`uxGates.slashHighlight()`);
+  slash.arrowsMove = !!slash.litAfterDown.lit && slash.litAfterDown.lit !== slash.litOpen.lit
+    && slash.litAfterUp.lit === slash.litOpen.lit
+    && slash.litAfterDown.focusInField && slash.litAfterUp.focusInField;
   await driver.typeText('he');
   await settle(400);
   slash.after = await ev(`uxGates.slash()`);
   slash.filteredShrunk = slash.after.rowCount > 0 && slash.after.rowCount <= slash.before.rowCount;
-  // click the `help` row: the insert is the region's own click consequence
+  slash.litFiltered = await ev(`uxGates.slashHighlight()`);
+  slash.highlightOk = slash.litOpen.litCount === 1 && slash.litOpen.focusInField
+    && !!slash.litOpen.lit
+    && slash.litFiltered.lit === 'help' && slash.litFiltered.focusInField;
+  // the a11y half of 3.1.1 names the lit row from the field
+  // (`aria-activedescendant`), which needs an `id` on the row. arc's rows carry
+  // none — adding one overflows `slashPanel()`'s render-stack cliff (measured:
+  // the panel collapses to a single bare row) — so the field attribute is
+  // absent. Recorded, not asserted: the highlight contract above is what
+  // prevents the submit.
+  slash.ariaNamed = !!slash.litFiltered.activeDescendant;
+  // path 1 — click the `help` row: the insert is the region's own click consequence
   const helpRect = await ev(`uxGates.slashRowRect('help')`);
   if (helpRect) await driver.clickAt(helpRect.x, helpRect.y);
   await settle(400);
   slash.afterClick = await ev(`(() => ({ open: uxGates.slash().open, composer: document.getElementById('composer-input')?.value || '', placeholder: document.getElementById('composer-input')?.getAttribute('placeholder') }))()`);
-  slash.inserted = /^\/help $/.test(slash.afterClick.composer);
-  slash.ok = slash.before.open && slash.before.rowCount > 0 && slash.after.open && slash.filteredShrunk && !slash.afterClick.open && slash.inserted;
-  add('slash menu open -> filter -> insert (click)', slash.ok, slash);
+  slash.insertedByClick = /^\/help $/.test(slash.afterClick.composer);
+  // path 2 — Enter with focus IN THE FIELD. The field is rewritten to `/he`
+  // (the panel re-opens and lights `help`) and Enter is a REAL key press on the
+  // focused textarea: no row is ever focused, so the insert can only come from
+  // 3.1.1's field path, and `submits` must stay 0.
+  await setComposer('/he');
+  await settle(400);
+  slash.beforeEnter = await ev(`uxGates.slashHighlight()`);
+  slash.stateBeforeEnter = await ev(`uxGates.composerState()`);
+  await driver.pressEnter();
+  await settle(450);
+  slash.afterEnter = await ev(`(() => ({ value: document.getElementById('composer-input')?.value || '', open: uxGates.slash().open, state: uxGates.composerState() }))()`);
+  slash.insertedByEnter = /^\/help $/.test(slash.afterEnter.value);
+  slash.panelClosed = !slash.afterEnter.open;
+  slash.submits = slash.afterEnter.state.userRows - slash.stateBeforeEnter.userRows;
+  slash.live = slash.afterEnter.state.live;
+  slash.ok = slash.fieldFocused && slash.before.open && slash.before.rowCount > 0
+    && slash.typingHelp && slash.filteredShrunk && slash.highlightOk && slash.arrowsMove
+    && !slash.afterClick.open && slash.insertedByClick
+    && slash.beforeEnter.focusInField && slash.insertedByEnter && slash.panelClosed
+    && slash.submits === 0 && !slash.live;
+  add('slash menu open -> filter -> insert (click, then Enter in the field)', slash.ok, slash);
 
   // ---- 5. delete flow incl. Undo -------------------------------------------------
   await ensureProbeSession();
@@ -2483,14 +2527,15 @@ async function runComposer() {
   const contractOk = boot.present && boot.submit === 'plain' && boot.clear === true;
   record('composer', '(e) the textarea states data-submit-on-enter="plain" and data-clear-on-submit', contractOk, boot);
 
-  // (d) no-webui 3.1.0's focused-item contract: the `FilterList(token: "/")`
-  // region selects a row when that row is the ACTIVE element. With focus in
-  // the textarea the engine's `data-submit-on-enter` owns Enter (it submits),
-  // so the palette's ordinary insert is a CLICK — the interactions gate's row.
-  // This row proves the keyboard half: Tab/focus to a row, Enter inserts the
-  // bare command through the template and does not submit.
+  // (d) no-webui 3.1.1's field path: the `FilterList(token: "/")` region lights
+  // one row and names it from the SOURCE FIELD (`aria-activedescendant`), so
+  // Enter pressed IN the field inserts that row and prevents the submit. 3.1.0
+  // selected only while a row was the active element, so this row used to focus
+  // the row first; that detour is the shape the framework replaced, and the
+  // assertion's meaning is unchanged: Enter inserts, nothing submits.
   let beforeSlash = null;
   let afterSlash = null;
+  let litSlash = null;
   let slashOk = false;
   for (let attempt = 0; attempt < 3 && !slashOk; attempt++) {
     const userRowsBefore = await ev(`document.querySelectorAll('.msg.user').length`);
@@ -2500,14 +2545,8 @@ async function runComposer() {
     await setComposer('/he');
     beforeSlash = await ev(`uxGates.composerState()`);
     if (!beforeSlash.menuOpen || beforeSlash.menuRows === 0) continue;
-    const focused = await ev(`(() => {
-      const rows = Array.from(document.querySelectorAll('#cmd-dropdown [role=option]'));
-      const row = rows.find((r) => !r.hidden && (r.textContent || '').trim() === 'help');
-      if (!row) return false;
-      row.focus();
-      return document.activeElement === row;
-    })()`);
-    if (!focused) continue;
+    litSlash = await ev(`uxGates.slashHighlight()`);
+    if (!litSlash.focusInField || litSlash.lit !== 'help') continue;
     await driver.pressEnter();
     await settle(450);
     afterSlash = await ev(`uxGates.composerState()`);
@@ -2515,8 +2554,8 @@ async function runComposer() {
       && afterSlash.userRows === userRowsBefore && !afterSlash.live;
     if (!slashOk) await waitStreamEnd(60000).catch(() => false);
   }
-  record('composer', '(d) Enter on the focused slash row inserts; nothing submits', slashOk,
-    { before: beforeSlash, after: afterSlash });
+  record('composer', '(d) Enter in the field inserts the highlighted slash row; nothing submits', slashOk,
+    { before: beforeSlash, lit: litSlash, after: afterSlash });
 
   // (b) Shift+Enter inserts a newline and does not submit.
   const shiftBefore = await ev(`uxGates.composerState()`);

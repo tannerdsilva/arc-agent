@@ -133,6 +133,28 @@
       const b = row.getBoundingClientRect();
       return { x: b.left + b.width / 2, y: b.top + b.height / 2, top: b.top, bottom: b.bottom };
     },
+    /// the token list's HIGHLIGHT contract (no-webui 3.1.1): the panel is open,
+    /// exactly one visible row carries `data-highlight`, the source field carries
+    /// `aria-activedescendant` naming that row, and focus is still IN the field
+    /// (a reader who never leaves the field must not submit by pressing Enter).
+    slashHighlight: () => {
+      const dd = $('#cmd-dropdown');
+      const field = document.getElementById('composer-input');
+      if (!dd || !field) return { present: false };
+      const rows = Array.from(dd.querySelectorAll('[role=option]')).filter((r) => !r.hidden);
+      const lit = rows.filter((r) => r.hasAttribute('data-highlight'));
+      const one = lit.length === 1 ? lit[0] : null;
+      return {
+        present: true,
+        open: dd.hasAttribute('data-open') && shown(dd),
+        litCount: lit.length,
+        lit: one ? text(one).trim().slice(0, 40) : null,
+        litID: one ? (one.id || null) : null,
+        activeDescendant: field.getAttribute('aria-activedescendant'),
+        focusInField: document.activeElement === field,
+        visibleRows: rows.length,
+      };
+    },
     sessions: () => ({
       count: $$('.sess-row').length,
       activeSid: (function () { const a = $('.sess-row.active'); return a ? a.getAttribute('data-sid') : null; })(),
