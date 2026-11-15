@@ -575,6 +575,103 @@ async function openRoomChat(sid) {
 }
 
 let roomSid = null;
+// ---------------------------------------------------------------------------
+// D8.1 — the work-log round: the one transcript shape the live store may not have
+//
+// `residue (b2)` asserts that a tool round's "Copy this activity" control
+// copies the round's digest. The control does not exist for prose: `Views.swift`'s
+// `turnBlockHTML` only emits it for an assistant segment that contains a real
+// tool round (an assistant message carrying `toolCalls`, answered by `tool`-role
+// messages keyed by `toolCallID`) AND ends in a plain assistant reply. The base
+// gate scanned ten live chats and found none — the row SKIPped for the shape,
+// not for a defect — so the same store-and-deep-link facility D6.1 uses supplies
+// the shape through the app's own storage path: no provider turn, no client
+// fixture, UXGATE in the title AND the first message, tracked by sid, and deleted
+// through the app's own delete flow right after the row measures it.
+
+/// Write one session record whose single turn CALLED A TOOL.
+function writeWorklogSession() {
+  const sid = randomUUID();
+  const now = Date.now();
+  const callID = `call_uxgate_${sid.slice(0, 8)}`;
+  const messages = [
+    {
+      role: 'user',
+      content: 'UXGATE worklog — what does the asset manifest embed? Read it and tell me.',
+      createdAt: arcDate(now - 90000),
+    },
+    {
+      role: 'assistant',
+      content: 'Reading the manifest.',
+      toolCalls: [{
+        id: callID,
+        type: 'function',
+        function: {
+          name: 'terminal',
+          arguments: JSON.stringify({ command: 'cat Sources/ArcWebUI/Assets/webui-assets.json' }),
+        },
+      }],
+      createdAt: arcDate(now - 60000),
+    },
+    {
+      role: 'tool',
+      name: 'terminal',
+      toolCallID: callID,
+      content: '{\n  "types": []\n}',
+      createdAt: arcDate(now - 55000),
+    },
+    {
+      role: 'assistant',
+      content: 'It embeds nothing: the manifest carries an empty `types` array.',
+      turnDuration: 1.4,
+      createdAt: arcDate(now - 50000),
+    },
+  ];
+  const record = {
+    id: sid,
+    createdAt: arcDate(now - 120000),
+    updatedAt: arcDate(now),
+    model: '',
+    provider: '',
+    title: `UXGATE worklog ${sid.slice(0, 8)}`,
+    messages,
+  };
+  writeFileSync(join(ARC_SESSIONS_DIR, `${sid}.json`), JSON.stringify(record, null, 2));
+  return sid;
+}
+
+/// Open a seeded session through the app's deep link and wait for the work-log
+/// control inside it. `{ landed, control }` — `control` is the `data-copy`
+/// value of the first `.tw-copy`, or null when the transcript rendered none.
+async function openWorklogChat(sid) {
+  await driver.navigate(`${APP}?s=${encodeURIComponent(sid)}`);
+  await waitReady();
+  // A deep-link load is a fresh document: the origin's clipboard grant survives
+  // it, but the document is not focused, so `navigator.clipboard.readText()`
+  // rejects and the row would fall back to its toast-only reading (measured at
+  // D8.1: `clipboard: null` on the first pass). Re-grant and bring the page to
+  // the front so the read is a real read.
+  await driver
+    .send('Browser.grantPermissions', {
+      permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'],
+      origin: APP.replace(/\/+$/, ''),
+    })
+    .catch(() => {});
+  await driver.send('Page.bringToFront').catch(() => {});
+  await ev(`document.body.focus()`).catch(() => {});
+  const landed = await waitTrue(`(() => {
+    const r = document.querySelector('.sess-row.active');
+    return !!r && r.getAttribute('data-sid') === ${JSON.stringify(sid)};
+  })()`, 9000);
+  await chatView();
+  const found = await pollOk(`(() => {
+    const b = document.querySelector('.tw-copy');
+    return b ? { ok: true, value: b.getAttribute('data-copy') || '' } : { ok: false };
+  })()`, 6000);
+  const msgs = await ev(`document.querySelectorAll('#chat-inner .msg, #chat-inner .assistant-turn').length`);
+  return { landed, control: found && found.ok ? found.value : null, rendered: msgs };
+}
+
 /// The gate's long chat: seeded once, re-seeded if the store record vanished
 /// (a prior cleanup), and opened. `{ sid, landed, room }`.
 async function ensureScrollRoomChat() {
@@ -2693,15 +2790,27 @@ async function runResidue() {
   out.copyLink = { value: copyValue, clipboard: linkClip, toast: linkToast };
   record('residue', '(b1) "Copy conversation link" writes the absolute share url (clipboard + engine toast)', linkOk, out.copyLink);
 
-  // one work-log round: scan the open chats for a transcript that has one.
+  // one work-log round: a live transcript that has one, else the seeded shape.
   let worklog = null;
   let worklogSkipped = null;
+  let worklogOrigin = null;
+  let seededSid = null;
   const sidList = (await ev(`(() => [...document.querySelectorAll('.sess-row')].map(r => r.getAttribute('data-sid')))()`)) || [];
   for (const s of sidList.slice(0, 10)) {
     await ev(`(() => { const r = [...document.querySelectorAll('.sess-row')].find(x => x.getAttribute('data-sid') === ${JSON.stringify(s)}); if (r) r.querySelector('.sess-open').click(); return true; })()`);
     await settle(700);
     worklog = await ev(`(() => { const b = document.querySelector('.tw-copy'); return b ? { value: b.getAttribute('data-copy') || '' } : null; })()`);
-    if (worklog) break;
+    if (worklog) { worklogOrigin = 'live'; break; }
+  }
+  if (!worklog) {
+    // D8.1: the live store carried no tool round (measured at the base: ten
+    // chats scanned, none had one). Seed the shape through the app's own
+    // storage path and measure the same control there.
+    seededSid = trackProbe(writeWorklogSession());
+    const opened = await openWorklogChat(seededSid);
+    out.worklogSeed = { sid: seededSid.slice(0, 8), landed: opened.landed, rendered: opened.rendered };
+    if (opened.landed && opened.control) { worklog = { value: opened.control }; worklogOrigin = 'seeded'; }
+    else out.worklogSeed.reason = 'the seeded transcript rendered no .tw-copy control';
   }
   if (!worklog) {
     worklogSkipped = `no reachable transcript has a tool round (scanned ${Math.min(sidList.length, 10)} of ${sidList.length} chats) — the "copy this activity" control only renders for a turn that called a tool`;
@@ -2713,8 +2822,28 @@ async function runResidue() {
     const roundOk = worklog.value.length > 0
       && (roundClip === null || roundClip.startsWith(worklog.value.slice(0, 40)))
       && !!roundToast && roundToast.present && roundToast.text === 'Copied';
-    out.copyWorklog = { value: worklog.value.slice(0, 120), clipboard: roundClip === null ? null : roundClip.slice(0, 120), toast: roundToast };
+    out.copyWorklog = { origin: worklogOrigin, value: worklog.value.slice(0, 120), clipboard: roundClip === null ? null : roundClip.slice(0, 120), toast: roundToast };
     record('residue', '(b2) a work-log round copies its activity digest (clipboard + engine toast)', roundOk, out.copyWorklog);
+  }
+  // a seeded transcript is deleted through the app's own delete flow right here:
+  // it is UXGATE-titled, so leaving it in the store would let the next group's
+  // `ensureProbeSession` adopt it as its probe (the run's cleanup would also get
+  // it, but only at the end of the run, after every other group had run).
+  if (seededSid) {
+    let gone = false;
+    for (let attempt = 0; attempt < 3 && !gone; attempt++) {
+      if ((await openMenu(seededSid)) && (await clickMenuDanger(seededSid))) {
+        await ev(`document.getElementById('modal-confirm')?.click()`);
+        gone = await waitTrue(`!([...document.querySelectorAll('.sess-row')].some(r => r.getAttribute('data-sid') === '${seededSid}'))`, 15000);
+      } else {
+        await driver.pressEscape();
+        await settle(250);
+      }
+    }
+    if (out.worklogSeed) out.worklogSeed.deleted = gone;
+    if (gone) probeSids.delete(seededSid);
+    else console.warn(`residue: the seeded work-log chat ${seededSid} survived its delete — left to the run cleanup`);
+    await chatView();
   }
 
   // ---- (c) the engine toast is legible in BOTH themes ----------------------
