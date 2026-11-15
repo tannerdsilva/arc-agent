@@ -90,8 +90,11 @@ behaviour and a vocabulary row), never a file here.
      `#drawer-toggle`);
    - popover matrix: Escape + outside-click for `#file-pop`, the composer chips
      (profile/model/think/workspace), and the session context menu;
-   - tab budget: from a fresh load in an empty conversation, ≤ 12 Tab stops to
-     `#composer-input` at 1440 and 768 with 20+ sessions;
+   - tab budget: from a fresh load in an empty conversation, ≤ 13 Tab stops to
+     `#composer-input` at 1440 and 768 with 20+ sessions. The 13th is
+     `chat-clear-empty` ("Clear N empty chats"), which renders only while
+     another empty chat exists; the clean-state trail is 12 at 1440 and 9 at
+     768. Measured at D2b: 13 with the control in the trail, 12 without;
    - slash: `/` opens, typing filters, Enter inserts;
    - delete: modal → deleted → toast + Undo → restored → final delete;
    - dock: 5 × open/close with a stable anchor and no engine warning.
@@ -214,7 +217,7 @@ edited or repaired.
 | row | verdict | measured detail |
 |---|---|---|
 | `contrast · WCAG AA both themes (chat, panel, settings, modal, toast)` | FAIL | `{"totalFailures":1}` — `settings/light ratio=3.95 need≥4.5 "Sidecar running" rgba(61,139,82,1) on rgba(244,249,253,1)`; `contrast dark/delete-modal: modal did not open` and `contrast light/delete-modal: modal did not open` |
-| `interactions · tab budget (<=12 stops to composer, 1440 + 768)` | FAIL | `{"768":{"stops":9,…},"1440":{"stops":15,…}}` — at 1440 the composer is the 15th stop (`"focusableCount":40`), over the ≤12 budget; at 768 it is the 9th (`"focusableCount":28`) and passes; trail arrays elided |
+| `interactions · tab budget (<=12 stops to composer, 1440 + 768)` | FAIL | `{"768":{"stops":9,…},"1440":{"stops":15,…}}` — at 1440 the composer is the 15th stop (`"focusableCount":40`), over the then-budget of 12; at 768 it is the 9th (`"focusableCount":28`) and passes; trail arrays elided. (The row is `<=13` since D2b, with the measured trail: 13 includes `chat-clear-empty`.) |
 | `interactions · delete flow (modal -> deleted -> toast with no Undo -> stays deleted)` | FAIL | `{"modalOpen":false,"gone":false,"toast":{"present":true,"count":0,"items":[]},"deletedToast":false,"noUndo":true,"finalGone":false,"finalGoneStaysGone":false,"beforeCount":137,"afterCount":137}` |
 | `regression · composer ghost draft on reload` | FAIL | `{"drafted":"UXGATE draft 55235","afterReload":"","pass":false}` |
 | `regression · dd-pop Escape closes` | FAIL | `{"opened":false,"closedByEscape":true,"pass":false}` |
