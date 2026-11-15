@@ -2370,15 +2370,59 @@ async function runResidue() {
   // `newChat` therefore arms a ONE-RENDER `data-focus-into="composer-input"` on
   // the composer root; the fresh root's binder focuses the field because live
   // focus (the `+`) is outside its region.
+  //
+  // The PRECONDITION is part of the assertion (D2b): `newChat` reuses a chat
+  // that is already a pristine "New chat" (`AppState.isPristineNewChat`) and
+  // that early return renders nothing — so the + has no patch to answer, the
+  // one-render latch is never armed, and the caret stays on the +. That is a
+  // property of the STARTING VIEW, not of the latch. The view here is recorded
+  // (`pre`) and the composer form node is marked, so a no-op + is visible in
+  // the detail instead of being read as a lost focus statement.
   await chatView();
+  // Known starting view (D2b.4). `newChat` reuses a chat that is already a
+  // pristine "New chat" (`AppState.isPristineNewChat`), and that early return
+  // renders NOTHING — no patch answers the `+`, the one-render latch is never
+  // armed. That is the app's product decision (UX-10: do not persist an
+  // untouched chat) and this row does not measure it; it measures that the `+`
+  // which DOES change the view lands the caret. So put the probe chat (which
+  // carries the tour's turn) on screen first: the `+` then has a view to change.
+  const startView = { opened: await openSessionRow(sid) };
+  startView.settled = await waitTrue(`(() => {
+    const a = document.querySelector('.sess-row.active');
+    return !!a && a.getAttribute('data-sid') === '${sid}' && document.querySelectorAll('.msg').length > 0;
+  })()`, 8000);
+  const pre = await ev(`(() => {
+    const f = document.querySelector('[data-component-id="composer-form"]');
+    if (f) f.__newChatMark = true;
+    const a = document.querySelector('.sess-row.active');
+    return {
+      activeSid: a ? a.getAttribute('data-sid') : null,
+      activeTitle: a ? (a.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 60) : null,
+      activeMsgCount: (a ? a.textContent || '' : '').match(/(\\d+)\\s*msg/)?.[1] ?? null,
+      composerPresent: !!document.getElementById('composer-input'),
+      composerValue: document.getElementById('composer-input')?.value || '',
+      active: (document.activeElement || {}).id || null,
+      messages: document.querySelectorAll('.msg').length,
+    };
+  })()`);
   // focus the + like a pointer does: the panel patch replaces the button, so
   // focus falls to <body> and the fresh composer's `data-focus-on-appear`
   // takes it. (A programmatic click leaves focus wherever it was, which the
   // behaviour deliberately never steals.)
   await ev(`(() => { const b = document.getElementById('chat-new'); if (b) { b.focus(); b.click(); } return !!b; })()`);
   const caret = await pollOk(`(() => { const a = document.activeElement; return { ok: !!a && a.id === 'composer-input', active: a && a !== document.body ? (a.id || a.tagName) : null }; })()`, 5000);
-  out.caret = caret;
-  record('residue', "(d) the new-chat caret lands in the composer (UX-45 — the one-render FocusInto latch)", !!caret && caret.ok === true, caret);
+  const post = await ev(`(() => {
+    const f = document.querySelector('[data-component-id="composer-form"]');
+    const a = document.querySelector('.sess-row.active');
+    return {
+      formReplaced: !f || f.__newChatMark !== true,
+      activeSid: a ? a.getAttribute('data-sid') : null,
+      active: (document.activeElement || {}).id || null,
+      focusIntoPresent: !!document.querySelector('[data-focus-into]'),
+    };
+  })()`);
+  out.caret = Object.assign({}, caret, { startView, pre, post, patched: pre.activeSid !== post.activeSid || post.formReplaced });
+  record('residue', "(d) the new-chat caret lands in the composer (UX-45 — the one-render FocusInto latch)", !!caret && caret.ok === true, out.caret);
 
   // ---- (e) FocusOnAppear: a patched form takes the caret -------------------
   // The retired `[data-focus-after-patch]` consumer's job, now the engine's.
