@@ -238,6 +238,94 @@ async function clickMenuDanger(sid) {
   return waitTrue(`uxGates.modal().open && !!document.getElementById('modal-confirm')`, 3000);
 }
 
+/// Wait for the composer to stop being re-rendered, and dismiss anything a
+/// previous group left open.
+///
+/// Why this is a precondition and not a sleep: arc's composer popovers and row
+/// menus are ONE-RENDER server latches (`composerPopover`/`rowMenu` are consumed
+/// by their renderer). Any patch that re-renders the composer after the open
+/// render replaces the popover with its closed spelling, so a click observed
+/// mid-settle can read "closed" — a measurement of the page's churn, not of the
+/// click. The tour before the matrix walks every rail tab, which is exactly that
+/// churn. Escape first (the app's own dismissal), then wait for the composer
+/// form NODE to hold still across a poll and for the engine toast to clear.
+async function quiesceComposer() {
+  for (let i = 0; i < 3; i++) {
+    const open = await ev(`(() => Object.entries(uxGates.popovers()).filter(([, v]) => v && v.open).map(([k]) => k))()`);
+    if (!Array.isArray(open) || !open.length) break;
+    await driver.pressEscape();
+    await settle(250);
+  }
+  await waitTrue(`!document.getElementById('live-turn')`, 30000).catch(() => false);
+  let last = null;
+  for (let i = 0; i < 40; i++) {
+    const sig = await ev(`(() => {
+      const f = document.querySelector('[data-component-id="composer-form"]');
+      if (!f) return null;
+      if (!f.__quiesce) f.__quiesce = (window.__quiesceSeq = (window.__quiesceSeq || 0) + 1);
+      return { node: f.__quiesce, toasts: document.querySelectorAll('[data-webui-toast]').length };
+    })()`);
+    if (sig && last && sig.node === last.node && sig.toasts === 0) return true;
+    last = sig;
+    await settle(250);
+  }
+  return false;
+}
+
+/// Click a composer popover opener ONCE and observe the open it asked for.
+///
+/// Returns `{ clicked, open, ms, shown, dataOpen, formReplaced }`. The two
+/// qualifiers are the evidence when the open is not observed: `dataOpen` is the
+/// server's statement on `#file-pop` (an open render states it; the engine's
+/// dismissal removes it client-side) and `formReplaced` says whether a patch
+/// replaced the composer form node while the row was waiting.
+async function openOnce(trig, name) {
+  const clicked = await ev(`(() => {
+    const f = document.querySelector('[data-component-id="composer-form"]');
+    if (f) f.__openMark = true;
+    const t = document.querySelector('${trig}');
+    if (!t) return false;
+    t.click();
+    return true;
+  })()`);
+  const t0 = Date.now();
+  const open = clicked ? await waitStableValue(`uxGates.popovers().${name}.open`, true) : false;
+  const ms = Date.now() - t0;
+  const rest = await ev(`(() => {
+    const p = uxGates.popovers().${name};
+    const el = document.getElementById('${name === 'file' ? 'file-pop' : ''}');
+    const f = document.querySelector('[data-component-id="composer-form"]');
+    return {
+      shown: p ? p.open : null,
+      dataOpen: el ? el.getAttribute('data-open') : null,
+      formReplaced: !f || f.__openMark !== true,
+    };
+  })()`);
+  return Object.assign({ clicked, open, ms }, rest);
+}
+
+/// Click a composer popover opener and observe the open the click asked for.
+///
+/// The composer's open state is a ONE-RENDER latch (`composerPopover` is
+/// consumed by `composerHTML`), so a patch that re-renders the composer between
+/// the click and the observation replaces the popover with its closed spelling
+/// and the click's answer is unobservable — that is a lost measurement, not a
+/// refused click. `quiesceComposer()` removes most of that window; this helper
+/// re-measures ONCE when the first click's open is lost, and records BOTH
+/// attempts (`attempts`), so a real defect (two losses) still fails the row
+/// with the evidence attached. The caller keeps `row.opened` a boolean.
+async function openAndHold(trig, name) {
+  const attempts = [await openOnce(trig, name)];
+  if (!attempts[0].open) {
+    // dismiss whatever the lost click left behind, then re-measure
+    await driver.pressEscape();
+    await settle(400);
+    attempts.push(await openOnce(trig, name));
+  }
+  const last = attempts[attempts.length - 1];
+  return { open: last.open, attempts };
+}
+
 async function setTheme(themeKey) {
   await ev(`document.getElementById('nav-settings')?.click()`);
   await driver.waitFor(`!!document.getElementById('thm-${themeKey}')`, { timeoutMs: 8000, label: 'settings theme control' });
@@ -722,13 +810,51 @@ async function runInteractions() {
   add('console-clean tour', consoleClean, { clicked: tour.clicked, errors: cr.errors, warnings: cr.warnings, engineWarnings, infoCount: cr.info.length, info: cr.info.slice(0, 5) });
 
   // ---- 2. popover matrix -------------------------------------------------
+  //
+  // A row must not inherit the previous group's page state. Measured (D2b):
+  // the composer popover's open state is a ONE-RENDER server latch
+  // (`composerPopover` is consumed by `composerHTML`), so ANY patch that
+  // re-renders the composer form after the open render replaces `#file-pop`
+  // with the closed spelling. The matrix therefore measures against a
+  // quiescent composer: no live turn, no pending toast, and the composer form
+  // node itself observed twice 250 ms apart. What the row starts from is
+  // recorded (`atStart`), so a lost open can be read as "the page was still
+  // settling" rather than guessed at.
+  // BASELINE MEASURED (D2b.2, base `6fd7bbf8`, daemon 89783/093a0c39): in a
+  // strict run the matrix started with `active: "chat-new"` — focus left on the
+  // `+` by the new-chat flow the console tour ends on — and every open took
+  // ~890-940 ms against a 300 ms hold / 4 s deadline, i.e. one composer render
+  // inside that window is enough to consume the one-render latch and replace the
+  // popover closed. The quiesce is the repair: the row must not measure the
+  // previous group's churn.
+  await quiesceComposer();
+  const atStart = await ev(`(() => {
+    const pop = uxGates.popovers();
+    const el = document.getElementById('file-pop');
+    const cs = el ? getComputedStyle(el) : null;
+    const r = el ? el.getBoundingClientRect() : null;
+    return {
+      active: (document.activeElement || {}).id || (document.activeElement || {}).tagName || null,
+      sessions: document.querySelectorAll('.sess-row').length,
+      activeSid: (document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null,
+      theme: document.documentElement.getAttribute('data-scheme') || '',
+      viewport: innerWidth + 'x' + innerHeight,
+      liveTurn: !!document.getElementById('live-turn'),
+      toasts: document.querySelectorAll('[data-webui-toast]').length,
+      filePop: el ? { present: true, open: pop.file.open, dataOpen: el.getAttribute('data-open'), display: cs.display, opacity: cs.opacity, w: Math.round(r.width), h: Math.round(r.height) } : { present: false },
+      openPopovers: Object.entries(pop).filter(([, v]) => v && v.open).map(([k]) => k),
+    };
+  })()`);
   const matrix = [];
   const triggers = { file: '#cb-file', workspace: '#cb-ws-toggle', profile: '#cb-profile-toggle', model: '#cb-model-toggle', think: '#cb-think-toggle' };
   for (const [name, trig] of Object.entries(triggers)) {
     const row = {};
     // open — "reached and held", so a late patch cannot be mistaken for either side
-    await ev(`document.querySelector('${trig}')?.click()`);
-    row.opened = await waitStableValue(`uxGates.popovers().${name}.open`, true);
+    // (`openObs` carries the raw observation: how long it took and whether a
+    // composer patch replaced the node mid-wait — see `openAndHold`)
+    const openObs = await openAndHold(trig, name);
+    row.opened = openObs.open;
+    row.openObs = openObs;
     // Escape — closed must HOLD, else a late open patch re-opens and hides the bug
     await driver.pressEscape();
     row.escClosed = await waitStableValue(`uxGates.popovers().${name}.open`, false);
@@ -756,14 +882,14 @@ async function runInteractions() {
     // recorded — the row's verdict reads `mutualExclusion`, and recording it
     // first made that clause vacuous (an undefined key satisfied `!m.mutualExclusion`).
     if (name === 'file') {
-      await ev(`document.querySelector('${trig}')?.click()`);
-      const fp1 = await waitStableValue(`uxGates.popovers().file.open`, true);
+      const mutualOpen = await openAndHold(trig, 'file');
+      const fp1 = mutualOpen.open;
       await ev(`document.getElementById('cb-model-toggle')?.click()`);
       const mutualOk = await waitStableValue(
         `(() => { const p = uxGates.popovers(); return p.model.open === true && p.file.open === false; })()`,
         true, 250, 4000);
       const mutual = await ev(`({ file: uxGates.popovers().file.open, model: uxGates.popovers().model.open })`);
-      row.mutualExclusion = { fileOpen: fp1, afterModel: mutual, ok: mutualOk };
+      row.mutualExclusion = { fileOpen: fp1, afterModel: mutual, ok: mutualOk, openObs: mutualOpen };
       await driver.pressEscape();
       await settle(300);
     }
@@ -791,10 +917,15 @@ async function runInteractions() {
   menuRow.outsideClosed = await waitStableValue(`uxGates.popovers().sessionMenu.open`, false, 250, 3000);
   matrix.push(menuRow);
 
+  // The mutual-exclusion clause reads `fileOpen === true` too (D2b.2): the old
+  // verdict only checked the END state (model open, file closed), which a file
+  // popover that NEVER opened satisfied vacuously — the row could fail its own
+  // premise and still pass. "The model click closed the file popover" means the
+  // file popover was open when that click landed.
   const popoverOk = matrix.every((m) => m.opened && m.escClosed && m.outsideClosed !== false
-    && (m.name !== 'file' || (m.mutualExclusion && m.mutualExclusion.ok === true
+    && (m.name !== 'file' || (m.mutualExclusion && m.mutualExclusion.ok === true && m.mutualExclusion.fileOpen === true
         && m.mutualExclusion.afterModel.file === false && m.mutualExclusion.afterModel.model === true)));
-  add('popover matrix (escape, outside-click, mutual exclusion)', popoverOk, matrix);
+  add('popover matrix (escape, outside-click, mutual exclusion)', popoverOk, { atStart, rows: matrix });
 
   // ---- 3. tab budget ------------------------------------------------------
   // Measured from a FRESH LOAD at each width: counting Tab presses on a live,
