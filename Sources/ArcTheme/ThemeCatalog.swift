@@ -23,7 +23,13 @@ import WebUIDesignSystem
 //    literal: a token invented to cover them would be a name that lies. `--warning` is
 //    literal for a sharper reason: no-webui emits every alias into every block, and its
 //    token is not defined in every scheme, so the indirection would resolve to nothing
-//    where the property used to inherit the base sheet's orange. `--accent-fg` is the
+//    where the property used to inherit the base sheet's orange. `--warning-strong` is
+//    the same story one step darker — the text-grade amber `.log-line.lvl-warn` paints
+//    with (AA on the light surface, where the bright `--warning` is for dots) — and it
+//    is a *catalog* token rather than a `:root` literal so every scheme states it:
+//    a property the chrome sheet alone declares is invisible to a scheme block, which
+//    is how the old `:root[data-theme=…]` copy could drift from `ArcBaseTheme` unseen.
+//    `--accent-fg` is the
 //    same class of literal: the `.primary-btn` label colour, chosen per scheme and per
 //    mode against that scheme's `--accent` (WCAG AA >= 4.5:1, enforced by
 //    PrimaryButtonAccentContrastTests) — it is not any framework token's value.
@@ -67,8 +73,12 @@ public struct ArcBaseTheme {
 					.colorText: "#1D1D24", .colorTextMuted: "#5D5D65", .scrollbarThumb: "#D4D4DC",
 				],
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-border": "rgba(217,119,87,0.18)",
-					"--accent-soft": "rgba(184, 134, 11, 0.10)", "--code-bg": "#F0F0F4", "--link": "#0288A8",
+					"--accent-soft": "rgba(184, 134, 11, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
+					"--code-bg": "#F0F0F4", "--code-inline-bg": "rgba(0, 0, 0, 0.05)",
+					"--code-text": "#1D1D24", "--hover-bg": "rgba(0, 0, 0, 0.04)",
+					"--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#0288A8",
 					"--shadow": "0 2px 12px rgba(30, 30, 40, 0.08)", "--user-bubble": "#EFEFEF",
+					"--warning-strong": "#8A5B00",
 				],
 			)
 
@@ -80,8 +90,12 @@ public struct ArcBaseTheme {
 					.colorText: "#E6E6EC", .colorTextMuted: "#9D9DA8", .scrollbarThumb: "#33333E",
 				],
 				customTokens: ["--accent-strong-ink": "#1D1D24", "--accent-border": "rgba(217, 164, 65, 0.5)",
-					"--accent-soft": "rgba(217, 164, 65, 0.14)", "--code-bg": "#23232C", "--link": "#C9C8C0",
+					"--accent-soft": "rgba(217, 164, 65, 0.14)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
+					"--code-bg": "#23232C", "--code-inline-bg": "rgba(0, 0, 0, 0.35)",
+					"--code-text": "#E6E6EC", "--hover-bg": "rgba(255, 255, 255, 0.06)",
+					"--input-bg": "rgba(255, 255, 255, 0.04)", "--link": "#C9C8C0",
 					"--shadow": "0 2px 14px rgba(0, 0, 0, 0.35)", "--user-bubble": "#2E302D",
+					"--warning-strong": "#E68A00",
 				],
 			)
 }
