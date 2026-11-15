@@ -356,6 +356,15 @@ async function ensureProbeSession(text = `UXGATE probe ${Date.now() % 100000}`) 
   // created under the probe title and this helper times out waiting for a row
   // that will not exist. Settle the previous gate's turn first.
   await waitStreamEnd(180000).catch(() => false);
+  // The session list is a PATCH, not part of the shell: after a view switch it
+  // is EMPTY for a beat (measured at D4: 0 `.sess-row` on the frame after
+  // settings -> chat, 145 rows ~1 s later). A single read here therefore missed
+  // an existing probe chat, and the gate then made a NEW one by typing into
+  // whatever chat was open — silently switching the active session (the residue
+  // (d) flap: the row then measured a chat with content instead of the pristine
+  // one it inherited). Wait for the list before deciding "there is no probe".
+  const listShown = await waitTrue(`document.querySelectorAll('.sess-row').length > 0`, 8000);
+  if (!listShown) console.warn('ensureProbeSession: the session list never rendered — probe reuse cannot be checked');
   const existing = await ev(`(() => {
     const rows = [...document.querySelectorAll('.sess-row')];
     return rows.find(r => (r.textContent || '').includes('${PROBE}'))?.getAttribute('data-sid') || null;
@@ -370,9 +379,17 @@ async function ensureProbeSession(text = `UXGATE probe ${Date.now() % 100000}`) 
   let created = null;
   for (let attempt = 0; attempt < 3 && !created; attempt++) {
     await chatView();
+    const prevSid = await ev(`(document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null`);
     await ev(`document.getElementById('chat-new')?.click()`);
     await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000, label: 'new chat composer' });
     await settle(300);
+    // `+` reuses a pristine "New chat" (AppState.isPristineNewChat): a no-op is
+    // legitimate, but the probe then lands in the chat that was already open,
+    // so say so rather than pretend a new one was made.
+    const nowSid = await ev(`(document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null`);
+    if (prevSid && nowSid && prevSid === nowSid) {
+      console.warn(`ensureProbeSession: "+" was a no-op on a pristine chat (${nowSid}) — the probe message lands in it`);
+    }
     const queued = await ev(`(() => {
       const t = document.getElementById('composer-input');
       return t ? /queued after this reply/i.test(t.getAttribute('placeholder') || '') : false;
