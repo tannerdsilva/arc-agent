@@ -2550,6 +2550,7 @@ async function runRegression() {
   record('regression', 'dd-pop Escape closes', out.ddPopEscape.pass, out.ddPopEscape);
 
   // 4. Enter-to-send
+  const beforeSid = await ev(`(document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null`);
   await ev(`document.getElementById('chat-new')?.click()`);
   await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000 });
   await settle(300);
@@ -2563,12 +2564,26 @@ async function runRegression() {
   })()`);
   await settle(200);
   await driver.pressEnter();
-  await settle(900);
+  // The send is a server consequence: the user row is appended by a patch and
+  // the composer's clear rides the same round-trip. A fixed 900 ms read the
+  // pre-patch transcript on a loaded daemon (D2b.1 base FAIL:
+  // `{"sent":{"count":0},"composerNow":""}` while the submit had demonstrably
+  // landed — the composer was already clear). Poll the exact state the row
+  // asserts (the marker IS in the transcript and the field IS empty), then
+  // read it once more so a later patch cannot be mistaken for the pass.
+  const marker = msg.slice(0, 12);
+  const landed = await waitTrue(`(() => {
+    const msgs = [...document.querySelectorAll('.msg.user .msg-body')];
+    return msgs.some((m) => (m.textContent || '').includes(${JSON.stringify(marker)}))
+      && (document.getElementById('composer-input')?.value || '') === '';
+  })()`, 20000);
   const sent = await ev(`(() => {
     const msgs = [...document.querySelectorAll('.msg.user .msg-body')];
-    return { count: msgs.length, contains: msgs.some((m) => (m.textContent || '').includes(${JSON.stringify(msg.slice(0, 12))})), composerNow: document.getElementById('composer-input')?.value || '' };
+    return { count: msgs.length, contains: msgs.some((m) => (m.textContent || '').includes(${JSON.stringify(marker)})), composerNow: document.getElementById('composer-input')?.value || '' };
   })()`);
-  out.enterSend = { msg, sent, pass: sent.count >= 1 && sent.contains && sent.composerNow === '' };
+  const afterSid = await ev(`(document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null`);
+  out.enterSend = { msg, landed, sent, beforeSid, afterSid,
+    pass: landed && sent.count >= 1 && sent.contains && sent.composerNow === '' };
   record('regression', 'Enter-to-send', out.enterSend.pass, out.enterSend);
 }
 
