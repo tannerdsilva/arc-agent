@@ -246,9 +246,15 @@ async function clickMenuDanger(sid) {
 /// by their renderer). Any patch that re-renders the composer after the open
 /// render replaces the popover with its closed spelling, so a click observed
 /// mid-settle can read "closed" — a measurement of the page's churn, not of the
-/// click. The tour before the matrix walks every rail tab, which is exactly that
-/// churn. Escape first (the app's own dismissal), then wait for the composer
-/// form NODE to hold still across a poll and for the engine toast to clear.
+/// click. Two sources of that churn, both measured:
+///   - the tour before the matrix walks every rail tab (each a re-render);
+///   - a STREAMING TURN re-renders the composer as it goes. Measured on a
+///     strict run (D2b.2): the matrix began with `liveTurn: true`, and during
+///     that window `#file-pop`'s open was lost twice (4 s each, `data-open`
+///     never shipped) while the workspace and think opens after Escape failed
+///     too — the same rows passed once the turn ended.
+/// So: Escape anything open, wait the turn OUT (the app's own signal, not a
+/// timer), then require the composer form node to hold still.
 async function quiesceComposer() {
   for (let i = 0; i < 3; i++) {
     const open = await ev(`(() => Object.entries(uxGates.popovers()).filter(([, v]) => v && v.open).map(([k]) => k))()`);
@@ -256,20 +262,22 @@ async function quiesceComposer() {
     await driver.pressEscape();
     await settle(250);
   }
-  await waitTrue(`!document.getElementById('live-turn')`, 30000).catch(() => false);
+  const streamEnded = await waitStreamEnd(240000).catch(() => false);
+  let stable = false;
   let last = null;
   for (let i = 0; i < 40; i++) {
     const sig = await ev(`(() => {
       const f = document.querySelector('[data-component-id="composer-form"]');
       if (!f) return null;
       if (!f.__quiesce) f.__quiesce = (window.__quiesceSeq = (window.__quiesceSeq || 0) + 1);
-      return { node: f.__quiesce, toasts: document.querySelectorAll('[data-webui-toast]').length };
+      return { node: f.__quiesce, toasts: document.querySelectorAll('[data-webui-toast]').length, liveTurn: !!document.getElementById('live-turn') };
     })()`);
-    if (sig && last && sig.node === last.node && sig.toasts === 0) return true;
+    if (sig && last && sig.node === last.node && sig.toasts === 0 && !sig.liveTurn) { stable = true; break; }
     last = sig;
     await settle(250);
   }
-  return false;
+  if (!streamEnded || !stable) console.warn(`quiesceComposer: the composer never went quiet (streamEnded=${streamEnded}, stable=${stable}) — the popover matrix is measuring churn`);
+  return { streamEnded, stable };
 }
 
 /// Click a composer popover opener ONCE and observe the open it asked for.
@@ -299,6 +307,7 @@ async function openOnce(trig, name) {
       shown: p ? p.open : null,
       dataOpen: el ? el.getAttribute('data-open') : null,
       formReplaced: !f || f.__openMark !== true,
+      liveTurn: !!document.getElementById('live-turn'),
     };
   })()`);
   return Object.assign({ clicked, open, ms }, rest);
@@ -939,7 +948,7 @@ async function runInteractions() {
   // inside that window is enough to consume the one-render latch and replace the
   // popover closed. The quiesce is the repair: the row must not measure the
   // previous group's churn.
-  await quiesceComposer();
+  const quiesce = await quiesceComposer();
   const atStart = await ev(`(() => {
     const pop = uxGates.popovers();
     const el = document.getElementById('file-pop');
@@ -1037,7 +1046,7 @@ async function runInteractions() {
   const popoverOk = matrix.every((m) => m.opened && m.escClosed && m.outsideClosed !== false
     && (m.name !== 'file' || (m.mutualExclusion && m.mutualExclusion.ok === true && m.mutualExclusion.fileOpen === true
         && m.mutualExclusion.afterModel.file === false && m.mutualExclusion.afterModel.model === true)));
-  add('popover matrix (escape, outside-click, mutual exclusion)', popoverOk, { atStart, rows: matrix });
+  add('popover matrix (escape, outside-click, mutual exclusion)', popoverOk, { quiesce, atStart, rows: matrix });
 
   // ---- 3. tab budget ------------------------------------------------------
   // Measured from a FRESH LOAD at each width: counting Tab presses on a live,
