@@ -33,6 +33,12 @@ import WebUIDesignSystem
 //    same class of literal: the `.primary-btn` label colour, chosen per scheme and per
 //    mode against that scheme's `--accent` (WCAG AA >= 4.5:1, enforced by
 //    PrimaryButtonAccentContrastTests) — it is not any framework token's value.
+//    `--link` is a literal for a third reason: it is the one ink measured against the
+//    page's own surface, and every scheme has a different one. It is chosen per scheme
+//    AND per mode against that scheme's `--bg` (and `--surface`, where `.detail-body a`
+//    paints), so the same value cannot be copied between schemes: `#3D647D` reads
+//    5.44:1 on slate's light background and 2.75:1 on its dark one. `LinkContrastTests`
+//    resolves all 108 served scheme×mode blocks and asserts 4.5:1 on each.
 
 /// arc's own property vocabulary, declared against no-webui's tokens.
 ///
@@ -76,7 +82,7 @@ public struct ArcBaseTheme {
 					"--accent-soft": "rgba(184, 134, 11, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-bg": "#F0F0F4", "--code-inline-bg": "rgba(0, 0, 0, 0.05)",
 					"--code-text": "#1D1D24", "--hover-bg": "rgba(0, 0, 0, 0.04)",
-					"--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#0288A8",
+					"--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#027E9B",
 					"--shadow": "0 2px 12px rgba(30, 30, 40, 0.08)", "--user-bubble": "#EFEFEF",
 					"--warning-strong": "#8A5B00",
 				],
@@ -153,7 +159,7 @@ public struct AresTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#000000", "--accent-border": "rgba(229, 72, 77, 0.45)",
 					"--accent-soft": "rgba(229, 72, 77, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.05)", "--code-text": "#1D1D24",
-					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#C6373C",
+					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#C4373C",
 					"--user-bubble": "rgba(229, 72, 77, 0.10)",
 				],
 			)
@@ -167,7 +173,7 @@ public struct AresTheme {
 					"--accent-soft": "rgba(229, 72, 77, 0.15)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.35)", "--code-text": "#E6E6EC",
 					"--hover-bg": "rgba(255, 255, 255, 0.06)", "--input-bg": "rgba(255, 255, 255, 0.04)",
-					"--link": "#C6373C", "--user-bubble": "rgba(229, 72, 77, 0.13)",
+					"--link": "#D46568", "--user-bubble": "rgba(229, 72, 77, 0.13)",
 				],
 			)
 }
@@ -190,7 +196,7 @@ public struct MonoTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#1D1D24", "--accent-border": "rgba(139, 139, 147, 0.45)",
 					"--accent-soft": "rgba(139, 139, 147, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.05)", "--code-text": "#1D1D24",
-					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#6E6E76",
+					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#6B6B73",
 					"--user-bubble": "rgba(139, 139, 147, 0.10)",
 				],
 			)
@@ -204,7 +210,7 @@ public struct MonoTheme {
 					"--accent-soft": "rgba(139, 139, 147, 0.15)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.35)", "--code-text": "#E6E6EC",
 					"--hover-bg": "rgba(255, 255, 255, 0.06)", "--input-bg": "rgba(255, 255, 255, 0.04)",
-					"--link": "#6E6E76", "--user-bubble": "rgba(139, 139, 147, 0.13)",
+					"--link": "#888891", "--user-bubble": "rgba(139, 139, 147, 0.13)",
 				],
 			)
 }
@@ -299,7 +305,7 @@ public struct CodexTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#FFFFFF", "--accent-border": "rgba(46,122,96,0.16)",
 					"--accent-soft": "rgba(46,122,96,0.08)", "--border-subtle": "#E8E8E8", "--code-bg": "#F3F3F3",
 					"--code-inline-bg": "rgba(0,0,0,0.06)", "--code-text": "#252523",
-					"--hover-bg": "rgba(0,0,0,0.04)", "--input-bg": "#FFFFFF", "--link": "#4D8DFF",
+					"--hover-bg": "rgba(0,0,0,0.04)", "--input-bg": "#FFFFFF", "--link": "#196BFF",
 					"--user-bubble": "#EBEBEB", "--warning": "#B87916",
 				],
 			)
@@ -335,7 +341,7 @@ public struct TerracottaTheme {
 				],
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#000000", "--accent-soft": "rgba(217,119,87,0.10)", "--border-subtle": "#F0EDE4",
 					"--code-bg": "#F0EEE6", "--code-inline-bg": "rgba(48,48,46,0.065)", "--code-text": "#30302E",
-					"--hover-bg": "rgba(48,48,46,0.05)", "--input-bg": "#FFFEFA", "--link": "#6396D6",
+					"--hover-bg": "rgba(48,48,46,0.05)", "--input-bg": "#FFFEFA", "--link": "#3373C2",
 					"--user-bubble": "#F0EEE6", "--warning": "#B87916",
 				],
 			)
@@ -388,7 +394,7 @@ public struct SlateTheme {
 					"--accent-soft": "rgba(78, 124, 153, 0.15)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.35)", "--code-text": "#E6E6EC",
 					"--hover-bg": "rgba(255, 255, 255, 0.06)", "--input-bg": "rgba(255, 255, 255, 0.04)",
-					"--link": "#3D647D", "--user-bubble": "rgba(78, 124, 153, 0.13)",
+					"--link": "#5A8EAE", "--user-bubble": "rgba(78, 124, 153, 0.13)",
 				],
 			)
 }
@@ -502,7 +508,7 @@ public struct CharizardTheme {
 					"--accent-soft": "rgba(249, 115, 22, 0.15)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.35)", "--code-text": "#E6E6EC",
 					"--hover-bg": "rgba(255, 255, 255, 0.06)", "--input-bg": "rgba(255, 255, 255, 0.04)",
-					"--link": "#C2410C", "--user-bubble": "rgba(249, 115, 22, 0.13)",
+					"--link": "#F05210", "--user-bubble": "rgba(249, 115, 22, 0.13)",
 				],
 			)
 }
@@ -563,7 +569,7 @@ public struct CatppuccinTheme {
 				customTokens: ["--accent-strong-ink": "#EFF1F5", "--accent-fg": "#EFF1F5", "--accent-border": "rgba(136,57,239,0.18)",
 					"--accent-soft": "rgba(136,57,239,0.09)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-bg": "#E6E9EF", "--code-inline-bg": "rgba(30,30,46,0.06)", "--code-text": "#8839EF",
-					"--hover-bg": "rgba(30,30,46,0.05)", "--input-bg": "rgba(30,30,46,0.035)", "--link": "#1E66F5",
+					"--hover-bg": "rgba(30,30,46,0.05)", "--input-bg": "rgba(30,30,46,0.035)", "--link": "#1761F5",
 					"--user-bubble": "#E6E9EF",
 				],
 			)
@@ -604,7 +610,7 @@ public struct HepburnTheme {
 					"--accent-soft": "rgba(242,120,173,0.10)", "--border-subtle": "rgba(242,120,173,0.10)",
 					"--code-bg": "#fbe6ef", "--code-inline-bg": "rgba(242,120,173,0.12)", "--code-text": "#d44a7a",
 					"--hover-bg": "rgba(242,120,173,0.08)", "--input-bg": "rgba(242,120,173,0.06)",
-					"--link": "#8671e5", "--user-bubble": "rgba(242, 120, 173, 0.10)", "--warning": "#e67e22",
+					"--link": "#725AE1", "--user-bubble": "rgba(242, 120, 173, 0.10)", "--warning": "#e67e22",
 				],
 			)
 
@@ -643,7 +649,7 @@ public struct NousTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#000000", "--accent-border": "rgba(70,130,180,0.12)",
 					"--accent-soft": "rgba(70,130,180,0.06)", "--border-subtle": "rgba(0,0,0,.08)",
 					"--code-bg": "#F0F2F5", "--code-inline-bg": "rgba(70,130,180,.08)", "--code-text": "#2C5F88",
-					"--hover-bg": "rgba(0,0,0,.05)", "--input-bg": "rgba(0,0,0,.03)", "--link": "#4682B4",
+					"--hover-bg": "rgba(0,0,0,.05)", "--input-bg": "rgba(0,0,0,.03)", "--link": "#427AAA",
 					"--user-bubble": "rgba(70, 130, 180, 0.10)", "--warning": "#E68A00",
 				],
 			)
@@ -682,7 +688,7 @@ public struct NeonTheme {
 					.colorTextMuted: "#5B697B", .scrollbarThumb: "#CAD5E0",
 				],
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#1B2230", "--accent-border": "rgba(0, 152, 214, 0.42)",
-					"--accent-soft": "rgba(0, 184, 255, 0.09)", "--code-bg": "#E9EFF5", "--link": "#7B61FF",
+					"--accent-soft": "rgba(0, 184, 255, 0.09)", "--code-bg": "#E9EFF5", "--link": "#7053FF",
 					"--shadow": "0 2px 12px rgba(0, 80, 140, 0.08)", "--user-bubble": "rgba(0, 184, 255, 0.09)",
 				],
 			)
@@ -760,7 +766,7 @@ public struct NeonPaintTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#1A1028", "--accent-border": "rgba(255,45,149,0.12)",
 					"--accent-soft": "rgba(255,45,149,0.06)", "--border-subtle": "rgba(255,45,149,.08)",
 					"--code-bg": "#EDE6F8", "--code-inline-bg": "rgba(255,45,149,.08)", "--code-text": "#D81B60",
-					"--hover-bg": "rgba(255,45,149,.05)", "--input-bg": "rgba(255,45,149,.03)", "--link": "#00E5FF",
+					"--hover-bg": "rgba(255,45,149,.05)", "--input-bg": "rgba(255,45,149,.03)", "--link": "#007987",
 					"--user-bubble": "rgba(236, 72, 153, 0.10)", "--warning": "#FFB300",
 				],
 			)
@@ -839,7 +845,7 @@ public struct ZeusTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#1D1D24", "--accent-border": "rgba(229, 183, 93, 0.45)",
 					"--accent-soft": "rgba(229, 183, 93, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.05)", "--code-text": "#1D1D24",
-					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#C9A227",
+					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#856C1A",
 					"--user-bubble": "rgba(229, 183, 93, 0.10)",
 				],
 			)
@@ -915,7 +921,7 @@ public struct DraculaTheme {
 					.colorTextMuted: "#666278", .scrollbarThumb: "#C9C4DD",
 				],
 				customTokens: ["--accent-strong-ink": "#F8F7FC", "--accent-fg": "#F8F7FC", "--accent-border": "rgba(108, 79, 161, 0.42)",
-					"--accent-soft": "rgba(108, 79, 161, 0.10)", "--code-bg": "#ECEAF4", "--link": "#4E7CE0",
+					"--accent-soft": "rgba(108, 79, 161, 0.10)", "--code-bg": "#ECEAF4", "--link": "#386BDC",
 					"--shadow": "0 2px 12px rgba(60, 50, 100, 0.08)", "--user-bubble": "rgba(108, 79, 161, 0.10)",
 				],
 			)
@@ -953,7 +959,7 @@ public struct GruvboxTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#3C3836", "--accent-border": "rgba(215, 153, 33, 0.45)",
 					"--accent-soft": "rgba(215, 153, 33, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.05)", "--code-text": "#1D1D24",
-					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#B07E15",
+					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#8E6611",
 					"--user-bubble": "rgba(215, 153, 33, 0.10)",
 				],
 			)
@@ -968,7 +974,7 @@ public struct GruvboxTheme {
 					"--accent-soft": "rgba(215, 153, 33, 0.15)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.35)", "--code-text": "#E6E6EC",
 					"--hover-bg": "rgba(255, 255, 255, 0.06)", "--input-bg": "rgba(255, 255, 255, 0.04)",
-					"--link": "#B07E15", "--user-bubble": "rgba(215, 153, 33, 0.15)",
+					"--link": "#D49819", "--user-bubble": "rgba(215, 153, 33, 0.15)",
 				],
 			)
 }
@@ -991,7 +997,7 @@ public struct OneDarkTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#1D1D24", "--accent-border": "rgba(97, 175, 239, 0.45)",
 					"--accent-soft": "rgba(97, 175, 239, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.05)", "--code-text": "#1D1D24",
-					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#4A93CC",
+					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#2F72A7",
 					"--user-bubble": "rgba(97, 175, 239, 0.10)",
 				],
 			)
@@ -1028,7 +1034,7 @@ public struct TokyoNightTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#1D1D24", "--accent-border": "rgba(122, 162, 247, 0.45)",
 					"--accent-soft": "rgba(122, 162, 247, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.05)", "--code-text": "#1D1D24",
-					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#5E88E8",
+					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#2F65E1",
 					"--user-bubble": "rgba(122, 162, 247, 0.10)",
 				],
 			)
@@ -1065,7 +1071,7 @@ public struct RosepineTheme {
 					.colorText: "#32211F", .colorTextMuted: "#736060", .scrollbarThumb: "#DCC7C6",
 				],
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#000000", "--accent-border": "rgba(180, 99, 122, 0.42)",
-					"--accent-soft": "rgba(180, 99, 122, 0.10)", "--code-bg": "#F2E7E7", "--link": "#9A7ED9",
+					"--accent-soft": "rgba(180, 99, 122, 0.10)", "--code-bg": "#F2E7E7", "--link": "#7E5ACE",
 					"--shadow": "0 2px 12px rgba(120, 60, 70, 0.08)", "--user-bubble": "rgba(180, 99, 122, 0.10)",
 				],
 			)
@@ -1116,7 +1122,7 @@ public struct SolarizedDarkTheme {
 					"--accent-soft": "rgba(38, 139, 210, 0.15)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.35)", "--code-text": "#E6E6EC",
 					"--hover-bg": "rgba(255, 255, 255, 0.06)", "--input-bg": "rgba(255, 255, 255, 0.04)",
-					"--link": "#1B6FA8", "--user-bubble": "rgba(38, 139, 210, 0.13)",
+					"--link": "#238ED8", "--user-bubble": "rgba(38, 139, 210, 0.13)",
 				],
 			)
 }
