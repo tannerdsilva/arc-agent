@@ -63,7 +63,7 @@ public struct ArcBaseTheme {
 				tokens: [.colorBg: "#FFFFFF", .colorBgInset: "#F7F7F7", .colorBgRaised: "#FFFFFF",
 					.colorBgSubtle: "#F3F3F3", .colorBorder: "#CDCDCD", .colorBorderStrong: "#B8B8B8",
 					.colorDanger: "#C43C3C", .colorDangerSoft: "rgba(196, 60, 60, 0.10)",
-					.colorPrimarySolid: "#D97757", .colorPrimarySolidHover: "#6D28D9", .colorSuccess: "#3D8B52",
+					.colorPrimarySolid: "#D97757", .colorPrimarySolidHover: "#6D28D9", .colorSuccess: "#2A6F3B",
 					.colorText: "#1D1D24", .colorTextMuted: "#5D5D65", .scrollbarThumb: "#D4D4DC",
 				],
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-border": "rgba(217,119,87,0.18)",
