@@ -188,3 +188,46 @@ or `uxSchemes.list()`.
   fail on `[WebUIEngine] Element not found: #live-turn-thinking` — a race the
   gates' own authors documented as avoidable. Keep probe messages answering in
   seconds.
+
+## Known-red set (2026-11-14)
+
+Baseline: `8a8574f0` on `tessera`, clean tree. Measured with a freshly built `.build/debug/arc`
+serving :8890 and the live session store, before any slice of the deferral remediation landed.
+
+- strict matrix: `node Scripts/ux-gates.mjs --strict` → **59 of 70 rows**: 6 failed, 5 skipped (exit 1)
+- suite: `make verify` → **1978 executed** (15 daemon + 785 web UI + 1178 core; exit 0)
+- ship gate: `Scripts/ship-gate.sh` → **16 passed / 2 failed** (exit 1: `residue`, `draft`)
+
+Deltas from §0 of `.hermes/plans/2026-11-14_212853-arc-deferral-remediation.md`, measured and
+left alone: the plan records 60/70 (5 failed / 5 skipped) and a ship gate of 18/0. This baseline
+measured 59/70 (6 failed / 5 skipped) and 16/2. The extra strict-matrix red is
+`regression · composer ghost draft on reload`. Both ship-gate reds are probe rows: `residue`
+aborts after `(a1)` `{"ok":false,"reason":"the row menu did not open"}` with
+`ux-gates.mjs failed: Cannot read properties of undefined (reading 'length')` (exit 2), and
+`draft` failed only on `a same-identity patch keeps the reader's keystrokes`, which passes 5/5 in
+an isolated `--only=draft` run. The contrast row is also a different defect than §0 records:
+§0's 13 `#818CF8` link failures (4.39:1) did not reproduce; the run measured one failure, the
+light-theme `Sidecar running` hint at 3.95:1, and the delete-modal view was not sampled in either
+theme (`modal did not open`). No threshold, deadline or poll bound was moved; no row was skipped,
+edited or repaired.
+
+| row | verdict | measured detail |
+|---|---|---|
+| `contrast · WCAG AA both themes (chat, panel, settings, modal, toast)` | FAIL | `{"totalFailures":1}` — `settings/light ratio=3.95 need≥4.5 "Sidecar running" rgba(61,139,82,1) on rgba(244,249,253,1)`; `contrast dark/delete-modal: modal did not open` and `contrast light/delete-modal: modal did not open` |
+| `interactions · tab budget (<=12 stops to composer, 1440 + 768)` | FAIL | `{"768":{"stops":9,…},"1440":{"stops":15,…}}` — at 1440 the composer is the 15th stop (`"focusableCount":40`), over the ≤12 budget; at 768 it is the 9th (`"focusableCount":28`) and passes; trail arrays elided |
+| `interactions · delete flow (modal -> deleted -> toast with no Undo -> stays deleted)` | FAIL | `{"modalOpen":false,"gone":false,"toast":{"present":true,"count":0,"items":[]},"deletedToast":false,"noUndo":true,"finalGone":false,"finalGoneStaysGone":false,"beforeCount":137,"afterCount":137}` |
+| `regression · composer ghost draft on reload` | FAIL | `{"drafted":"UXGATE draft 55235","afterReload":"","pass":false}` |
+| `regression · dd-pop Escape closes` | FAIL | `{"opened":false,"closedByEscape":true,"pass":false}` |
+| `round4 · new-chat probe cleaned up via the app delete flow` | FAIL | `{"sid":"CCD1555C-3AAA-44DC-A7F1-7EF7E00D4593"}` |
+| `scroll · rail return restores this chat’s scroll (UX-39, data-scroll-key)` | SKIP | `the open chat has no usable scroll range (room=0); the emitted memory key is "90705A7A-7FD8-4341-9B3B-D9B40B0246F6"` |
+| `focus · the gate can reach a dialog opener with no dialog open` | SKIP | `no conversation with at least one message is open, so the surface (the composer’s context chip (#ctx-chip-summary) → the context-breakdown dialog (#ctx-pane-overlay, a .modal-overlay card)) is not rendered — open a chat with a reply and re-run` |
+| `residue · (b2) a work-log round copies its activity digest` | SKIP | `no reachable transcript has a tool round (scanned 10 of 138 chats) — the "copy this activity" control only renders for a turn that called a tool` |
+| `regression · scroll read-back mid-stream (SCROLL_PAD)` | SKIP | `no scrollable range appeared within 20 s of the turn (room=0) — at-bottom follow expected, pin untestable`, with `"before":{"top":0,"h":670,"c":670}` |
+| `round4 · rail return restores chat scroll (UX-39)` | SKIP | `the open chat has no usable scroll range (room=0) — run with --only=regression in the same session so the streaming chat leaves content, or open a long conversation first` |
+
+The `focus` group reported a single precondition row in this run rather than per-row verdicts, so
+§0's `focus (d)` skip did not appear as its own row; the group's only row is the skip above.
+Two rows are order-sensitive: `regression · composer ghost draft on reload` passed in an earlier
+strict attempt that aborted in the `schemes` gate (`waitFor(chat view) timed out; last=false`,
+exit 2, not a measurement), and `round4` UX-40/UX-41 failed in that same aborted attempt but
+passed in the frozen one. The frozen numbers above are from the completed `--strict` run.
