@@ -31,9 +31,10 @@ It asserts the absences (`Assets/overlay.js` gone, no `.js` under `Sources/`, no
 source naming the deleted plumbing, an empty asset manifest, no `/ui/init.js` in
 the served document), then runs `make verify` (suite + pin) and every gate group
 above with `focus` first (the one group whose reads are state-sensitive), and
-prints one PASS/FAIL line per row. The two named known-red rows (`tab budget`,
-`delete flow`) pass WITH a note; anything else fails the script. It needs a
-daemon serving :8890.
+prints one PASS/FAIL line per row. **No row is exempt**: the allowlist that used
+to carry `tab budget` and `delete flow` is empty, and an empty allowlist excuses
+nothing (the known-red branch is guarded so it cannot), so any red row fails the
+script. It needs a **fresh** daemon serving :8890 — see §"The fresh-daemon rule".
 
 The daemon must already be serving the UI (`arc serve` → http://127.0.0.1:8890,
 override with `ARC_UI_URL`). Chrome is launched headless on a throwaway
@@ -240,6 +241,56 @@ Two rows are order-sensitive: `regression · composer ghost draft on reload` pas
 strict attempt that aborted in the `schemes` gate (`waitFor(chat view) timed out; last=false`,
 exit 2, not a measurement), and `round4` UX-40/UX-41 failed in that same aborted attempt but
 passed in the frozen one. The frozen numbers above are from the completed `--strict` run.
+
+## Known-red set — final (2026-11-15)
+
+**This is the measured end state. The §"Known-red set (2026-11-14)" section above is the dated
+baseline it supersedes** — kept as it was written, because it is the record of what the base
+commit actually did, not a description of today.
+
+Measured on `tessera` with a freshly launched `.build/debug/arc` (sha256 `bf54a737…74df51`)
+serving :8890, its build unchanged across every run: the pair at `1c7f158a`, the ship gate at
+`0a0b4d85` — the delta between the two is the ship-gate allowlist, which no `--strict` run executes.
+
+- strict matrix: `node Scripts/ux-gates.mjs --strict` → **78 of 78 rows: 0 failed, 0 skipped**
+  (exit 0), **twice in a row** on a fresh daemon each time (493 s and 493 s). The two runs'
+  row-name sets are identical (78 names) and their non-PASS sets are both empty, so the
+  symmetric difference is empty — the matrix is deterministic, not merely green once.
+- suite: `make verify` → **1,979 executed** (15 daemon + 786 web UI + 1,178 core; exit 0).
+- ship gate: `Scripts/ship-gate.sh` → **18 passed / 0 failed** (exit 0) with `KNOWN_RED` **empty**.
+- **There are no environmental skips.** The last one, `residue · (b2) a work-log round copies its
+  activity digest`, skipped because *"no reachable transcript has a tool round (scanned 10 of 149
+  chats)"* — the "Copy this activity" control only renders for a turn that called a tool, and the
+  live store had no such turn. It is now **exercised**: the row falls back to a transcript of that
+  shape seeded through `FileSessionStore` and opened by the app's own deep link (the D6 facility),
+  UXGATE-titled, tracked by sid, and deleted through the app's own delete flow inside the row.
+  Both runs report `origin: "seeded"` with the clipboard reading back the control's `data-copy`
+  value and the engine's `Copied` toast.
+
+One earlier attempt at the pair is preserved as **not a measurement**: it reported **77 passed rows,
+0 failed, 0 skipped** and then exited 2 in the `schemes` group (`ux-gates.mjs failed:
+waitFor(scheme ares active) timed out; last=false`), which is exactly the class D2c describes — an
+infra abort, not a row verdict. It was re-run once after a daemon restart; the pair above is the two
+completed runs. A run that does not print its `N/N gates passed` tally line is not evidence of
+anything, however good its rows looked.
+
+### The fresh-daemon rule (D2c.3)
+
+**Restart the daemon before every `--strict` run, and before the ship gate.** A daemon that has
+served many turns ages into a state where the composer never quiesces after `streamEnded`
+(`stable=false`) and the session list's `scrollTop` reads `-1`; popover opens are then lost and the
+UX-40/41/45 rows fail. Measured A/B: the aged daemon failed a script that a fresh pid passed 6/6.
+
+The restart is not `kill` and hope:
+
+1. kill the daemon, then wait until `curl -sf http://127.0.0.1:8890/` **fails** *and* port **8080 is
+   free** — a prior run bound :8080 while only :8890 was checked, so both are proved;
+2. relaunch `.build/debug/arc serve` from the repo root, poll to READY, and confirm HTTP 200 twice;
+3. record the pid and the binary's sha256 with the numbers the run produces.
+
+The ship gate's fresh-daemon requirement applies to **every group it runs**, not just `focus`. If a
+row fails with `stable=false` or a negative scroll offset, the first remedy is the restart, not a
+threshold.
 
 ## D6 acceptances (2026-11-15)
 
