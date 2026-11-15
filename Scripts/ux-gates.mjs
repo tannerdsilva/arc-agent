@@ -1927,38 +1927,112 @@ async function runFocus() {
   await pollOk(`(() => { const s = uxGates.focusState(); return { ok: !s.ctxPaneOpen }; })()`, 6000);
 
   // ---- (d) T26: a focused control whose patch replaces it keeps focus ------
-  // the plan names the kanban inline-edit field and an attachment chip's ✕.
-  // A16c gave both STABLE ids (`kb-col-name-<enc(col)>`, `att-del-<enc(path)>`),
-  // so the engine's input-state memo (`formScope|id-or-name`) can key them —
-  // but neither declares a `data-focus-return` region, and this lap measures
-  // THAT path (the declared one), driving the replacing patch through the
-  // engine's OWN funnel on the chip summary. Two laps: undeclared (what a real
-  // arc surface does today) and declared (the engine's contract). An engine that
-  // restores the declared lap while the surface has nothing to declare is a SKIP
-  // with both measurements, never a pass; a declared lap that fails is a hard
-  // failure.
-  const undeclaredLap = await ev(`uxGates.focusReplace(false)`);
-  const declaredLap = await ev(`uxGates.focusReplace(true)`);
+  // REAL surface (D6.2): the attachment chip's ✕ inside #attach-chips. Its id
+  // is PATH-keyed (`att-del-<enc(path)>`, A16c) and the chip DECLARES
+  // `data-focus-return` (empty = itself, Views.swift) — a button carries no
+  // input state, so the engine's implicit `formScope|id-or-name` memo has
+  // nothing to key on and the declaration is the only restore path. The
+  // composer patch is a real one (a selector toggle re-renders the form; the
+  // draft gate's (c) row measures the same patch replacing #composer-input),
+  // and a DOM-only mark proves the ✕ really was a NEW node — the server never
+  // renders the mark, so a surviving mark would mean no replacement landed and
+  // the row must not read that as a pass.
+  //
+  // The clone laps at the end of the record are the ENGINE-side measurement
+  // kept from A16d (the same funnel driven on #ctx-chip-summary, undeclared vs
+  // declared). They are evidence, not the verdict: the verdict is the real chip.
   out.t26 = {
-    surface: 'the context chip’s summary (#ctx-chip-summary)',
-    namedSurfaces: 'kanban rename field (kb-col-name-<enc(col)>, id-keyed) / attachment-chip ✕ (att-del-<enc(path)>, id-keyed; removed by its own click) — both keyed by A16c',
-    undeclared: undeclaredLap,
-    declared: declaredLap,
+    surface: 'the attachment chip’s ✕ (#attach-chips [id^=att-del-], path-keyed, declares data-focus-return)',
   };
-  const lapOk = !!(undeclaredLap && undeclaredLap.ok && undeclaredLap.replaced
-    && declaredLap && declaredLap.ok && declaredLap.replaced);
-  const declaredOk = lapOk && !!declaredLap.kept;
-  if (!lapOk) {
-    out.t26.reason = 'the fixture could not replace the focused control — nothing was measured';
+  const attachPath = join(HERE, 'README-gates.md');
+  // The app's own attach flow: the paperclip arms the popover (a round trip),
+  // the path field takes the path (another), Attach posts it and the composer
+  // re-renders with a chip. Both clicks are patches, so each step waits for its
+  // observable consequence and the whole flow retries — a click swallowed by a
+  // patch already in flight is a lost race, not a missing feature.
+  const attachScratch = async () => {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await ev(`document.getElementById('cb-file')?.click()`);
+      const open = await waitTrue(`document.getElementById('file-pop')?.hasAttribute('data-open') === true`, 6000);
+      if (!open) { await settle(400); continue; }
+      await ev(`(() => {
+        const t = document.getElementById('file-path-input');
+        if (!t) return false;
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(t, ${JSON.stringify(attachPath)});
+        t.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`);
+      await settle(600);
+      await ev(`document.getElementById('file-attach')?.click()`);
+      const up = await waitTrue(`!!document.querySelector('#attach-chips [id^="att-del-"]')`, 7000);
+      if (up) return { ok: true, attempt, popover: open };
+    }
+    return { ok: false, attempt: 3 };
+  };
+  // A leftover chip (an earlier run of this row, or a daemon that has served
+  // other gates) would be the one this row arms and deletes, and the "no chip
+  // left" assertion would then read the leftover instead of the fixture. Clear
+  // the composer's attach list through the same ✕ first.
+  const staleChips = await ev(`(() => {
+    const ids = [...document.querySelectorAll('#attach-chips [id^="att-del-"]')].map((b) => b.id);
+    ids.forEach((id) => document.getElementById(id)?.click());
+    return ids;
+  })()`);
+  if (staleChips.length) {
+    await waitTrue(`document.querySelectorAll('#attach-chips [id^="att-del-"]').length === 0`, 8000);
+    await settle(250);
+  }
+  const attachResult = await attachScratch();
+  out.t26.attach = { path: attachPath, staleChips, ...attachResult };
+  await settle(250);
+  const armedChip = attachResult.ok ? await ev(`uxGates.attChipArm()`) : null;
+  out.t26.attach.armed = armedChip;
+
+  if (!armedChip || !armedChip.ok) {
+    out.t26.reason = 'no attachment chip could be focused — the app’s attach flow produced no chip (nothing was measured)';
     record('focus', '(d) a focused control whose patch replaces it keeps focus (T26)', false, out.t26);
-  } else if (undeclaredLap.kept) {
-    record('focus', '(d) a focused control whose patch replaces it keeps focus (T26)', true, out.t26);
-  } else if (declaredOk) {
-    out.t26.skipped = `the engine’s declared path works (a \`data-focus-return\` on the replaced control sends focus back to it), but arc’s surfaces declare nothing to re-query: focus fell to ${undeclaredLap.active || '<body>'} after the patch. Both named surfaces are ID-KEYED now (A16c: kb-col-name-<enc(col)>, att-del-<enc(path)>), which is the input-state memo's path, not this declaration path — the dialog's openers and close controls remain the only data-focus-return declarations arc emits`;
-    record('focus', '(d) a focused control whose patch replaces it keeps focus (T26)', 'skip', out.t26);
   } else {
-    out.t26.reason = 'the engine restored neither lap — its T26 memo is broken, not merely undeclared';
-    record('focus', '(d) a focused control whose patch replaces it keeps focus (T26)', false, out.t26);
+    // arm the selector the server does NOT already have open, so the click is a
+    // real state change and the composer form (with the chip in it) ships.
+    const armedPop = await ev(`uxGates.armedPopover()`);
+    const toggler = armedPop === 'cb-ws-toggle' ? 'cb-think-toggle' : 'cb-ws-toggle';
+    await ev(`document.getElementById('${toggler}')?.click()`);
+    const replaced = await waitTrue(`(() => {
+      const s = uxGates.attChipState(${JSON.stringify(armedChip.id)});
+      return s.present && !s.marked;
+    })()`, 9000);
+    await settle(250);
+    const chipAfter = await ev(`uxGates.attChipState(${JSON.stringify(armedChip.id)})`);
+    out.t26.replace = {
+      toggler,
+      declared: armedChip.declared,
+      id: armedChip.id,
+      elementReplaced: replaced,
+      after: chipAfter,
+      kept: !!(chipAfter && chipAfter.active === armedChip.id),
+    };
+    await driver.pressEscape().catch(() => {});
+    await settle(300);
+
+    // and the ✕ removing its own chip: the declaration's target is gone with
+    // it, so this reads what the composer does instead (recorded, not a gate).
+    await ev(`document.getElementById(${JSON.stringify(armedChip.id)})?.click()`);
+    const removed = await waitTrue(`document.querySelectorAll('#attach-chips [id^="att-del-"]').length === 0`, 8000);
+    await settle(250);
+    out.t26.removal = await ev(`(() => ({
+      removed: ${removed},
+      active: (document.activeElement && document.activeElement !== document.body)
+        ? (document.activeElement.id || document.activeElement.tagName) : null,
+      chips: document.querySelectorAll('#attach-chips [id^="att-del-"]').length,
+    }))()`);
+
+    const undeclaredLap = await ev(`uxGates.focusReplace(false)`);
+    const declaredLap = await ev(`uxGates.focusReplace(true)`);
+    out.t26.fixture = { undeclared: undeclaredLap, declared: declaredLap };
+
+    const pass = !!(armedChip.declared === '' && replaced && out.t26.replace.kept && removed);
+    if (!pass) out.t26.reason = 'the declared chip did not keep focus across the replacing patch';
+    record('focus', '(d) a focused control whose patch replaces it keeps focus (T26)', pass, out.t26);
   }
 
   // ---- (e) console: no error or warning through the whole tour ------------

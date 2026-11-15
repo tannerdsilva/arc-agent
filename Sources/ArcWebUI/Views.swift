@@ -2978,7 +2978,20 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                             // chip the moment an earlier one is removed (T26,
                             // A16c). `addAttachment` refuses duplicates, so the
                             // path is unique inside this list.
-                            ArcButton(id: "att-del-\(enc(path))", component: nil, class: .chipX) {
+                            //
+                            // `data-focus-return` (empty = this element) is the
+                            // DECLARED focus contract, not the memo's implicit
+                            // one: a button carries no input state, so a patch
+                            // that replaces the composer region (every selector
+                            // toggle does) would otherwise drop focus to <body>.
+                            // The declaration names this control, and the id
+                            // above is what makes the name survive the patch.
+                            // When the ✕ is pressed the chip is gone and the
+                            // declaration has no target left; the composer's
+                            // `data-focus-on-appear` (the bind pass, which runs
+                            // before the restore) takes the caret there instead.
+                            ArcButton(id: "att-del-\(enc(path))", component: nil, class: .chipX,
+                                      extraAttributes: FocusReturn().attribute().attributeText) {
                                 WebUIIcon(.x, size: .small)
                             }
                         }

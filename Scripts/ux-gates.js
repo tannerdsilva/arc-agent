@@ -640,6 +640,40 @@
       return out;
     },
 
+    /// T26 on a REAL arc surface (D6.2): the attachment chip's ✕ in
+    /// `#attach-chips`. It is PATH-keyed (`att-del-<enc(path)>`, A16c) and
+    /// declares `data-focus-return` (empty = itself), so a composer patch that
+    /// replaces the region must put focus back on the NEW node through the
+    /// DECLARED path — a button carries no input state, so the engine's
+    /// implicit memo has nothing to key on. `arm` marks the live element with a
+    /// DOM-only attribute the server never renders: a surviving mark means no
+    /// replacement landed, and the row must not read that as a pass.
+    attChipArm: () => {
+      const b = document.querySelector('#attach-chips [id^="att-del-"]');
+      if (!b) return { ok: false, reason: 'no attachment chip in #attach-chips' };
+      b.setAttribute('data-gate-mark', 'd6');
+      b.focus();
+      return {
+        ok: document.activeElement === b,
+        id: b.id,
+        declared: b.getAttribute('data-focus-return'),
+        chips: document.querySelectorAll('#attach-chips [id^="att-del-"]').length,
+      };
+    },
+
+    /// the same chip after the patch: present? marked? where is focus?
+    attChipState: (id) => {
+      const b = document.getElementById(id);
+      const a = document.activeElement;
+      return {
+        present: !!b,
+        marked: !!b && b.getAttribute('data-gate-mark') === 'd6',
+        declared: b ? b.getAttribute('data-focus-return') : null,
+        active: a && a !== document.body ? (a.id || a.tagName) : null,
+        chips: document.querySelectorAll('#attach-chips [id^="att-del-"]').length,
+      };
+    },
+
     // ---- residue (a16) ------------------------------------------------------
     // rename is a server dialog (A16a), copy is the engine's `[data-copy]` and
     // its `[data-webui-toast]` pill (A16b), and the post-patch seam is down to
