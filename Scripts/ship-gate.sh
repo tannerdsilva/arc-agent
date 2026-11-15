@@ -19,10 +19,13 @@
 #      program moved: focus first (it is the one group that must run on a
 #      fresh daemon), then the rest.
 #
-# The two known-red rows are NAMED, never silently tolerated: `tab budget` and
-# `delete flow` are pre-existing base defects (measured on the base commit
-# before A17 and unchanged by it), so a group whose only failures are those two
-# passes WITH the note. Anything else is a FAIL.
+# No row is exempt. The allowlist below was created for two pre-existing base
+# defects (`tab budget`, `delete flow`); both pass now, so it is EMPTY — and the
+# mechanism stays so that a future red row is named deliberately rather than
+# inherited on the strength of an old comment. An empty list must not excuse
+# anything: `grep -vE "^()"` matches every line, so the known-red branch is only
+# reachable when the list is non-empty (see the guard below). Anything else is a
+# FAIL.
 #
 # Requirements: a built daemon serving the UI on :8890 (`arc serve --webui`),
 # `swift` on PATH, node >= 22. Override the page with ARC_UI_URL.
@@ -39,8 +42,9 @@ PASSED=0
 pass() { printf '  [PASS] %s\n' "$1"; PASSED=$((PASSED + 1)); }
 fail() { printf '  [FAIL] %s\n' "$1"; FAILED=$((FAILED + 1)); }
 
-# known-red rows: pre-existing base defects, named so the exemption is auditable.
-KNOWN_RED='tab budget|delete flow'
+# known-red rows: named so any exemption is auditable. EMPTY after D8 — the two
+# rows it used to carry (`tab budget`, `delete flow`) both pass now.
+KNOWN_RED=''
 
 printf 'ship gate — %s\n' "$UI"
 printf '\n— the client is the engine —\n'
@@ -131,7 +135,7 @@ for group in focus residue composer theme draft drawer upload scroll interaction
 	fails=$(grep -E '^  \[FAIL\]' "$log" | sed -E 's/^  \[FAIL\] [a-z0-9]+ · //' | sed 's/  {.*//')
 	if [ "$code" -eq 0 ]; then
 		pass "$group ($tally)"
-	elif [ -n "$fails" ] && [ -z "$(printf '%s\n' "$fails" | grep -vE "^($KNOWN_RED)")" ]; then
+	elif [ -n "$KNOWN_RED" ] && [ -n "$fails" ] && [ -z "$(printf '%s\n' "$fails" | grep -vE "^($KNOWN_RED)")" ]; then
 		pass "$group ($tally; known-red: $(printf '%s' "$fails" | paste -sd';' - | sed 's/;/; /g'))"
 	else
 		printf '%s\n' "$fails" | sed 's/^/      /'
