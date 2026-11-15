@@ -186,9 +186,22 @@ function rowExpr(sid) {
 /// websocket round-trip later — so the click is followed by a poll for the
 /// state, not a fixed settle (a fixed settle read the pre-patch document and
 /// reported the menu as never opened).
+///
+/// The ROW itself can also be absent for a moment: opening a chat re-renders
+/// the session list through a patch, and a probe that clicked mid-swap found no
+/// row (or no ⋮) and returned false WITHOUT polling — residue (a1)'s "the row
+/// menu did not open". So the row is waited for to a bounded deadline first;
+/// the menu poll after the click is unchanged.
 async function openMenu(sid) {
+  // strict lookup: with a sid, the ACTIVE row is never a substitute (cleanup
+  // would otherwise open — and delete — the owner's active session).
+  const rowSel = sid
+    ? `[...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${sid}')`
+    : `document.querySelector('.sess-row.active')`;
+  const ready = await waitTrue(`(() => { const row = ${rowSel}; return !!(row && row.querySelector('.menu-dots')); })()`, 5000);
+  if (!ready) return false;
   const did = await ev(`(() => {
-    const row = ${sid ? `[...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${sid}')` : `document.querySelector('.sess-row.active')`};
+    const row = ${rowSel};
     const dots = row && row.querySelector('.menu-dots');
     if (!dots) return false;
     // focus like a pointer click does: Chrome focuses a button on mousedown,
@@ -203,15 +216,26 @@ async function openMenu(sid) {
   return waitTrue(`!!document.querySelector('.chat-menu[data-open]')`, 3000);
 }
 
+/// Click the open row menu's `.danger` item; resolve to whether the delete
+/// dialog opened.
+///
+/// The dialog is the SERVER's render too: the danger click dispatches and
+/// `#modal-overlay` arrives in a patch a websocket round-trip later (measured
+/// at 528 ms against a 136-session list). A `settle(350)` read the pre-patch
+/// document and both callers — the delete-flow row and `cleanupProbeSessions`
+/// — recorded "the modal never opened". Poll the exact state they assert.
 async function clickMenuDanger(sid) {
-  await ev(`(() => {
+  const did = await ev(`(() => {
     const row = ${sid ? `[...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${sid}')` : `document.querySelector('.sess-row.active')`};
     const menu = row && row.querySelector('.chat-menu[data-open]');
     const d = menu ? menu.querySelector('.danger') : null;
     if (d) d.click();
     return !!d;
   })()`);
-  await settle(350);
+  if (!did) return false;
+  // `#modal-confirm` pins it to the DELETE dialog (the rename card carries
+  // `#rename-save`), so a stale modal from an earlier row cannot answer for it.
+  return waitTrue(`uxGates.modal().open && !!document.getElementById('modal-confirm')`, 3000);
 }
 
 async function setTheme(themeKey) {
@@ -434,9 +458,7 @@ async function cleanupProbeSessions() {
     }
     let opened = false;
     for (let attempt = 0; attempt < 3 && !opened; attempt++) {
-      await openMenu(sid);
-      await clickMenuDanger(sid);
-      opened = await ev(`!!document.getElementById('modal-overlay')`);
+      opened = (await openMenu(sid)) && (await clickMenuDanger(sid));
       if (!opened) {
         await driver.pressEscape();
         await settle(250);
@@ -548,7 +570,10 @@ async function runContrast() {
       if (mopen) {
         views.push({ name: 'delete-modal', sample: await ev(`uxContrast.sampleView({ root: '#modal-overlay', view: 'delete-modal', theme: '${theme}' })`) });
         await driver.pressEscape();
-        await settle(300);
+        // the close is a server patch too (measured: closed after 300 ms, not
+        // at it). A fixed 300 ms left the dialog closing across the gate
+        // boundary, and the next gate's first clicks raced the teardown patch.
+        await waitTrue(`!document.getElementById('modal-overlay')`, 3000);
       } else {
         views.push({ name: 'delete-modal', sample: { view: 'delete-modal', theme, error: 'modal did not open' } });
       }
@@ -854,12 +879,30 @@ async function runInteractions() {
   const del = {};
   const beforeCount = await ev(`uxGates.sessions().count`);
   await openMenu(probeSid);
-  await clickMenuDanger(probeSid);
-  del.modalOpen = await ev(`uxGates.modal().open`);
+  del.modalOpen = await clickMenuDanger(probeSid);
   await ev(`document.getElementById('modal-confirm')?.click()`);
-  await settle(700);
-  del.gone = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${probeSid}'); })()`));
-  del.toast = await ev(`uxGates.toast()`);
+  // The removal and its toast are one patch family, and the toast is TRANSIENT:
+  // sample both while polling and keep every toast item seen. A single read
+  // after a fixed settle catches neither under load, and a read after a long
+  // poll can catch a toast that already faded.
+  del.gone = false;
+  const toastSeen = [];
+  const toastKeys = new Set();
+  const delDeadline = Date.now() + 5000;
+  while (Date.now() < delDeadline) {
+    const st = await ev(`(() => ({
+      gone: !([...document.querySelectorAll('.sess-row')].some(r => r.getAttribute('data-sid') === '${probeSid}')),
+      toast: uxGates.toast(),
+    }))()`);
+    for (const it of (st.toast && st.toast.items) || []) {
+      const k = [it.text, it.actionLabel, it.hasAction].join('|');
+      if (!toastKeys.has(k)) { toastKeys.add(k); toastSeen.push(it); }
+    }
+    if (st.gone) del.gone = true;
+    if (del.gone && toastSeen.some((t) => t.text.includes('deleted'))) break;
+    await waitMs(80);
+  }
+  del.toast = { present: toastSeen.length > 0, count: toastSeen.length, items: toastSeen };
   // 2026-10-30 product decision: the delete notification deliberately carries NO
   // Undo action (pinned from the Swift side by
   // UXHardeningContractTests.deleteHasNoUndoToast). This check kept requiring
@@ -2446,23 +2489,33 @@ async function runRegression() {
     t.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
   })()`);
-  await settle(300);
+  // Confirm the engine's write LANDED in the per-chat draft store before the
+  // reload. Measured at 1 ms on an idle daemon, but the probe must not assume
+  // it: if the store never holds the text, the reload cannot restore it and
+  // that is an app defect to report, not to paper over with a longer sleep.
+  const storeHit = Date.now();
+  const stored = await waitTrue(`uxGates.draft().store === ${JSON.stringify(draft)}`, 3000);
+  const storeAfterMs = Date.now() - storeHit;
   await driver.navigate(APP);
   await waitReady();
   await chatView();
-  await settle(400);
+  // The restore is a patch consequence, not a synchronous read: poll until the
+  // composer holds the drafted text AND holds it, then re-read. A restore that
+  // a later patch clears is a failure, not a pass.
+  const restored = await waitStableValue(`(document.getElementById('composer-input')?.value || '') === ${JSON.stringify(draft)}`, true, 400, 5000);
   const kept = await ev(`document.getElementById('composer-input')?.value || ''`);
-  out.ghostDraft = { drafted: draft, afterReload: kept, pass: kept === draft };
+  out.ghostDraft = { drafted: draft, storeWritten: stored, storeAfterMs, restored, afterReload: kept, pass: stored && restored && kept === draft };
   record('regression', 'composer ghost draft on reload', out.ghostDraft.pass, out.ghostDraft);
 
   // 3. dd-pop Escape (model popover)
   await chatView();
   await ev(`document.getElementById('cb-model-toggle')?.click()`);
-  await settle(350);
-  const popOpen = await ev(`uxGates.popovers().model.open`);
+  // the popover is a server `data-open` latch: measured 1249 ms to arrive on a
+  // 136-session list, so a 350 ms read saw it closed and the row failed on its
+  // own instrument. Poll the state the assertion reads.
+  const popOpen = await waitTrue(`uxGates.popovers().model.open`, 3000);
   await driver.pressEscape();
-  await settle(300);
-  const popClosed = !(await ev(`uxGates.popovers().model.open`));
+  const popClosed = await waitStableValue(`uxGates.popovers().model.open`, false, 250, 3000);
   out.ddPopEscape = { opened: popOpen, closedByEscape: popClosed, pass: popOpen && popClosed };
   record('regression', 'dd-pop Escape closes', out.ddPopEscape.pass, out.ddPopEscape);
 
@@ -2620,12 +2673,10 @@ async function runRound4() {
   record('round4', 'new chat lands the caret in the composer (UX-45)', ncPass, out.newChatFocus);
   if (nc.sid && nc.sid !== probeSid) {
     await openMenu(nc.sid);
-    await clickMenuDanger(nc.sid);
-    if (await ev(`uxGates.modal().open`)) {
+    if (await clickMenuDanger(nc.sid)) {
       await ev(`document.getElementById('modal-confirm')?.click()`);
-      await settle(700);
     }
-    out.newChatDeleted = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some((r) => r.getAttribute('data-sid') === '${nc.sid}'); })()`));
+    out.newChatDeleted = await waitTrue(`!([...document.querySelectorAll('.sess-row')].some(r => r.getAttribute('data-sid') === '${nc.sid}'))`, 5000);
     record('round4', 'new-chat probe cleaned up via the app delete flow', out.newChatDeleted, { sid: nc.sid });
   }
 
@@ -2773,7 +2824,7 @@ async function main() {
     console.log('\n— summary —');
     for (const r of results) {
       const mark = r.ok === 'skip' ? 'SKIP' : r.ok ? 'PASS' : 'FAIL';
-      const detail = JSON.stringify(r.detail);
+      const detail = JSON.stringify(r.detail) ?? 'undefined';
       console.log(`  [${mark}] ${r.gate} · ${r.name}  ${detail.length > 160 ? detail.slice(0, 160) + '…' : detail}`);
     }
     const passedCount = results.filter((r) => r.ok === true).length;
