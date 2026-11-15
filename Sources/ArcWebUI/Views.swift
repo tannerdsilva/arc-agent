@@ -787,17 +787,10 @@ extension AppState {
             // `data-roving` per date bucket made each non-empty bucket its own
             // roving group, so the list cost 4–5 Tab stops (measured: 17 stops
             // to the composer at 1440). One owner, one stop, arrows across the
-            // whole list.
-            //
-            // Known engine limitation (no-webui): `rovingKids` is a static
-            // querySelectorAll snapshot that does not skip `display:none`
-            // descendants, so collapsing the bucket that holds the ACTIVE row
-            // leaves the list's only tab stop inside a hidden subtree — the
-            // list is then unreachable by Tab until a patch re-binds the
-            // owner. Before the owner moved here, that cost one bucket; now it
-            // costs the list. The fix belongs in the engine's roving (skip
-            // hidden kids / re-mark on toggle), not in arc's markup; the
-            // bucket head stays a quiet utility by design.
+            // whole list. The binder's kids are the rows a reader can reach, so
+            // collapsing a bucket re-marks the list rather than stranding its
+            // only tab stop in a hidden subtree; the bucket head stays a quiet
+            // utility by design.
             .behavior(Roving())
             .data("scroll-key", "sessions")
             .data("component-id", "sess-list")
