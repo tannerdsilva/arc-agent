@@ -2801,20 +2801,21 @@ async function runResidue() {
       const full = row ? row.getAttribute('data-full-title') : null;
       const dots = row && row.querySelector('.menu-dots');
       const a = document.activeElement;
-      // A16d: focus must land on a LIVE control. The declared return is the
-      // row's ⋮; the engine's raw modal-focus memo restores where the reader
-      // was before the dialog (the composer, which FocusOnAppear focuses at
-      // boot and after a new chat) — engine precedence, recorded as a 3.1.1
-      // candidate (restoreModalFocus runs after the patch's declared restore).
-      // <body> is the only failure: it is a focus dead end.
-      const live = !!a && a !== document.body && (a === dots || a.id === 'composer-input');
-      return { ok: !s.open && full === ${JSON.stringify(submitState && submitState.full || '')} && !!dots && live,
+      // D5.3 (no-webui 3.1.1): a DECLARED data-focus-return wins over the
+      // engine's pre-dialog memory while that memory's control still exists; the
+      // memory is the fallback. The rename Cancel declares s-menu-<sid> — the
+      // row's own ⋮ — so Escape returns to the OPENER, not to the composer the
+      // dialog was opened over (3.1.0's precedence, which this row accepted as
+      // "a live control"). A16d named this as the residue; it is now exact.
+      const onOpener = !!dots && a === dots;
+      return { ok: !s.open && full === ${JSON.stringify(submitState && submitState.full || '')} && !!dots && onOpener,
                full, active: a && a !== document.body ? (a.id || a.tagName) : null,
-               onOpener: a === dots };
+               openerID: dots ? (dots.id || null) : null,
+               onOpener };
     })()`, 6000);
     out.renameCancel = cancelState;
   }
-  record('residue', "(a3) Escape cancels with no change and focus returns to a live control (opener or the reader's field)", !!cancelState && cancelState.ok === true, out.renameCancel);
+  record('residue', "(a3) Escape cancels with no change and focus returns to the opener (the row's \u22ee)", !!cancelState && cancelState.ok === true, out.renameCancel);
 
   // ---- (b) copy is the engine's `data-copy` ---------------------------------
   await chatView();
