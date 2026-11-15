@@ -988,10 +988,19 @@ extension ArcWebUITestRoot {
             #expect(scrollerTag?.contains("data-follow-state") != true,
                     "data-follow-state is the engine's output — the server must never emit it")
             let sessionsPanel = await RenderedMarkup.panelWithRows()
+            // UX-07: the roving OWNER is the list body, not each date bucket.
+            // Per-bucket owners made every non-empty bucket one Tab stop (4–5
+            // measured at 1440), so the budget tracked the data instead of the
+            // chrome. One owner for the whole list; the rows keep the tabindex
+            // contract (active 0, others -1).
+            let listTag = sessionsPanel.range(of: #"<div [^>]*id="sess-list-body"[^>]*>"#,
+                                              options: .regularExpression).map { String(sessionsPanel[$0]) }
+            #expect(listTag?.contains("data-roving") == true,
+                    "the session list body must declare data-roving, or the engine never binds: \(listTag ?? "no tag")")
             let rowsTag = sessionsPanel.range(of: #"<div [^>]*class="sess-group-rows"[^>]*>"#,
                                               options: .regularExpression).map { String(sessionsPanel[$0]) }
-            #expect(rowsTag?.contains("data-roving") == true,
-                    "the session-rows container must declare data-roving, or the engine never binds: \(rowsTag ?? "no tag")")
+            #expect(rowsTag?.contains("data-roving") != true,
+                    "a date bucket must not be its own roving group — that is one Tab stop per bucket: \(rowsTag ?? "no tag")")
             let shell = await RenderedMarkup.page()
             let railTag = shell.range(of: #"<aside [^>]*id="iconbar"[^>]*>"#,
                                       options: .regularExpression).map { String(shell[$0]) }

@@ -791,6 +791,24 @@ extension AppState {
                 }
             }
             .id("sess-list-body")
+            // UX-07 roving, one group for the whole list: the rows carry the
+            // tabindex contract (active row `0`, every other row `-1`), and this
+            // container is the owner the engine binds ArrowUp/Down to. A
+            // `data-roving` per date bucket made each non-empty bucket its own
+            // roving group, so the list cost 4–5 Tab stops (measured: 17 stops
+            // to the composer at 1440). One owner, one stop, arrows across the
+            // whole list.
+            //
+            // Known engine limitation (no-webui): `rovingKids` is a static
+            // querySelectorAll snapshot that does not skip `display:none`
+            // descendants, so collapsing the bucket that holds the ACTIVE row
+            // leaves the list's only tab stop inside a hidden subtree — the
+            // list is then unreachable by Tab until a patch re-binds the
+            // owner. Before the owner moved here, that cost one bucket; now it
+            // costs the list. The fix belongs in the engine's roving (skip
+            // hidden kids / re-mark on toggle), not in arc's markup; the
+            // bucket head stays a quiet utility by design.
+            .behavior(Roving())
             .data("scroll-key", "sessions")
             .data("component-id", "sess-list")
             .data("event", "click")
@@ -958,8 +976,12 @@ extension AppState {
     /// A native `<details>`: the engine keeps `open` across a patch by id
     /// (`data-preserve-open`), so collapsing a bucket is the platform's job and
     /// the overlay owns no click handler for it. The head stays a quiet utility
-    /// (`tabindex="-1"`): the bucket is a grouping, not a control, and the rows
-    /// inside it are the roving tab stops.
+    /// (`tabindex="-1"`): the bucket is a grouping, not a control.
+    ///
+    /// The bucket is NOT its own roving group: one `data-roving` per bucket made
+    /// the tab budget a function of the data (each non-empty bucket cost one Tab
+    /// stop — measured 4–5 at 1440 depending on how many date buckets held rows).
+    /// The roving owner is `#sess-list-body`, so the whole list is one tab stop.
     func groupHTML(key: String, title: String, sessions: [Session], todos: Bool = false,
                    openMenu: String? = nil, menuSerial: Int = 0) -> some WebUI.View {
         ArcDisclosure(open: true,
@@ -977,9 +999,6 @@ extension AppState {
                     ErasedViews([sessionRow(s, todos: todos, openMenu: openMenu, menuSerial: menuSerial)])
                 }
             }
-            // 2.6.0 roving: the rows are the container's rove-able children —
-            // one tab stop per group, ArrowUp/Down moves focus + tabindex.
-            .behavior(Roving())
         }
         .addClass(.sessGroup)
         .id("sess-grp-\(key)")
@@ -999,11 +1018,14 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
         // (wave 4) — identical truncated rows are otherwise indistinguishable.
         let full = sessionTitle(s)
         let title = trunc(full, 40)
-        // UX-07 roving: the ROW is the single tab stop (active row tabindex
-        // 0, everyone else -1; ArrowUp/Down moves focus between rows). The
-        // open button and the ⋮ menu are quiet utilities: out of the tab
-        // order, but still reachable by keyboard through the row (Enter opens,
-        // Menu/Shift+F10 opens the ⋮ menu).
+        // UX-07 roving: the ROW is the tab stop (active row tabindex 0,
+        // everyone else -1). The roving OWNER is the whole list
+        // (`#sess-list-body`), so ArrowUp/Down crosses bucket boundaries; the
+        // engine walks the owner's focusable descendants, which is why one
+        // arrow press can land on the row's own open/⋮ button between two
+        // rows. The open button and the ⋮ menu are quiet utilities: out of the
+        // tab order, but still reachable by keyboard through the row (Enter
+        // opens, Menu/Shift+F10 opens the ⋮ menu).
         let rowTab = isActiveRow ? 0 : -1
         let rowClass = "sess-row\(active)\(archived)"
     return Group {
