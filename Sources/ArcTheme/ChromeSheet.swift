@@ -19,7 +19,6 @@ public static let css: String = """
       --radius-md: 11px;
       --radius-sm: 8px;
       --warning: #E68A00;
-      --warning-strong: #E68A00;
     }
     /* Text size (user setting -> #app data-size; md = default) */
     #app[data-size="sm"] { --font-size: 13px; }
@@ -34,125 +33,13 @@ public static let css: String = """
       -webkit-font-smoothing: antialiased;
     }
 
-    /* ─── Light theme ─────────────────────────────────────────── */
-    :root[data-theme="light"] {
-      --bg: #FDFBF7;
-      --surface: #FFFFFF;
-      --surface-2: #F7F3EA;
-      --sidebar: #FAF7F0;
-      --border: #EAE2D3;
-      --border-strong: #D5CEBE;
-      --text: #2A2723;
-      --muted: #7A7263;
-      --accent: #B8860B;
-      --accent-strong: #9A6F09;
-      --accent-strong-ink: #FFFFFF;
-      --accent-soft: rgba(184, 134, 11, 0.10);
-      --accent-border: rgba(184, 134, 11, 0.45);
-      --link: #0288A8;
-      --danger: #B34141;
-      --danger-soft: rgba(179, 65, 65, 0.10);
-      --warning-strong: #8A5B00;
-      --success: #4E7C3A;
-      --shadow: 0 2px 12px rgba(60, 50, 30, 0.08);
-      --user-bubble: rgba(184, 134, 11, 0.10);
-      --code-bg: #F4EFE3;
-      --code-text: #1D1D24;
-      --code-inline-bg: rgba(0, 0, 0, 0.05);
-      --input-bg: rgba(0, 0, 0, 0.02);
-      --hover-bg: rgba(0, 0, 0, 0.04);
-      --border-subtle: rgba(0, 0, 0, 0.08);
-      --scroll-thumb: #D8D0BE;
-    }
-
-    /* ─── Dark theme (reference dark + Sisyphus violet) ───────────── */
-    :root[data-theme="dark"] {
-      --bg: #0D0D1A;
-      --surface: #1A1A2E;
-      --surface-2: #20203A;
-      --sidebar: #141425;
-      --border: #2A2A45;
-      --border-strong: #3A3A5C;
-      --text: #FFF8DC;
-      --muted: #C0C0C0;
-      --accent: #A78BFA;
-      --accent-strong: #8B5CF6;
-      --accent-soft: rgba(167, 139, 250, 0.08);
-      --accent-border: rgba(167, 139, 250, 0.35);
-      --link: #A78BFA;
-      --danger: #EF5350;
-      --danger-soft: rgba(239, 83, 80, 0.14);
-      --success: #4CAF50;
-      --shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
-      --user-bubble: rgba(167, 139, 250, 0.08);
-      --code-bg: #1A1A2E;
-      --code-text: #E2E8F0;
-      --code-inline-bg: rgba(0, 0, 0, 0.35);
-      --input-bg: rgba(255, 255, 255, 0.04);
-      --hover-bg: rgba(255, 255, 255, 0.06);
-      --border-subtle: rgba(255, 255, 255, 0.075);
-      --scroll-thumb: #2A2A45;
-    }
-
-    /* ─── System theme (light by default; follows the OS) ──────── */
-    :root[data-theme="system"] {
-      --bg: #FDFBF7;
-      --surface: #FFFFFF;
-      --surface-2: #F7F3EA;
-      --sidebar: #FAF7F0;
-      --border: #EAE2D3;
-      --border-strong: #D5CEBE;
-      --text: #2A2723;
-      --muted: #7A7263;
-      --accent: #B8860B;
-      --accent-strong: #9A6F09;
-      --accent-soft: rgba(184, 134, 11, 0.10);
-      --accent-border: rgba(184, 134, 11, 0.45);
-      --link: #0288A8;
-      --danger: #B34141;
-      --danger-soft: rgba(179, 65, 65, 0.10);
-      --warning-strong: #8A5B00;
-      --success: #4E7C3A;
-      --shadow: 0 2px 12px rgba(60, 50, 30, 0.08);
-      --user-bubble: rgba(184, 134, 11, 0.10);
-      --code-bg: #F4EFE3;
-      --code-text: #1D1D24;
-      --code-inline-bg: rgba(0, 0, 0, 0.05);
-      --input-bg: rgba(0, 0, 0, 0.02);
-      --hover-bg: rgba(0, 0, 0, 0.04);
-      --border-subtle: rgba(0, 0, 0, 0.08);
-      --scroll-thumb: #D8D0BE;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root[data-theme="system"] {
-        --bg: #17171B;
-        --surface: #1F1F24;
-        --surface-2: #26262C;
-        --sidebar: #1B1B20;
-        --border: #2E2E36;
-        --border-strong: #3C3C46;
-        --text: #E8E6E1;
-        --muted: #9A9486;
-        --accent: #D9A441;
-        --accent-strong: #E3B45C;
-        --accent-strong-ink: #17171B;
-        --accent-soft: rgba(217, 164, 65, 0.14);
-        --accent-border: rgba(217, 164, 65, 0.5);
-        --link: #58B7D6;
-        --danger: #E06C6C;
-        --danger-soft: rgba(224, 108, 108, 0.14);
-        --success: #7FB069;
-        --shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
-        --user-bubble: rgba(217, 164, 65, 0.13);
-        --code-bg: #2A2A31;
-        --code-text: #E2E8F0;
-        --code-inline-bg: rgba(0, 0, 0, 0.35);
-        --input-bg: rgba(255, 255, 255, 0.04);
-        --hover-bg: rgba(255, 255, 255, 0.06);
-        --border-subtle: rgba(255, 255, 255, 0.075);
-        --scroll-thumb: #3A3A44;
-      }
-    }
+    /* No static palette here. every scheme block the catalog emits is
+       `:root[data-scheme="<id>"][data-theme="<light|system|dark>"]` — three attribute
+       selectors — so a `:root[data-theme="…"]` copy could never win the cascade: it
+       was dead on a served page and could only drift from `ArcBaseTheme` unseen
+       (light `--success` was `#4E7C3A` there, `#2A6F3B` on the base). the paint lives
+       in `Sources/ArcTheme/ThemeCatalog.swift`, one statement per scheme and mode;
+       this sheet states geometry and the two mode-independent fallbacks above. */
 
     /* ─── App chrome ──────────────────────────────────────────── */
     #app {
