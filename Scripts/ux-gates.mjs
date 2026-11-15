@@ -684,6 +684,113 @@ async function ensureScrollRoomChat() {
   return { sid: null, landed: false, room: null };
 }
 
+// ---------------------------------------------------------------------------
+// the contrast gate's link transcript
+//
+// `chat-open` samples whichever chat is open, and a transcript holds an anchor only
+// if the model's reply happened to contain one: measured at D4c, the same code read
+// 77/78 on a run whose sampled transcript had a link and 78/78 on a run whose did
+// not. The row was content-dependent, so a green reading was not evidence that
+// `--link` clears AA — only that no link was on screen.
+//
+// This is the same store-and-deep-link facility D6.1/D8.1 use (write a record under
+// `~/.arc/sessions/`, open it with `/?s=<sid>`, delete it through the app's own
+// delete flow): no provider turn, no client fixture. The anchor is markdown in the
+// assistant reply, so it arrives through the same `markdownToHTML` → `.md a` path a
+// real answer does and is painted with `var(--link)`.
+
+/// Write one session record whose transcript contains a markdown link.
+function writeLinkSession() {
+  const sid = randomUUID();
+  const now = Date.now();
+  const messages = [
+    {
+      role: 'user',
+      content: 'UXGATE link probe — where is the theme catalog documented?',
+      createdAt: arcDate(now - 90000),
+    },
+    {
+      role: 'assistant',
+      content: 'The [theme catalog reference](https://example.com/arc/docs/theme-catalog) lists '
+        + 'every scheme and the tokens each one states. The anchor above is painted with '
+        + '`--link`; a transcript without one lets a contrast sample look green while every '
+        + 'link on the page is illegible.',
+      createdAt: arcDate(now - 60000),
+    },
+  ];
+  const record = {
+    id: sid,
+    createdAt: arcDate(now - 120000),
+    updatedAt: arcDate(now),
+    model: '',
+    provider: '',
+    title: `UXGATE link probe ${sid.slice(0, 8)}`,
+    messages,
+  };
+  writeFileSync(join(ARC_SESSIONS_DIR, `${sid}.json`), JSON.stringify(record, null, 2));
+  return sid;
+}
+
+/// Count the visible anchors the transcript paints, polling to a deadline. Zero is a
+/// real answer (the renderer dropped the markdown, or the record did not load) and the
+/// caller must treat it as "no evidence", never as a pass.
+async function transcriptLinkCount(timeoutMs = 8000) {
+  const since = Date.now();
+  let count = 0;
+  while (Date.now() - since < timeoutMs) {
+    count = await ev(`(() => [...document.querySelectorAll('#chat-inner a[href]')]
+      .filter(a => { const r = a.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length)()`);
+    if (count > 0) return count;
+    await waitMs(150);
+  }
+  return count;
+}
+
+/// Open the seeded link chat through the app's deep link and confirm its anchor.
+async function openLinkChat(sid) {
+  await driver.navigate(`${APP}?s=${encodeURIComponent(sid)}`);
+  await waitReady();
+  const landed = await waitTrue(`(() => {
+    const r = document.querySelector('.sess-row.active');
+    return !!r && r.getAttribute('data-sid') === ${JSON.stringify(sid)};
+  })()`, 9000);
+  await chatView();
+  return { landed, linkNodes: await transcriptLinkCount() };
+}
+
+/// Bring the seeded link chat back on screen without a document reload (theme
+/// switches and the modal view move the active row), and re-confirm its anchor.
+///
+/// The row is normally present — the seeded record's `updatedAt` is "now", so it
+/// sorts into the expanded group — but a collapsed category or a list that has not
+/// re-rendered yet would silently leave a different chat on screen, and the sample
+/// would then be labelled `chat-open` while measuring a transcript with no anchor.
+/// The fallback re-opens it through the deep link and re-asserts the theme the
+/// sample is labelled with, so the label and the paint cannot disagree.
+async function focusLinkChat(sid, theme) {
+  const openRow = async () => {
+    await chatView();
+    const present = await waitTrue(
+      `[...document.querySelectorAll('.sess-row')].some(r => r.getAttribute('data-sid') === '${sid}')`, 8000);
+    if (!present) return false;
+    await ev(`(() => {
+      const row = [...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${sid}');
+      row?.querySelector('.sess-open')?.click();
+      return !!row;
+    })()`);
+    return waitTrue(`document.querySelector('.sess-row.active')?.getAttribute('data-sid') === '${sid}'`, 6000);
+  };
+
+  if (!(await openRow())) {
+    console.warn(`contrast: the seeded link row was not reachable — re-opening ${sid.slice(0, 8)} through the deep link`);
+    await openLinkChat(sid);
+    await setTheme(theme);
+    await openRow();
+  }
+  await settle(250);
+  return transcriptLinkCount();
+}
+
 
 /** Wait for a live turn with at least minChars; returns snapshot or null. */
 async function waitStream(minChars = 0, timeoutMs = 90000) {
@@ -932,21 +1039,40 @@ async function runContrast() {
   await waitStreamEnd(180000).catch(() => false);
   await chatView();
 
+  // `chat-open` must sample a transcript that HOLDS A LINK. The probe chat's
+  // reply is whatever the model wrote, so the row's reading depended on it:
+  // measured at D4c, the same code read 77/78 on a run whose sampled transcript
+  // held an anchor and 78/78 on a run whose did not — a green reading was only
+  // evidence that no link was on screen. Seed a fixed transcript (store record +
+  // `/?s=` deep link, the facility D6.1/D8.1 built) and sample THAT chat; it is
+  // deleted through the app's own delete flow at the end of this gate.
+  const linkSid = trackProbe(writeLinkSession());
+  const linkOpened = await openLinkChat(linkSid);
+  const linkSeed = { sid: linkSid.slice(0, 8), landed: linkOpened.landed, linkNodes: linkOpened.linkNodes };
+  if (!linkOpened.landed || linkOpened.linkNodes < 1) {
+    console.warn(`contrast: the seeded link chat rendered no anchor (landed=${linkOpened.landed}, nodes=${linkOpened.linkNodes}) — chat-open will report missing evidence`);
+  }
+
   for (const theme of ['dark', 'light']) {
     await setTheme(theme);
     const views = [];
 
-    // view: chat with a conversation open
+    // view: chat with a conversation open — the seeded one, whose transcript
+    // carries the anchor `--link` paints. `focusLinkChat` re-opens it (the theme
+    // switch and the modal view move the active row) and returns the anchor
+    // count, which is part of the row's evidence, not just a precondition.
     await chatView();
-    if (probeSid) {
-      // ensure the probe conversation is the one open
-      await ev(`(() => {
-        const row = [...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${probeSid}');
-        row?.querySelector('.sess-open')?.click();
-      })()`);
-      await settle(300);
-    }
-    views.push({ name: 'chat-open', sample: await ev(`uxContrast.sampleView({ root: '#chat-scroll', view: 'chat-open', theme: '${theme}' })`) });
+    const focusedLinks = await focusLinkChat(linkSid, theme);
+    const chatSample = await ev(`uxContrast.sampleView({ root: '#chat-scroll', view: 'chat-open', theme: '${theme}' })`);
+    views.push({ name: 'chat-open', sample: chatSample });
+    report.chatLinks = report.chatLinks || {};
+    report.chatLinks[theme] = {
+      seededSid: linkSeed.sid,
+      focusedLinks,
+      linkNodes: (chatSample && chatSample.linkCount) || 0,
+      linkFailures: (chatSample && chatSample.linkFailures) || 0,
+      links: (chatSample && chatSample.links) || [],
+    };
 
     // view: left panel
     views.push({ name: 'left-panel', sample: await ev(`uxContrast.sampleView({ root: '#panel', view: 'left-panel', theme: '${theme}' })`) });
@@ -1053,7 +1179,41 @@ async function runContrast() {
         }
       }
     }
+
+    // A `chat-open` sample with no anchor is not evidence of a legible link — it
+    // is the vacuous pass this slice removes. Record it as a failure of the row,
+    // with the counts it reported, rather than letting silence read as green.
+    const chat = report.chatLinks[theme];
+    if (!chat || chat.linkNodes < 1) {
+      console.warn(`  contrast ${theme}/chat-open: no link node in the sample (focused=${chat && chat.focusedLinks}, nodes=${chat && chat.linkNodes})`);
+      report.failures.push({
+        view: 'chat-open', theme, text: '(no link node in the sample)',
+        tag: 'a', id: '', cls: 'md', fg: '', bg: '', ratio: 0, required: 4.5, large: false,
+      });
+      report.counts.totalFailures++;
+      report.counts.missingLinkSamples = (report.counts.missingLinkSamples || 0) + 1;
+    }
   }
+
+  // the seeded link chat is deleted through the app's own delete flow: it is
+  // UXGATE-titled, so leaving it would let the next group's `ensureProbeSession`
+  // adopt it as its probe.
+  let linkDeleted = false;
+  for (let attempt = 0; attempt < 3 && !linkDeleted; attempt++) {
+    await chatView();
+    if ((await openMenu(linkSid)) && (await clickMenuDanger(linkSid))) {
+      await ev(`document.getElementById('modal-confirm')?.click()`);
+      linkDeleted = await waitTrue(
+        `!([...document.querySelectorAll('.sess-row')].some(r => r.getAttribute('data-sid') === '${linkSid}'))`, 15000);
+    } else {
+      await driver.pressEscape();
+      await settle(250);
+    }
+  }
+  report.linkSeed = { ...linkSeed, deleted: linkDeleted };
+  if (linkDeleted) probeSids.delete(linkSid);
+  else console.warn(`contrast: the seeded link chat ${linkSid} survived its delete — left to the run cleanup`);
+  await chatView();
 
   // restore dark (theme toggles are the gate's own; the final restoreState
   // puts the app back to whatever it showed when the run started)
@@ -1066,8 +1226,14 @@ async function runContrast() {
     byView[k] = (byView[k] || 0) + 1;
   }
   report.perViewFailureCounts = byView;
+  const linkEvidence = Object.values(report.chatLinks || {});
+  const linkNodes = linkEvidence.reduce((n, c) => n + (c.linkNodes || 0), 0);
+  const linkFailures = linkEvidence.reduce((n, c) => n + (c.linkFailures || 0), 0);
+  report.counts.linkNodes = linkNodes;
+  report.counts.linkFailures = linkFailures;
   writeFileSync(`${HERE}contrast-report.json`, JSON.stringify(report, null, 2));
   console.log(`  contrast-report.json written — total failures: ${report.counts.totalFailures} across ${report.views.length} view/theme samples`);
+  console.log(`  chat-open link nodes: ${linkNodes} (dark=${report.chatLinks?.dark?.linkNodes ?? 0}, light=${report.chatLinks?.light?.linkNodes ?? 0}); below AA: ${linkFailures}`);
   if (report.counts.totalFailures) {
     console.log('  FAILURES by view/theme:', JSON.stringify(byView));
     for (const f of report.failures.slice(0, 12)) {
@@ -1076,7 +1242,10 @@ async function runContrast() {
   } else {
     console.log('  no contrast failures (WCAG AA, both themes)');
   }
-  record('contrast', 'WCAG AA both themes (chat, panel, settings, modal, toast)', report.counts.totalFailures === 0, { totalFailures: report.counts.totalFailures });
+  record(
+    'contrast', 'WCAG AA both themes (chat, panel, settings, modal, toast)',
+    report.counts.totalFailures === 0 && linkNodes >= 2 && linkFailures === 0,
+    { totalFailures: report.counts.totalFailures, linkNodes, linkFailures, chatLinks: report.chatLinks, linkSeed: report.linkSeed });
 }
 
 // ---------------------------------------------------------------------------

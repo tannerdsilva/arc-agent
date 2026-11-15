@@ -7,7 +7,8 @@
 //   uxContrast.sampleView({ root, view, theme, maxFailures }) -> {
 //     view, theme, total, skipped, normalChecked, largeChecked,
 //     failures: [{ text, tag, id, cls, fg, bg, alpha, ratio, required, large }],
-//     failureCount, passCount, ratioDistribution
+//     failureCount, passCount, ratioDistribution,
+//     linkCount, linkFailures, links: [{ text, href, fg, bg, ratio, required, large, pass }]
 //   }
 //
 // Algorithm (WCAG 2.x):
@@ -19,6 +20,11 @@
 //     is measured against the real blended colour)
 //   - ratio vs required: 4.5 normal text, 3.0 large text (>=24px, or >=18.66px
 //     and font-weight >= 700)
+//   - anchors are ALSO reported as their own census (`links`), because a view
+//     sample that happens to contain no anchor says nothing about `--link`:
+//     the generic text walk can be green on a transcript where every link on
+//     the page would be illegible. A caller that asserts a link can therefore
+//     tell "no link was sampled" from "the links were legible".
 
 (() => {
   if (window.uxContrast) return 'uxContrast already installed';
@@ -198,7 +204,44 @@
       }
       n = walker.nextNode();
     }
-    return { view, theme, ...counts, failureCount: counts.fail, failures, ratioDistribution: dist };
+
+    // ---- link census -------------------------------------------------------
+    //
+    // The text walk above measures a link's `<a>` like any other text node, but it
+    // cannot tell a caller whether a link was on screen at all. A transcript with no
+    // anchor therefore produced a green sample that says nothing about `--link` — the
+    // contrast row read 78/78 on the same code that read 77/78 when the sampled chat
+    // held one. This census makes "no link sampled" observable, so a gate can require
+    // evidence instead of accepting silence.
+    const links = [];
+    for (const a of root.querySelectorAll('a[href]')) {
+      const text = (a.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!text || !isVisible(a)) continue;
+      const cs = getComputedStyle(a);
+      const fg = parseColor(cs.color);
+      if (!fg) continue;
+      const bg = effBg(a);
+      const r = ratio(fg, bg);
+      const large = isLarge(cs);
+      const required = large ? 3.0 : 4.5;
+      links.push({
+        text: text.slice(0, 80),
+        href: (a.getAttribute('href') || '').slice(0, 120),
+        fg: fmt(fg),
+        bg: fmt(bg),
+        ratio: +r.toFixed(2),
+        required,
+        large,
+        pass: r >= required,
+      });
+    }
+
+    return {
+      view, theme, ...counts, failureCount: counts.fail, failures, ratioDistribution: dist,
+      linkCount: links.length,
+      linkFailures: links.filter((l) => !l.pass).length,
+      links,
+    };
   }
 
   const api = {
