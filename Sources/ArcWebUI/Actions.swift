@@ -600,38 +600,20 @@ extension AppState {
         }
 
         let configName = configName(for: sessionID)
-        guard let preset = settings.modelConfig(named: configName) else {
-            _ = toast("No usable model configuration '\(configName)'. Add one in Settings → Preferences.", kind: "error")
-            await pusher(structuralChange())
-            return
+
+        // Store the user message before any pre-flight guard so the user's
+        // words are never lost — even when no model configuration exists and
+        // the turn cannot start, the transcript shows what was sent.
+        let userMsg = Message(role: .user, content: userContent, createdAt: Date(), displayText: displayText)
+        session.messages.append(userMsg)
+        if let idx = sessions.firstIndex(where: { $0.id == sessionID }) {
+            sessions[idx] = session
         }
-        // Model parameters resolve from the chat's model configuration (per
-        // model); the bound profile does not carry parameters.
-        let effectivePreset = preset
-        // The turn's agent builds its own provider client from the turn's
-        // configuration. This pre-flight gate keeps the legacy behaviour for a
-        // configuration that cannot build one at all (no http client), so the
-        // user gets the toast instead of a turn that fails after the message is
-        // stored.
-        guard turnClientOverride != nil || makeClient(for: effectivePreset) != nil else {
-            _ = toast("No usable model configuration '\(configName)'. Add one in Settings → Preferences.", kind: "error")
-            await pusher(structuralChange())
-            return
+        sessionVersion += 1
+        if let store {
+            await persistMessage(userMsg, sessionID: sessionID, store: store, healWith: session.messages)
         }
 
-        // Begin the turn.
-        let turn = LiveTurn(sessionID: sessionID, userText: raw, attachments: atts)
-        activeTurns[sessionID] = turn
-        pendingDelete = false
-        // A regenerate asks an old prompt: the composer's staged attachments
-        // are for the reader's NEXT message and must survive the turn.
-        if usePendingAttachments {
-            attachments = []
-            // The turn consumed the composer's staged attachments for this
-            // chat: the per-chat staging list must forget them too, or the
-            // chips would resurrect on the next visit to the chat.
-            pendingAttachmentsBySession[sessionID] = []
-        }
         // Remember what this submit consumed before clearing the draft: a
         // trailing input frame still carrying the sent text must not
         // resurrect it (the engine's debounce can land it after this clear).
@@ -644,14 +626,35 @@ extension AppState {
             storeComposerDraft("", sessionID: sessionID)
         }
 
-        let userMsg = Message(role: .user, content: userContent, createdAt: Date(), displayText: displayText)
-        session.messages.append(userMsg)
-        if let idx = sessions.firstIndex(where: { $0.id == sessionID }) {
-            sessions[idx] = session
+        guard let preset = settings.modelConfig(named: configName) else {
+            _ = toast("No usable model configuration '\(configName)'. Add one in Settings → Preferences.", kind: "error")
+            // Push the transcript so the user's message is visible even
+            // though the turn cannot start.
+            await pusher(await transcriptFragments())
+            return
         }
-        sessionVersion += 1
-        if let store {
-            await persistMessage(userMsg, sessionID: sessionID, store: store, healWith: session.messages)
+        // Model parameters resolve from the chat's model configuration (per
+        // model); the bound profile does not carry parameters.
+        let effectivePreset = preset
+        // The turn's agent builds its own provider client from the turn's
+        // configuration. This pre-flight gate keeps the legacy behaviour for a
+        // configuration that cannot build one at all (no http client), so the
+        // user gets the toast instead of a turn that fails after the message is
+        // stored.
+        guard turnClientOverride != nil || makeClient(for: effectivePreset) != nil else {
+            _ = toast("No usable model configuration '\(configName)'. Add one in Settings → Preferences.", kind: "error")
+            await pusher(await transcriptFragments())
+            return
+        }
+
+        // Begin the turn.
+        let turn = LiveTurn(sessionID: sessionID, userText: raw, attachments: atts)
+        activeTurns[sessionID] = turn
+        pendingDelete = false
+        // A regenerate asks an old prompt: the composer's staged attachments
+        // are for the reader's NEXT message and must survive the turn.
+        if usePendingAttachments {
+            attachments = []
         }
 
         // arc-parity: when a title_gen auxiliary model is assigned, name the
