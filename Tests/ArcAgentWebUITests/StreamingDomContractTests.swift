@@ -48,7 +48,11 @@ import WebUIState
 /// the scripted provider: streaming-only (a non-streaming call is a harness
 /// error, not a fallback), one step at a time, with the pause a step can carry so
 /// the turn's 90 ms push coalescer flushes a token batch on its own.
-private struct StreamingScriptedClient: LLMClient {
+///
+/// Shared by the streaming DOM contract suite and the live-turn wire suite
+/// (`LiveTurnWireTests`): one scripted provider, not two, because the two suites
+/// must not disagree about what a provider emits.
+struct StreamingScriptedClient: LLMClient {
 
     struct Step: Sendable {
         var reasoning: String? = nil

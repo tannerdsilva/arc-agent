@@ -9,6 +9,7 @@ import WebUI
 import WebUICore
 import WebUIServer
 
+@testable import ArcAgentCore
 @testable import ArcWebUI
 
 // MARK: - the producer refresh, on a real server and a real socket
@@ -335,10 +336,12 @@ private struct ProducerServer: Sendable {
 /// the check is the policy production re-renders under, not a literal this
 /// harness would keep passing after the real one moved.
 private func withProducerServer(
+    serving markup: (@Sendable () async -> UnsafeMarkup)? = nil,
     _ body: @escaping @Sendable (ProducerServer) async throws -> Void
 ) async throws {
     let tokens = UploadTokenStore()
     let page = ProducerPage()
+    let servedPage = markup
 
     var harness: ProducerServer?
     for _ in 0..<8 {
@@ -349,12 +352,23 @@ private func withProducerServer(
         let serverConfig = config
         let pageRouter = Router {
             WorkspaceUpload.pageRoute("/", tokens: tokens) { _, token, _ in
-                AppShell.makeDocument(
+                // `servedPage` is the production page when a caller that owns a
+                // real `AppState` passes one (the live-turn suite), and this
+                // file's one-region-at-a-time page otherwise. The theme attrs
+                // are outside the diff root (`<body>`), so a caller's own theme
+                // cannot change what a refresh ships.
+                let rendered: UnsafeMarkup
+                if let servedPage {
+                    rendered = await servedPage()
+                } else {
+                    rendered = UnsafeMarkup.trusted(await page.markup())
+                }
+                return AppShell.makeDocument(
                     sheetURL: "/ui/style.css",
                     renderToken: token,
                     maxFrameBytes: serverConfig.maxFrameSize
                 )(
-                    UnsafeMarkup.trusted(await page.markup()),
+                    rendered,
                     "data-scheme=\"poseidon\" data-theme=\"dark\""
                 )
             }
@@ -389,16 +403,74 @@ private func withProducerServer(
     await harness.stop()
 }
 
-/// the fragments an `update` frame carries, read from the wire's own json.
-private func fragments(inFrame frame: String) -> [(id: String, html: String)] {
+/// one fragment as it crossed the wire: a `.replace` carries `html`, a `.text`
+/// carries `text` — the door's two halves are told apart by `op`, never by
+/// guessing from the html.
+private struct WireFragment: Sendable {
+    let id: String
+    let html: String
+    let op: String?
+    let text: String?
+}
+
+/// the fragments an `update` frame carries, read from the wire's own json. An
+/// `op` is absent for `.replace` (the framework's encoding), so `nil` and
+/// `"replace"` are the same op here.
+private func wireFragments(inFrame frame: String) -> [WireFragment] {
     guard let data = frame.data(using: .utf8),
           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let list = object["fragments"] as? [[String: Any]]
     else { return [] }
-    return list.compactMap { item in
-        guard let id = item["id"] as? String, let html = item["html"] as? String else { return nil }
-        return (id, html)
+    return list.map { item in
+        WireFragment(
+            id: item["id"] as? String ?? "",
+            html: item["html"] as? String ?? "",
+            op: item["op"] as? String,
+            text: item["text"] as? String
+        )
     }
+}
+
+/// the id + html pairs a frame carries (the shape the producer tests assert on).
+private func fragments(inFrame frame: String) -> [(id: String, html: String)] {
+    wireFragments(inFrame: frame).map { ($0.id, $0.html) }
+}
+
+/// the `.text` writes into `span`, in the order the socket received them.
+private func textWrites(in frames: [String], span: String) -> [(frame: Int, text: String)] {
+    var writes: [(frame: Int, text: String)] = []
+    for (index, frame) in frames.enumerated() {
+        for fragment in wireFragments(inFrame: frame)
+        where fragment.id == span && fragment.op == "text" {
+            if let text = fragment.text { writes.append((index, text)) }
+        }
+    }
+    return writes
+}
+
+/// the first frame that shipped `span` as html — the structural replace that
+/// mounted the node a token writer then owns.
+private func mountFrame(of span: String, in frames: [String]) -> Int? {
+    frames.firstIndex { frame in
+        wireFragments(inFrame: frame).contains { fragment in
+            (fragment.op == nil || fragment.op == "replace")
+                && fragment.html.contains("id=\"\(span)\"")
+        }
+    }
+}
+
+/// a compact, readable digest of what crossed the wire: fragment ids, ops and
+/// payload sizes rather than the bytes (a page-region patch is the whole shell).
+private func frameDigest(_ frames: [String]) -> String {
+    frames.enumerated().map { index, frame in
+        let parts = wireFragments(inFrame: frame).map { fragment -> String in
+            if fragment.op == "text" {
+                return "\(fragment.id)[text \(fragment.text?.count ?? 0)B]"
+            }
+            return "\(fragment.id)[\(fragment.op ?? "replace") \(fragment.html.count)B]"
+        }
+        return "#\(index) \(parts.joined(separator: ","))"
+    }.joined(separator: " | ")
 }
 
 // MARK: - tests
@@ -610,6 +682,179 @@ extension ArcWebUITestRoot {
                             "an inner-only frame deletes the node for the session: \(parts)")
                     #expect(parts.first?.html.contains("t-1") == true,
                             "the frame must carry the new toast")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - the live turn, driven by a real turn, on a real server
+//
+// `StreamingDomContractTests` proves the turn's batches against a recorder — a
+// refresh is a structural boundary, a token write rides the broadcast — but it
+// never asks a server, so it cannot say the frame that MOUNTS `#live-turn-text`
+// reached a socket before the frame that writes into it. The suite above proves
+// the producer door over a real socket, but its page is moved by hand: no test
+// drove a real turn.
+//
+// This suite does. A real `AppState` and its real render (`appShell()`), the
+// host's own `serverConfig`, the host's own `PushEdge` wiring, a real websocket,
+// and a scripted `LLMClient` standing where a provider would be
+// (`turnClientOverride`). The turn loop is production's — same coalescer, same
+// boundaries, same finalize.
+//
+// What it pins, from the frames alone:
+//
+//   1. the structural replace that ships `#live-turn-text` arrives BEFORE the
+//      first `.text` write into it (a delta that beats its container is an
+//      "Element not found" the client logs and drops);
+//   2. both token writes arrive, in order, as the cumulative snapshots a
+//      `.text` op means.
+//
+// Why three scripted chunks for two wire writes: the first text delta always
+// takes the live turn's STRUCTURAL branch — `lastPush` starts at `distantPast`,
+// so its throttle fires, and `liveStructureSignature` has flipped (the live turn
+// had no assistant text at the turn-start boundary). That batch is a refresh, not
+// a text op. The refresh itself ships nothing for the text: the span is
+// `refreshPolicy.excluded`, so its bytes never move an ancestor's hash
+// (`tokenSpanBytesMakeNoFrame` owns that measurement). The first wire write is
+// therefore the second chunk, and every later chunk is a `.text` op carrying the
+// whole accumulated text.
+
+private extension AppState {
+    /// bind the scripted provider — the turn agent's one provider seam
+    /// (`turnClientOverride`). No store is bound: this suite is about the wire.
+    func useTurnClient(_ client: any LLMClient) {
+        turnClientOverride = client
+    }
+}
+
+extension ArcWebUITestRoot {
+
+    @Suite("live turn wire", .serialized)
+    struct LiveTurnWireTests {
+
+        private static let preset = ModelConfigPreset(
+            name: "d63-live-turn",
+            model: "scripted-turn-1",
+            baseURL: "http://127.0.0.1:9/v1",
+            contextLength: 8_000,
+            maxOutputTokens: 512
+        )
+
+        private static let sessionID = "s-d63-live-turn"
+
+        /// the span the token writer owns, and the node a delta targets.
+        private static let span = "live-turn-text"
+
+        /// a fresh workspace directory: the turn agent renders the workspace
+        /// path, and two tests must not share one.
+        private func makeWorkspace() -> URL {
+            let workspace = FileManager.default.temporaryDirectory
+                .appendingPathComponent("arc-d63-\(UUID().uuidString)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+            return workspace
+        }
+
+        /// a state whose chat view is showing, whose registry is empty (the
+        /// script calls no tools), and whose model config is the stub preset —
+        /// the same fixture `StreamingDomContractTests` renders from.
+        private func makeApp(workspace: URL) -> AppState {
+            var f = AppState.RenderFixture()
+            f.settings.modelConfigs = [Self.preset]
+            f.settings.activeConfig = Self.preset.name
+            f.settings.workspaces = [WorkspaceEntry(name: "main", path: workspace.path)]
+            f.settings.activeWorkspace = "main"
+            f.arcConfig.tools.disabledToolsets = []
+            f.sessions = [Session(
+                id: Self.sessionID,
+                createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                title: "Live turn",
+                messageCount: 1,
+                messages: [Message(role: .user, content: "earlier")]
+            )]
+            f.activeSessionID = Self.sessionID
+            f.activeTabID = "chat"
+            return AppState(renderFixture: f)
+        }
+
+        @Test("a real turn mounts the streaming span before it writes into it")
+        func aRealTurnShipsStructureBeforeItsFirstDelta() async throws {
+            let app = makeApp(workspace: makeWorkspace())
+            await app.useTurnClient(StreamingScriptedClient(steps: [
+                .init(text: "Hello", pauseMilliseconds: 150),
+                .init(text: " there", pauseMilliseconds: 150),
+                .init(text: ", world", pauseMilliseconds: 150),
+            ]))
+
+            // the server serves the PRODUCTION page: the route renders
+            // `appShell()` under the host's own config, so a refresh diffs the
+            // real shell against the baseline it recorded when it served it.
+            try await withProducerServer(serving: { await app.appShell().markup }) { harness in
+                let token = try await harness.pageToken()
+
+                try await withSocket(port: harness.port) { socket in
+                    try await socket.bind(to: token)
+
+                    // the host's door, verbatim (`WebUIHost.run`): a structural
+                    // batch refreshes every page the route served; a delta is
+                    // broadcast as it stands.
+                    let tokens = harness.tokens
+                    let server = harness.server
+                    let edge = PushEdge(
+                        refresh: {
+                            for served in await tokens.snapshot() {
+                                await server.refresh(session: RenderSessionID(served))
+                            }
+                        },
+                        broadcast: { await server.broadcast($0) }
+                    )
+
+                    let turn = Task {
+                        await app.runTurn(
+                            userText: "hello",
+                            pusher: { await edge.push($0) },
+                            sessionID: Self.sessionID,
+                            selectAfter: false
+                        )
+                    }
+                    defer { turn.cancel() }
+                    // the turn must END: a turn awaiting a provider that never
+                    // answers is a failure here, not a hung executable.
+                    try await withDeadline(.seconds(30)) { await turn.value }
+
+                    // the turn awaited both pushes, but the socket's read pump
+                    // still has to deliver them; poll to a deadline rather than
+                    // sleep on principle.
+                    var frames: [String] = []
+                    let deadline = ContinuousClock.now + .seconds(5)
+                    repeat {
+                        frames = (await socket.inbox.all()).filter { !$0.contains("\"pong\"") }
+                        if textWrites(in: frames, span: Self.span).count >= 2 { break }
+                        try await Task.sleep(for: .milliseconds(20))
+                    } while ContinuousClock.now < deadline
+
+                    let writes = textWrites(in: frames, span: Self.span)
+                    let mount = mountFrame(of: Self.span, in: frames)
+
+                    // floor first: an ordering check over indices it never found
+                    // passes vacuously, and so does a turn that shipped nothing.
+                    #expect(!frames.isEmpty, "the turn put no frame on the socket")
+                    #expect(mount != nil,
+                            "no structural frame shipped #\(Self.span) — nothing mounted the span the deltas write into. frames: \(frameDigest(frames))")
+                    #expect(writes.count >= 2,
+                            "the turn made \(writes.count) token write(s) into #\(Self.span), expected 2. frames: \(frameDigest(frames))")
+
+                    // 1. the mount precedes the first write.
+                    if let mount, let first = writes.first {
+                        #expect(mount < first.frame,
+                                "the token write reached the socket before the structural frame that mounts its span: mount #\(mount), first write #\(first.frame). frames: \(frameDigest(frames))")
+                    }
+
+                    // 2. both writes arrive, in order, as cumulative snapshots.
+                    #expect(writes.map(\.text) == ["Hello there", "Hello there, world"],
+                            "the span's writes arrived as \(writes.map(\.text)). frames: \(frameDigest(frames))")
                 }
             }
         }
