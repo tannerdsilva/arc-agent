@@ -552,32 +552,62 @@ async function runContrast() {
     views.push({ name: 'settings', sample: await ev(`uxContrast.sampleView({ root: document.body, view: 'settings', theme: '${theme}' })`) });
 
     // view: delete modal
+    //
+    // The dialog opens only from an ACTIVE row: `openMenu(null)` and
+    // `clickMenuDanger(null)` both resolve `.sess-row.active`, and a row that
+    // exists inside a collapsed category group has no live menu. Selecting the
+    // probe row is therefore a precondition, not a formality — poll it (and
+    // retry once) instead of sleep-then-hope, and poll `#modal-overlay` to a
+    // deadline instead of reading it once. A precondition that still fails
+    // pushes a row carrying the reason, so the gate's "10 view/theme samples"
+    // contract can never be met by silently dropping the view.
     if (probeSid) {
-      // back to chat first: the session list is NOT in the DOM on the
-      // settings view, so the menu/modal can only open from the chat panel
-      await chatView();
-      // make the probe session the ACTIVE one so its row is on screen and
-      // its menu answers (a merely-existing row could sit in a collapsed
-      // category group where its menu cannot open)
-      await ev(`(() => {
-        const row = [...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${probeSid}');
-        row?.querySelector('.sess-open')?.click();
-      })()`);
-      await settle(400);
-      await openMenu(null);
-      await clickMenuDanger(null);
-      const mopen = await ev(`!!document.getElementById('modal-overlay')`);
-      if (mopen) {
+      let sampled = false;
+      for (let attempt = 0; attempt < 2 && !sampled; attempt++) {
+        // back to chat first: the session list is NOT in the DOM on the
+        // settings view, so the menu/modal can only open from the chat panel
+        await chatView();
+        // a failed earlier attempt can leave the dialog up; close it before
+        // aiming at the row again (Escape is the app's own dismiss path)
+        if (await ev(`!!document.getElementById('modal-overlay')`)) {
+          await driver.pressEscape();
+          await waitTrue(`!document.getElementById('modal-overlay')`, 3000);
+        }
+        // The list renders after the chat view is mounted (measured: 0 rows on
+        // the frame after settings -> chat, 143 rows ~1 s later, so a click on
+        // the first frame no-ops and the dialog can never open). Wait for the
+        // probe row itself, then select it.
+        const rowReady = await waitTrue(
+          `[...document.querySelectorAll('.sess-row')].some(r => r.getAttribute('data-sid') === '${probeSid}')`, 8000);
+        if (!rowReady) continue;
+        await ev(`(() => {
+          const row = [...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${probeSid}');
+          row?.querySelector('.sess-open')?.click();
+        })()`);
+        const active = await waitTrue(
+          `document.querySelector('.sess-row.active')?.getAttribute('data-sid') === '${probeSid}'`, 5000);
+        if (!active) continue;
+        if (!await openMenu(null)) continue;
+        if (!await clickMenuDanger(null)) continue;
+        if (!await waitTrue(`!!document.querySelector('#modal-overlay #modal-confirm')`, 5000)) continue;
         views.push({ name: 'delete-modal', sample: await ev(`uxContrast.sampleView({ root: '#modal-overlay', view: 'delete-modal', theme: '${theme}' })`) });
+        sampled = true;
         await driver.pressEscape();
         // the close is a server patch too (measured: closed after 300 ms, not
         // at it). A fixed 300 ms left the dialog closing across the gate
         // boundary, and the next gate's first clicks raced the teardown patch.
         await waitTrue(`!document.getElementById('modal-overlay')`, 3000);
-      } else {
-        views.push({ name: 'delete-modal', sample: { view: 'delete-modal', theme, error: 'modal did not open' } });
+      }
+      if (!sampled) {
+        views.push({ name: 'delete-modal', sample: { view: 'delete-modal', theme, error: 'modal did not open (no active probe row / menu)' } });
+        try { await driver.pressEscape(); } catch { /* best effort */ }
+        await waitTrue(`!document.getElementById('modal-overlay')`, 3000);
       }
       await chatView();
+    } else {
+      // no probe session means the modal cannot be exercised at all — record
+      // that as a row, never as a missing view
+      views.push({ name: 'delete-modal', sample: { view: 'delete-modal', theme, error: 'no probe session to delete' } });
     }
 
     // view: toast
