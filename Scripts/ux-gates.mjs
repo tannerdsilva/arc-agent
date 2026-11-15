@@ -20,7 +20,8 @@
 // finding with its raw numbers.
 
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { UxDriver } from './ux-drive.mjs';
 
@@ -492,6 +493,101 @@ async function newGateChat(what = 'gate') {
 }
 
 
+// ---------------------------------------------------------------------------
+// D6.1 — a conversation with REAL scroll room, seeded through the app's store
+//
+// UX-39 (a rail return restores THIS chat's offset) needs a transcript with
+// room that SURVIVES the round trip. The client-side pad (`scrollPad`) is a
+// fixture the very next server render replaces, so it can prove follow/away
+// but never a restore — measured at the D6 base: the row SKIPped at `room=0`
+// on an empty chat, and so did round4's copy of it.
+//
+// `FileSessionStore` keeps one JSON file per session under `~/.arc/sessions/`
+// (`SessionStore.swift`), and the app opens a session by deep link: a load of
+// `/?s=<sid>` runs `AppState.openDeepLink` → `reloadSessions` → materialize
+// (WebUIHost's page provider). So a record written there is read back through
+// the app's own storage path — no provider turn, no client fixture — and the
+// deep link's `reloadSessions` is also what makes the row appear in a running
+// daemon's list. The chat carries the UXGATE marker in its title AND its first
+// message, is tracked by sid, and is deleted through the app's own delete flow
+// with every other probe. The owner's conversations are never opened by it.
+
+const ARC_SESSIONS_DIR = join(homedir(), '.arc', 'sessions');
+/// `JSONEncoder`'s default date strategy is seconds since 2001-01-01 (measured
+/// against a store record the app itself wrote: 816423247.039 ≈ 2026-11-14).
+const arcDate = (ms) => Math.round((ms / 1000 - 978307200) * 1000) / 1000;
+
+/// Write one session record: `rounds` long turns, enough for real scroll room.
+/// The body is deliberately prose (no markdown tables): the transcript renders
+/// it server-side into paragraphs, which is what a reader's scroll measures.
+function writeRoomSession(rounds = 7) {
+  const sid = randomUUID();
+  const now = Date.now();
+  const filler = 'The composer sits below the transcript and above the status line; a turn '
+    + 'streams into the transcript, the scroller follows the tail while the reader is at the '
+    + 'bottom, and a reader who scrolls away keeps their place until they return to the tail. '
+    + 'A rail switch replaces the whole view region, so the offset has to be remembered across '
+    + 'a patch rather than kept in the element that is being replaced.';
+  const messages = [];
+  for (let i = 0; i < rounds; i++) {
+    const at = now - (rounds - i) * 60000;
+    messages.push({
+      role: 'user',
+      content: `UXGATE scroll room — turn ${i + 1} of ${rounds}. ${filler}`,
+      createdAt: arcDate(at),
+    });
+    messages.push({
+      role: 'assistant',
+      content: [1, 2, 3, 4].map((p) => `Paragraph ${p}. ${filler}`).join('\n\n'),
+      createdAt: arcDate(at + 1500),
+    });
+  }
+  const record = {
+    id: sid,
+    createdAt: arcDate(now - 3600000),
+    updatedAt: arcDate(now),
+    model: '',
+    provider: '',
+    title: `UXGATE scroll room ${sid.slice(0, 8)}`,
+    messages,
+  };
+  writeFileSync(join(ARC_SESSIONS_DIR, `${sid}.json`), JSON.stringify(record, null, 2));
+  return sid;
+}
+
+/// Open a session through the app's deep link and read the room it gives.
+async function openRoomChat(sid) {
+  await driver.navigate(`${APP}?s=${encodeURIComponent(sid)}`);
+  await waitReady();
+  const landed = await waitTrue(`(() => {
+    const r = document.querySelector('.sess-row.active');
+    return !!r && r.getAttribute('data-sid') === ${JSON.stringify(sid)};
+  })()`, 9000);
+  await chatView();
+  await settle(300);
+  const room = await ev(`(() => {
+    const s = document.getElementById('chat-scroll');
+    return s ? { max: Math.round(s.scrollHeight - s.clientHeight), key: s.getAttribute('data-scroll-key'),
+                 msgs: document.querySelectorAll('#chat-inner .msg, #chat-inner .turn, #chat-inner p').length }
+             : null;
+  })()`);
+  return { landed, room };
+}
+
+let roomSid = null;
+/// The gate's long chat: seeded once, re-seeded if the store record vanished
+/// (a prior cleanup), and opened. `{ sid, landed, room }`.
+async function ensureScrollRoomChat() {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (!roomSid) roomSid = trackProbe(writeRoomSession());
+    const opened = await openRoomChat(roomSid);
+    if (opened.landed && opened.room && opened.room.max >= 240) return { sid: roomSid, ...opened };
+    roomSid = null; // the record is gone or unreadable — seed once more
+  }
+  return { sid: null, landed: false, room: null };
+}
+
+
 /** Wait for a live turn with at least minChars; returns snapshot or null. */
 async function waitStream(minChars = 0, timeoutMs = 90000) {
   // Liveness = the live-turn ELEMENT mounting (the orchestrator's independent
@@ -536,7 +632,7 @@ async function waitStreamEnd(timeoutMs = 240000) {
  * queue timing; `attempts` is recorded so the backlog is visible in the raw
  * numbers. Only ever sends into the throwaway probe session.
  */
-async function ensureLiveText(text, minChars, timeoutMs = 150000, perAttemptMs = 30000) {
+async function ensureLiveText(text, minChars, timeoutMs = 150000, perAttemptMs = 30000, opts = {}) {
   const t0 = Date.now();
   let attempts = 0;
   while (Date.now() - t0 < timeoutMs) {
@@ -546,13 +642,17 @@ async function ensureLiveText(text, minChars, timeoutMs = 150000, perAttemptMs =
     // stack another queued message behind the backlog (observed as "Queued · N"
     // in the diagnose evidence), so the assertion waits for the queue to drain
     // first — the model answers serially and a live turn needs an idle model.
+    // `opts.inPlace` streams into the conversation already open instead: a row
+    // that needs ROOM in the container it measures (regression's SCROLL_PAD)
+    // supplies that room with its own seeded chat (D6.1), which a fresh gate
+    // chat cannot have.
     await chatView();
     const busy = await ev(`!!document.getElementById('live-turn') || !!document.querySelector('#composer-wrap .queued-sends, #composer-wrap [class*="queued"]')`);
     if (busy) {
       await waitStreamEnd(20000).catch(() => false);
       if (Date.now() - t0 >= timeoutMs) break;
     }
-    await newGateChat('ensureLiveText');
+    if (!opts.inPlace) await newGateChat('ensureLiveText');
     await chatView();
     await driver.js(`(() => {
       const t = document.getElementById('composer-input');
@@ -1583,7 +1683,18 @@ async function runScroll() {
   await chatView();
   await settle(400);
 
-  const pre = await ev(`uxGates.scrollState()`);
+  const startSid = await ev(`uxGates.sessions().activeSid`);
+  let pre = await ev(`uxGates.scrollState()`);
+  // D6.1: UX-39 needs a chat with real room, and an empty open chat gives the
+  // scroller none (measured at the D6 base: room=0 → SKIP). Open the gate's own
+  // long chat — seeded through the app's store, deleted through its delete
+  // flow — and measure the round trip there. The scroller's own declarations
+  // (`data-follow`, `data-reading-keys`, `data-scroll-key`) are read from
+  // whichever conversation is open, so nothing about the row is weakened.
+  if (pre && pre.present && pre.max < 240) {
+    out.room = await ensureScrollRoomChat();
+    pre = await ev(`uxGates.scrollState()`);
+  }
   out.preconditions = pre;
   const preOk = !!(pre && pre.present && pre.follow === 'bottom' && pre.readingKeys
     && pre.key && pre.tabindex === '0' && pre.btnPresent && pre.btnDisplay === 'none');
@@ -1618,7 +1729,7 @@ async function runScroll() {
     await settle(300);
   } else {
     out.ux39 = {
-      skipped: `the open chat has no usable scroll range (room=${pre.max}); the emitted memory key is ${JSON.stringify(pre.key)}`,
+      skipped: `no usable scroll range in the gate's seeded chat either (room=${pre.max}; seeded=${JSON.stringify(out.room || null)}) — the store-backed fixture could not be opened through the app's deep link`,
       key: pre.key,
     };
     record('scroll', 'rail return restores this chat’s scroll (UX-39, data-scroll-key)', 'skip', out.ux39);
@@ -1769,6 +1880,11 @@ async function runScroll() {
   await driver.navigate(APP);
   await waitReady();
   await chatView();
+  // Leave the chat the gate found, as found (the seeded room chat stays in the
+  // list until cleanup deletes it through the app's own flow).
+  if (startSid && roomSid && startSid !== roomSid) {
+    await openSessionRow(startSid).catch(() => {});
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1838,7 +1954,22 @@ async function runFocus() {
     return;
   }
   if (!pre.state.opener) {
-    out.skipped = `no conversation with at least one message is open, so the surface (${FOCUS_SURFACE}) is not rendered — open a chat with a reply and re-run`;
+    // D6.1's reachability half: `#ctx-chip-summary` renders only for a
+    // conversation with at least one message, so an empty active chat skipped
+    // the WHOLE group. Open the gate's own long chat — seeded through the app's
+    // store, no provider turn, deleted through its delete flow — and take the
+    // resting page again on it.
+    out.room = await ensureScrollRoomChat();
+    const retry = await freshChat();
+    out.preconditionsAfterSeed = retry;
+    if (retry.ok && retry.state.opener) {
+      pre.state = retry.state;
+      pre.ok = true;
+      pre.reseeded = true;
+    }
+  }
+  if (!pre.state.opener) {
+    out.skipped = `no conversation with at least one message is open, so the surface (${FOCUS_SURFACE}) is not rendered — the gate's seeded chat did not open either (${JSON.stringify(out.room || null)})`;
     record('focus', 'the gate can reach a dialog opener with no dialog open', 'skip', out);
     return;
   }
@@ -2805,7 +2936,13 @@ async function runRegression() {
   await waitStreamEnd(120000).catch(() => false);
 
   // 1. scroll read-back mid-stream
-  const liveRes = await ensureLiveText('Count from 1 to 60, one number per line. Reply with only that list.', 0, 240000, 90000);
+  //    D6.1: the pin row needs room in the container the turn streams into, and
+  //    a fresh gate chat has none for the first 20 s (measured: room=0 → SKIP).
+  //    Stream into the gate's seeded long chat instead — real transcript room
+  //    from the first frame, deleted with the other probes.
+  const roomChat = await ensureScrollRoomChat();
+  out.scrollRoom = roomChat;
+  const liveRes = await ensureLiveText('Count from 1 to 60, one number per line. Reply with only that list.', 0, 240000, 90000, { inPlace: true });
   const live = liveRes ? liveRes.live : null;
   if (!live) {
     out.scrollReadback = { skipped: 'the live-turn element never mounted after retries (model endpoint measured healthy — liveness is live-turn presence, expected ~2.5 s after Enter; a bare-prompt turn emits reasoning_first_then_content)', diag: liveRes ? liveRes.diag : null };
@@ -2833,21 +2970,34 @@ async function runRegression() {
       await waitStreamEnd(120000).catch(() => {});
       record('regression', 'scroll read-back mid-stream (SCROLL_PAD)', 'skip', out.scrollReadback);
     } else {
-      // the user scrolls up by SCROLL_PAD-distant 150 px, then token writes
-      // must not re-anchor the scroller (except on structural replaces, which
-      // are the engine's documented trait)
+      // the user scrolls up by SCROLL_PAD-distant 150 px FROM THE TAIL (a
+      // reader at the top would make the pin assertion vacuous), then token
+      // writes must not re-anchor the scroller (except on structural replaces,
+      // which are the engine's documented trait)
+      const tail = await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = s.scrollHeight; return Math.round(s.scrollTop); })()`);
+      await settle(150);
       await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = Math.max(0, s.scrollTop - 150); return s.scrollTop; })()`);
       await settle(120);
       const after = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s.scrollTop; })()`);
+      // Sample until the container has GROWN inside a live stretch. Measured at
+      // D6.1 on this host: the live row mounts with one jump (+196 px) and then
+      // grows in ~30–46 px steps every 10–25 s, so the old fixed 4.2 s window
+      // (14 × 300 ms) read `growth=0` and SKIPped a pin that was in fact held.
+      // The window is what changed; the assertion below is untouched.
       const samples = [];
-      for (let i = 0; i < 14; i++) {
-        await waitMs(300);
+      const sampleT0 = Date.now();
+      let grewAt = -1;
+      while (Date.now() - sampleT0 < 90000) {
+        await waitMs(1000);
         const s = await ev(`(() => {
           const sc = document.getElementById('chat-scroll');
           const st = uxGates.stream();
           return { top: sc.scrollTop, h: sc.scrollHeight, live: st.live, status: st.status || null, chips: (st.chips || st.toolChips || []).join('|'), textLen: st.textLen || 0 };
         })()`);
         samples.push(s);
+        if (grewAt < 0 && s.h > samples[0].h) grewAt = samples.length - 1;
+        if (grewAt >= 0 && samples.length - grewAt >= 6) break;
+        if (!s.live && samples.length > 4) break;
       }
       const firstH = samples[0].h;
       const growth = Math.max(...samples.map((s) => s.h)) - firstH;
@@ -2885,7 +3035,7 @@ async function runRegression() {
           readbackOk = !yanked && bestStable.every((s) => Math.abs(s.top - after) <= 60);
         }
       }
-      out.scrollReadback = { before, after, growth, samples: samples.map((s) => ({ top: s.top, h: s.h, live: s.live })), stableStretch: bestStable.length, pinHeldDuringTextStream: readbackOk, structuralFlips: samples.length - bestStable.length };
+      out.scrollReadback = { before, tail, after, growth, samples: samples.map((s) => ({ top: s.top, h: s.h, live: s.live, txt: s.textLen })), stableStretch: bestStable.length, pinHeldDuringTextStream: readbackOk, structuralFlips: samples.length - bestStable.length };
       await waitStreamEnd(120000).catch(() => {});
       if (readbackOk === null) {
         out.scrollReadback.verdict = 'inconclusive: no structurally stable live stretch in the growth window — pin assert needs a stable text stretch';
@@ -3000,17 +3150,16 @@ async function runRound4() {
   let roomRes = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? { sh: s.scrollHeight, ch: s.clientHeight } : null; })()`);
   let room = roomRes ? roomRes.sh - roomRes.ch : -1;
   if (room < 240) {
-    // No room in the open chat: try the gate's own probe chat — it carries
-    // real content when the regression gate ran first in the same session.
-    await ensureProbeSession();
-    await settle(400);
-    await openSessionRow(probeSid);
-    await settle(500);
+    // D6.1: no room in the open chat. Open the gate's own long chat — seeded
+    // through the app's store on first use, deleted through its delete flow —
+    // instead of waiting for a provider turn to leave content in a probe chat
+    // (that path left the row SKIPping whenever regression did not run first).
+    out.scrollRoom = await ensureScrollRoomChat();
     roomRes = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? { sh: s.scrollHeight, ch: s.clientHeight } : null; })()`);
     room = roomRes ? roomRes.sh - roomRes.ch : -1;
   }
   if (!roomRes || room < 240) {
-    out.scrollRestore = { skipped: `the open chat has no usable scroll range (room=${room}) — run with --only=regression in the same session so the streaming chat leaves content, or open a long conversation first` };
+    out.scrollRestore = { skipped: `no usable scroll range, and the gate's seeded chat did not open (room=${room}; seeded=${JSON.stringify(out.scrollRoom || null)})` };
     record('round4', 'rail return restores chat scroll (UX-39)', 'skip', out.scrollRestore);
   } else {
     const mid = Math.min(900, Math.round(room * 0.45));
@@ -3018,14 +3167,18 @@ async function runRound4() {
     await settle(300);
     const before = await ev(`document.getElementById('chat-scroll').scrollTop`);
     await ev(`document.getElementById('nav-skills')?.click()`);
-    await settle(650);
+    // The rail switch is a patch, not a page: poll for each side of the round
+    // trip before reading it. A fixed settle read `after: -1` (no scroller yet)
+    // on a slow patch and failed a restore that had landed 250 ms later.
+    const left = await waitTrue(`!document.getElementById('chat-scroll')`, 6000);
     await ev(`document.getElementById('nav-chat')?.click()`);
-    await settle(600);
+    const back = await waitTrue(`!!document.getElementById('chat-scroll')`, 8000);
+    await settle(250);
     const after = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? s.scrollTop : -1; })()`);
     await settle(250);
     const after2 = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? s.scrollTop : -1; })()`);
-    const pass = Math.abs(before - mid) <= 8 && Math.abs(after - mid) <= 40 && Math.abs(after2 - mid) <= 40;
-    out.scrollRestore = { room, mid, before, after, after2, pass };
+    const pass = !!(left && back) && Math.abs(before - mid) <= 8 && Math.abs(after - mid) <= 40 && Math.abs(after2 - mid) <= 40;
+    out.scrollRestore = { room, mid, before, left, back, after, after2, pass };
     record('round4', 'rail return restores chat scroll (UX-39)', pass, out.scrollRestore);
     await ev(`(() => { const s = document.getElementById('chat-scroll'); if (s) s.scrollTop = s.scrollHeight; return true; })()`);
     await settle(250);

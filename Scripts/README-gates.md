@@ -104,28 +104,34 @@ behaviour and a vocabulary row), never a file here.
    visible state (opacity 1, transform none).
 4. **regression (T17)** — round-2 re-run: scroll read-back stays pinned
    mid-stream (SCROLL_PAD), composer ghost draft survives reload, `dd-pop`
-   closes on Escape, Enter-to-send works.
+   closes on Escape, Enter-to-send works. The SCROLL_PAD row streams its turn
+   into the gate's own seeded long chat (see §"D6 acceptances"), so the
+   container has room from the first frame instead of waiting for a fresh
+   chat's reasoning phase to grow one.
 5. **round4 (T34)** — the navigation/scroll fundamentals the round-4 fix wave
    landed: a rail return restores the chat scroll position (UX-39), the
    composer shows the CURRENT chat's draft across a live session switch
    (UX-40), the session list keeps its position across a rail round-trip
-   (UX-41), and `+` lands the caret in the composer (UX-45). Needs a chat with
-   real scroll room for the scroll checks (otherwise those report SKIP — open
-   a long conversation first or run with `--only=regression` in the same
-   session so the streaming check leaves content behind).
+   (UX-41), and `+` lands the caret in the composer (UX-45). When the open chat
+   has no room, the UX-39 row opens the gate's own seeded long chat (deleted
+   through the app's delete flow at the end of the run) rather than SKIPping.
 6. **schemes (T18)** — enumerate the schemes from the app's own settings grid
    (`[data-scheme-choice]` tiles — registry-driven, never hardcoded), click
    each, screenshot chat + settings, record computed tokens.
-7. **focus (A12)** — no-webui 2.14.0 owns focus, so this matrix reads the
+7. **focus (A12)** — no-webui owns focus, so this matrix reads the
    consequence in the real browser on the context-breakdown dialog (opened from
    the composer's context chip; the delete-confirm flow is base-red in some
-   daemon states): (a) the patched-in dialog takes focus on its `autofocus`
-   control; (b1) Escape closes it and returns focus to the opener; (b2) the
-   close control does the same; (c) Tab from the dialog's last control wraps
-   inside `.modal-overlay`; (d) a focused control whose patch replaces it keeps
-   focus — reported SKIP with the measured surface while no arc surface declares
-   a `data-focus-return` region (the kanban rename field has no id to re-query);
-   (e) no console error or warning through the tour. Every wait is
+   daemon states): (a) the patched-in dialog takes focus through its
+   `data-focus-into`; (b1) Escape closes it and returns focus to the opener;
+   (b2) the close control does the same; (c) Tab from the dialog's last
+   control wraps inside `.modal-overlay`; (c2) Shift+Tab from its first control
+   wraps backward (a real CDP key event with the Shift modifier); (d) a focused
+   control whose patch replaces it keeps focus — measured on the attachment
+   chip's ✕, which declares `data-focus-return` (empty = itself) and whose
+   path-keyed id survives a composer patch, with a DOM-only mark proving the
+   node really was replaced; (e) no console error or warning through the tour.
+   The group opens the gate's seeded long chat when the active conversation has
+   no message (the chip only renders for one that does). Every wait is
    deadline-bounded, and a missing frame fails the row.
 8. **composer (A15)** — no-webui 2.17.0 owns the submit gesture and the clear,
    so this gate reads the consequence in a real browser: (e) the composer
@@ -234,3 +240,60 @@ Two rows are order-sensitive: `regression · composer ghost draft on reload` pas
 strict attempt that aborted in the `schemes` gate (`waitFor(chat view) timed out; last=false`,
 exit 2, not a measurement), and `round4` UX-40/UX-41 failed in that same aborted attempt but
 passed in the frozen one. The frozen numbers above are from the completed `--strict` run.
+
+## D6 acceptances (2026-11-15)
+
+Slice D6 of `.hermes/plans/2026-11-14_212853-arc-deferral-remediation.md` closed four
+coverage gaps. Three were exercised (the rows below are hard rows now); one is an
+acceptance with the unit proof named, because the live boundary is impractical.
+
+### A seeded long chat, through the app's own storage path
+
+UX-39 (a rail return restores the open chat's offset) needs a transcript with real
+scroll room, and a client-side pad cannot supply it: the rail round trip re-renders
+the transcript from server state, so a padded fixture is gone by the time the offset
+would be restored. Measured at the D6 base: `room=0` on the empty active chat, so
+`--only=scroll` and `--only=round4` both SKIPped, and `focus` skipped its whole group
+because the context chip only renders for a conversation with at least one message.
+
+The gate now writes one session record — seven long turn pairs, `UXGATE` in the title
+and the first message — into `~/.arc/sessions/` (`FileSessionStore`'s directory) and
+opens it through the app's own deep link: a load of `/?s=<sid>` runs
+`AppState.openDeepLink` → `reloadSessions` → materialize (`WebUIHost`'s page provider),
+which is also what makes the row appear in a running daemon's list. No provider turn is
+involved, the record is tracked by sid, and it is deleted through the app's own delete
+flow with every other probe (the run's cleanup reports `UXGATE rows 1 -> 0`). The
+owner's conversations are never opened by it.
+
+### Exercised
+
+| row | how |
+|---|---|
+| `scroll · rail return restores this chat’s scroll (UX-39, data-scroll-key)` | measured on the seeded chat: `room=3896`, `before=900`, `after=900`, pass |
+| `round4 · rail return restores chat scroll (UX-39)` | same chat; the row now polls each side of the rail round trip before reading it (a fixed settle read `-1` on a slow patch and failed a restore that had landed 250 ms later) |
+| `focus · (d) a focused control whose patch replaces it keeps focus (T26)` | the attachment chip's ✕: the chip declares `data-focus-return` (empty = itself, `Views.swift`), the composer patch replaces the node (a DOM-only mark proves it), and focus lands on the NEW ✕ because its id is path-keyed (`att-del-<enc(path)>`). The undeclared clone lap in the same record still shows focus falling to `<body>`, which is what makes the declaration the mechanism |
+| `focus · (c2) Shift+Tab from the dialog’s first control wraps inside .modal-overlay` | `driver.pressShiftTab()` — a real `Input.dispatchKeyEvent` with `modifiers: 8` (Shift). Without the trap the key walks out of the overlay into the page behind it, so `activeInDialog` is the falsifiable part; the pane currently holds one tab stop and the row records the count |
+| `focus` group reachability | when the active chat has no message, the group opens the seeded chat and takes the resting page again instead of SKIPping |
+
+The attachment flow is the app's own (`#cb-file` → `#file-path-input` → `#file-attach`);
+it attaches `Scripts/README-gates.md`, so `settings.recentFiles` gains that path — the
+app's real consequence of a real action, not gate-faked state. The chip is removed by
+its own ✕ at the end of the row, and the caret then lands in the composer through the
+textarea's `data-focus-on-appear` (measured: `active: composer-input`).
+
+### Accepted, not exercised
+
+`UploadTokenStore` eviction at the live 257-tab boundary. The store keeps the last 256
+served render tokens (`defaultCapacity = 256`, `WorkspaceUpload.swift`) and drops the
+oldest; proving the boundary in a browser needs 257 real page loads before an upload
+from the first tab, and the store has no other observable surface (an evicted tab's
+upload is a 403, not a rendered state). The cap is unit-tested twice, at capacity 3:
+
+- `UploadRouteTests · "the token store keeps a bounded window and drops the oldest token"`
+  — records a, b, c, d at capacity 3 and asserts `a` is evicted, `d` is present, and a
+  re-served live token does not consume a second slot;
+- `PushFanoutTests · "an old page falls out of the set at capacity"` — records five
+  tokens at capacity 3 and asserts the snapshot is exactly `[tok-2, tok-3, tok-4]`.
+
+Both exercise the same `record`/`order.removeFirst()` arithmetic the 257th page load
+would, so this is accepted with that proof rather than re-derived in a browser.
