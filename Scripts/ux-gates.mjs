@@ -2016,6 +2016,34 @@ async function runFocus() {
     record('focus', '(c) Tab from the dialog’s last control wraps inside .modal-overlay', false, out.trap);
   }
 
+  // ---- (c2) Shift+Tab from the dialog's FIRST control wraps BACKWARD ------
+  // D6.5: the trap has two branches and (c) only measures the forward one.
+  // `driver.pressShiftTab` is a real CDP key event with the Shift modifier
+  // (bit 8), so the page sees `keydown` with `shiftKey:true` — the branch
+  // `e.shiftKey && e.target === f[0]`. Without the trap, Shift+Tab from the
+  // dialog's first control walks OUT of the overlay into the page behind it,
+  // so `activeInDialog` is what makes this row falsifiable even while the pane
+  // holds a single tab stop (the count is recorded, never assumed).
+  out.trapBack = { dialog: '#ctx-pane-overlay', focusables };
+  if (focusables && focusables.ok && focusables.count > 0) {
+    const firstID = focusables.ids[0];
+    const backTo = focusables.ids[focusables.count - 1];
+    await ev(`(() => { const el = document.getElementById(${JSON.stringify(firstID)}); if (el) el.focus(); return true; })()`);
+    await driver.pressShiftTab();
+    const wrappedBack = await pollOk(`(() => {
+      const s = uxGates.focusState();
+      return Object.assign({ ok: s.activeInDialog && s.active === ${JSON.stringify(backTo)} }, s);
+    })()`, 3000);
+    out.trapBack.count = focusables.count;
+    out.trapBack.firstID = firstID;
+    out.trapBack.lastID = backTo;
+    out.trapBack.after = wrappedBack || (await ev(`uxGates.focusState()`));
+    record('focus', '(c2) Shift+Tab from the dialog’s first control wraps inside .modal-overlay',
+      !!(wrappedBack && wrappedBack.ok), out.trapBack);
+  } else {
+    record('focus', '(c2) Shift+Tab from the dialog’s first control wraps inside .modal-overlay', false, out.trapBack);
+  }
+
   // ---- (b1) Escape returns focus to the opener ----------------------------
   await driver.pressEscape();
   const escaped = await awaitReturn();

@@ -343,6 +343,9 @@ export class UxDriver {
 
   /** Dispatch a real Tab keypress (needed for focus-trail / tab-budget work). */
   async pressTab() { await this.pressKey('Tab'); }
+  /** Dispatch a real Shift+Tab — the backward focus walk. CDP's modifier bit 8 is
+   *  Shift, so the page sees `keydown` with `key:"Tab"` and `shiftKey:true`. */
+  async pressShiftTab() { await this.pressKey('Tab', { modifiers: 8 }); }
   async pressEscape() { await this.pressKey('Escape'); }
   async pressEnter() { await this.pressKey('Enter'); }
 
