@@ -605,47 +605,63 @@ async function cleanupProbeSessions() {
   // streams, so wait the turn out, then verify the delete actually landed.
   const attempted = new Map();
   const rowsBefore = await ev(`document.querySelectorAll('.sess-row').length`).catch(() => null);
-  for (let guard = 0; guard < 80; guard++) {
-    await chatView().catch(() => {});
-    const sid = await ev(`(() => {
-      const rows = [...document.querySelectorAll('.sess-row')];
-      const tracked = ${JSON.stringify([...probeSids])};
-      const byTitle = rows.find(r => (r.textContent || '').includes('${PROBE}'));
-      const bySid = tracked.length ? rows.find(r => tracked.includes(r.getAttribute('data-sid'))) : null;
-      const pick = byTitle || bySid;
-      return pick ? pick.getAttribute('data-sid') : null;
-    })()`);
-    if (!sid) break;
-    if ((attempted.get(sid) || 0) >= 2) {
-      console.warn(`cleanup: gate session ${sid} survived two delete attempts — leaving it (never hand-deleting)`);
-      break;
-    }
-    attempted.set(sid, (attempted.get(sid) || 0) + 1);
-    const busySince = Date.now();
-    while (Date.now() - busySince < 120000) {
-      const busy = await ev(`!!document.getElementById('live-turn')`);
-      if (!busy) break;
-      await waitMs(800);
-    }
-    let opened = false;
-    for (let attempt = 0; attempt < 3 && !opened; attempt++) {
-      opened = (await openMenu(sid)) && (await clickMenuDanger(sid));
-      if (!opened) {
-        await driver.pressEscape();
-        await settle(250);
+  const deleted = new Set();
+  // Passes, not one sweep: the app HEALS a session whose store entry is missing
+  // by re-creating it from memory — `healGhostSession` (Actions.swift:491), with
+  // the fallback title "Recovered chat" — when a turn's last message lands after
+  // the delete. Measured: a probe deleted at the end of `--only=interactions`
+  // came back 0.3 s later, titled "Recovered chat" (store) while its row still
+  // read as the probe message, so it survived the run (D2b.5's second leak).
+  // Give that race a window and sweep again; every pass still goes through the
+  // app's own delete flow, and only tracked sids / UXGATE rows are ever touched.
+  for (let pass = 0; pass < 3; pass++) {
+    if (pass > 0) await settle(2500);
+    let found = 0;
+    for (let guard = 0; guard < 40; guard++) {
+      await chatView().catch(() => {});
+      const sid = await ev(`(() => {
+        const rows = [...document.querySelectorAll('.sess-row')];
+        const tracked = ${JSON.stringify([...probeSids])};
+        const byTitle = rows.find(r => (r.textContent || '').includes('${PROBE}'));
+        const bySid = tracked.length ? rows.find(r => tracked.includes(r.getAttribute('data-sid'))) : null;
+        const pick = byTitle || bySid;
+        return pick ? pick.getAttribute('data-sid') : null;
+      })()`);
+      if (!sid) break;
+      if ((attempted.get(sid) || 0) >= 3) {
+        console.warn(`cleanup: gate session ${sid} survived three delete attempts — leaving it (never hand-deleting)`);
+        break;
       }
+      attempted.set(sid, (attempted.get(sid) || 0) + 1);
+      found++;
+      const busySince = Date.now();
+      while (Date.now() - busySince < 120000) {
+        const busy = await ev(`!!document.getElementById('live-turn')`);
+        if (!busy) break;
+        await waitMs(800);
+      }
+      let opened = false;
+      for (let attempt = 0; attempt < 3 && !opened; attempt++) {
+        opened = (await openMenu(sid)) && (await clickMenuDanger(sid));
+        if (!opened) {
+          await driver.pressEscape();
+          await settle(250);
+        }
+      }
+      if (!opened) { console.warn(`cleanup: could not open the delete modal for gate session ${sid} — leaving it`); break; }
+      await ev(`document.getElementById('modal-confirm')?.click()`);
+      // The app defers deletes while the session is mid-turn: verify, don't assume.
+      const goneSince = Date.now();
+      let gone = false;
+      while (Date.now() - goneSince < 60000) {
+        gone = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${sid}'); })()`));
+        if (gone) break;
+        await waitMs(800);
+      }
+      if (!gone) console.warn(`cleanup: delete of gate session ${sid} did not land — will retry`);
+      else { deleted.add(sid); probeSids.delete(sid); }
     }
-    if (!opened) { console.warn(`cleanup: could not open the delete modal for gate session ${sid} — leaving it`); break; }
-    await ev(`document.getElementById('modal-confirm')?.click()`);
-    // The app defers deletes while the session is mid-turn: verify, don't assume.
-    const goneSince = Date.now();
-    let gone = false;
-    while (Date.now() - goneSince < 60000) {
-      gone = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${sid}'); })()`));
-      if (gone) break;
-      await waitMs(800);
-    }
-    if (!gone) console.warn(`cleanup: delete of gate session ${sid} did not land — will retry`);
+    if (!found) break;
   }
   // tracked sids with no row left are done (deleted, or a draft the app never
   // persisted); keep the set clean so the next run starts empty
@@ -653,7 +669,7 @@ async function cleanupProbeSessions() {
   await ev(`document.getElementById('nav-chat')?.click()`);
   await settle(300);
   const rowsAfter = await ev(`document.querySelectorAll('.sess-row').length`).catch(() => null);
-  console.log(`  cleanup: gate sessions removed through the app's delete flow — rows ${rowsBefore} -> ${rowsAfter}`);
+  console.log(`  cleanup: ${deleted.size} gate session(s) removed through the app's delete flow — rows ${rowsBefore} -> ${rowsAfter}`);
 }
 
 let stateAtStart = null;
