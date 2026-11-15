@@ -152,6 +152,77 @@ extension ArcWebUITestRoot {
             }
         }
 
+        /// Walks **every** scheme in the catalog in **both** modes and checks the pair the
+        /// sheet actually paints a success hint with: `--success` on `--surface`.
+        ///
+        /// `successBadgeClearsAA` above walks the two *base* blocks (`:root[data-theme=…]`),
+        /// which carry the default scheme only — so a scheme that declares its own
+        /// `colorSuccess` was never measured. The browser gate has the same blind spot: it
+        /// samples the active scheme. This test is the instrument that closes both.
+        ///
+        /// It reads the emitted sheet rather than the source structs, so it sees exactly
+        /// what the browser sees: `ArcThemeCatalog.stylesheet()` renders each provider's
+        /// `@Theme`-generated `theme` (base palette + this scheme's overrides, merged by
+        /// `overlaying`) into `:root[data-scheme="<id>"][data-theme="<mode>"]`, declares
+        /// `--success: var(--color-success)` / `--surface: var(--color-bg-raised)` there,
+        /// and this test resolves those two indirections against that same block — the
+        /// nearest declaration wins for the browser too.
+        @Test("every scheme's success token clears AA on its own raised surface")
+        func everySchemesSuccessClearsAA() {
+            let sheet = ArcThemeCatalog.stylesheet()
+            var rows: [String] = []
+            var offenders: [(scheme: String, mode: String, success: String, surface: String, ratio: Double)] = []
+            var minPair = ""
+            var minRatio = Double.greatestFiniteMagnitude
+
+            for entry in ArcThemeCatalog.entries {
+                for mode in ["light", "dark"] {
+                    let selector = ":root[data-scheme=\"\(entry.id)\"][data-theme=\"\(mode)\"]"
+                    guard let body = Self.blockBody(sheet, selector: selector) else {
+                        Issue.record("\(selector): no block in the emitted sheet")
+                        continue
+                    }
+                    // the indirections the sheet declares, resolved in the block they are
+                    // declared in — a `--success` that stopped meaning `colorSuccess` would
+                    // make this test measure a pair the page does not paint.
+                    guard let successAlias = Self.declaration(body, property: "--success"),
+                        let surfaceAlias = Self.declaration(body, property: "--surface"),
+                        successAlias == "var(--color-success)",
+                        surfaceAlias == "var(--color-bg-raised)",
+                        let success = Self.resolve(successAlias, in: body),
+                        let surface = Self.resolve(surfaceAlias, in: body),
+                        let ratio = Self.contrast(success, surface)
+                    else {
+                        let surfaceDecl = Self.declaration(body, property: "--surface") ?? "—"
+                        let successDecl = Self.declaration(body, property: "--success") ?? "—"
+                        Issue.record(
+                            "\(selector): --success/--surface did not resolve to a #RRGGBB pair (surface \(surfaceDecl), success \(successDecl))")
+                        continue
+                    }
+                    rows.append(String(format: "%-16@ %-6@ %@ on %@ = %.2f:1", entry.id, mode, success, surface, ratio))
+                    if ratio < minRatio {
+                        minRatio = ratio
+                        minPair = "\(entry.id)/\(mode) \(success) on \(surface)"
+                    }
+                    if ratio < 4.5 {
+                        offenders.append((entry.id, mode, success, surface, ratio))
+                        Issue.record(
+                            "\(entry.id)/\(mode): --success \(success) on --surface \(surface) = \(String(format: "%.2f", ratio)):1 — needs 4.5:1")
+                    }
+                }
+            }
+
+            print("success-on-surface contrast table:")
+            print("scheme           mode   --success on --surface     ratio")
+            for row in rows { print(row) }
+            print("minimum: \(minPair) = \(String(format: "%.4f", minRatio)):1")
+
+            #expect(rows.count == ArcThemeCatalog.entries.count * 2,
+                    "walked \(rows.count) (scheme, mode) pairs of \(ArcThemeCatalog.entries.count * 2)")
+            #expect(offenders.isEmpty,
+                    "\(offenders.count) (scheme, mode) pair(s) paint --success below 4.5:1")
+        }
+
         // MARK: - the rules that paint those surfaces
 
         @Test("log level labels stop alpha-dimming a semantic colour")
