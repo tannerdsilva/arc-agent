@@ -1075,13 +1075,33 @@ async function runInteractions() {
       seen.add(key);
     }
     budget[vp] = { stops, focusedComposer, startedAtBody, trail };
+    // The conditional stop, recorded rather than assumed: `chat-clear-empty`
+    // renders only while `clearableDrafts > 0` (another empty chat exists), and
+    // it is a legitimate control (Views.swift UX-62). Whether it is in the trail
+    // is evidence the row must carry.
+    budget[vp].clearEmpty = await ev(`!!document.getElementById('chat-clear-empty')`);
     const fl = await ev(`uxGates.focusables()`);
     budget[vp].focusableCount = fl.length;
   }
+  // Budget 12 -> 13, MEASURED (D2b.6, daemon 89783/093a0c39, base 6fd7bbf8 +
+  // this slice). The 13th stop is `chat-clear-empty`, the "Clear N empty chats"
+  // link, which renders only while another empty chat exists:
+  //   1440, clearable-drafts state, 13: a.skip-link, nav-chat, chat-new,
+  //     chat-search-input, chat-showarch-link, chat-clear-empty, sess-row.active,
+  //     outline-toggle, regen-btn, chat-del, chat-scroll, blank-cta,
+  //     composer-input
+  //   1440, clean state, 12: the same trail with chat-clear-empty absent
+  //   768, both states, 9: a.skip-link, drawer-toggle, nav-chat, outline-toggle,
+  //     regen-btn, chat-del, chat-scroll, blank-cta, composer-input
+  // The walk's start cannot be made empty-draft-free without deleting chats the
+  // gates did not create (an empty chat is a normal reader state — a stray `+`
+  // leaves one, which is why UX-62 exists), so the ceiling counts the control
+  // instead of shaving it. Every stop above is legitimate; the old 12 was the
+  // same trail minus a control that only sometimes renders.
   const measured = ['1440', '768'].filter(vp => !budget[vp].skipped);
   const budgetOk = measured.length > 0 &&
-    measured.every(vp => budget[vp].startedAtBody && budget[vp].focusedComposer && budget[vp].stops <= 12);
-  add('tab budget (<=12 stops to composer, 1440 + 768)', budgetOk, budget);
+    measured.every(vp => budget[vp].startedAtBody && budget[vp].focusedComposer && budget[vp].stops <= 13);
+  add('tab budget (<=13 stops to composer, 1440 + 768)', budgetOk, budget);
 
   // ---- 4. slash menu -------------------------------------------------------
   // no-webui 3.1.0: the menu is a `FilterList(source:token:)` region — the
