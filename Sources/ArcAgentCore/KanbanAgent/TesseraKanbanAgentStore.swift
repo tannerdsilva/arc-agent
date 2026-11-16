@@ -21,7 +21,7 @@ public actor TesseraKanbanAgentStore: KanbanAgentStore {
 
     private var boards: [String: KanbanAgent.BoardDocument] = [:]
     private var cards: [String: [String: KanbanAgent.Card]] = [:]   // boardID → cardID → card
-    private var eventHeads: [String: Int] = [:]                     // boardID → latest event seq
+    private var eventHeadsByBoard: [String: Int] = [:]             // boardID → latest event seq
     private var loaded = false
     private var lastSync = Date.distantPast
 
@@ -118,7 +118,7 @@ public actor TesseraKanbanAgentStore: KanbanAgentStore {
         try await conn.ensureStarted()
         boards = Self.latestBoards(from: await conn.snapshot(kind: Self.boardKind))
         cards = Self.latestCards(from: await conn.snapshot(kind: Self.cardKind))
-        eventHeads = Self.eventHeads(from: await conn.snapshot(kind: Self.eventKind))
+        eventHeadsByBoard = Self.eventHeads(from: await conn.snapshot(kind: Self.eventKind))
         lastSync = Date()
         loaded = true
     }
@@ -180,7 +180,7 @@ public actor TesseraKanbanAgentStore: KanbanAgentStore {
         try await conn.deleteAll(dTagPrefix: "arc/kb/board/\(id)/evt/", kind: Self.eventKind)
         boards[id] = nil
         cards[id] = nil
-        eventHeads[id] = nil
+        eventHeadsByBoard[id] = nil
     }
 
     // MARK: - KanbanAgentStore: cards
@@ -220,7 +220,7 @@ public actor TesseraKanbanAgentStore: KanbanAgentStore {
     public func appendEvent(_ event: KanbanAgent.BoardEvent, boardID: String) async throws {
         try await ensureLoaded()
         guard boards[boardID] != nil else { throw KanbanAgentStoreError.boardNotFound(boardID) }
-        let expected = (eventHeads[boardID] ?? 0) + 1
+        let expected = (eventHeadsByBoard[boardID] ?? 0) + 1
         guard event.seq == expected else {
             throw KanbanAgentStoreError.eventSequenceConflict(expected: expected, got: event.seq)
         }
@@ -228,7 +228,7 @@ public actor TesseraKanbanAgentStore: KanbanAgentStore {
             kind: Self.eventKind,
             dTagPrefix: "arc/kb/board/\(boardID)/evt",
             payload: try JSONEncoder().encode(event))
-        eventHeads[boardID] = event.seq
+        eventHeadsByBoard[boardID] = event.seq
     }
 
     public func events(boardID: String, after seq: Int, limit: Int) async throws -> [KanbanAgent.BoardEvent] {
