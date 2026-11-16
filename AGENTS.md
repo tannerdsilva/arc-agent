@@ -2,13 +2,13 @@
 
 ## Project Phase: Vascular Hardening — client eradication complete
 
-This project has completed five feature-build phases and, on 2026-11-14, closed the **client-overlay eradication program**: `Sources/ArcWebUI/Assets/overlay.js` (1,642 lines / 73,214 bytes) is deleted, every client consequence it carried is a no-webui behaviour, and `ZeroClientScriptTests` fails the suite if a `.js` file ever reappears under `Sources/`. The project remains in **vascular hardening** — strengthening the internal data flow, session integrity, error recovery, and observability before adding new capabilities.
+This project has completed five feature-build phases and, on 2026-11-14, closed the **client-overlay eradication program**: `Sources/ArcWebUI/Assets/overlay.js` (1,642 lines / 73,214 bytes) is deleted, every client consequence it carried is a no-webui behaviour, and `ZeroClientScriptTests` fails the suite if a `.js` file ever reappears under `Sources/`. The project remains in **vascular hardening** — strengthening the internal data flow, session integrity, error recovery, and observability before adding new capabilities. On 2026-11-15 the follow-on **deferral-remediation** program closed: the browser matrix runs with no skips, the ship gate is green without a known-red exemption, and no-webui 3.1.1 is released and adopted.
 
 The core architecture is built and proven:
 - **278 Swift source files** across eight target directories — ArcAgentCore (203), ArcWebUI (46), the `arc-agent` CLI (15), ArcTheme (5), ArcToolKit (5), ArcDaemon (2), ArcAssetTool (1), and ArcSubprocessFixture (1, a test-only process-group fixture)
-- **Swift 6 language mode** — every target compiles under Swift 6 strict concurrency (no `.swiftLanguageMode(.v5)` pins remain). The build is error-free; the compiler emits 6 `#UnnecessaryEffectMarker` notes from `Views.swift` (an `await` with no async work in ViewBuilder closures), and SwiftPM warns about a `swift-syntax` package-identity conflict through quicklmdb/nostr-kit versus no-webui/swift-mcp
-- **1,978 executed tests** — 1,178 core (172 suites) + 785 web UI (112 suites) + 15 daemon (2 suites); 1,179 / 785 / 15 `@Test` declarations. The environment-gated core test reads the live `~/.arc/config.json` (aux layout, reference endpoints); it passes on this configured host and is the only test that can go red on a machine configured with a different provider
-- **16 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, tessera, Hummingbird, swift-mcp, swift-nio, swift-nio-ssl, swift-nio-extras, swift-http-types, SwiftSlash, swift-log, swift-crypto, no-webui, ArcSidebarTabs — tessera and ArcSidebarTabs are **local path pins** while they are co-developed; no-webui is **revision-pinned** at `f286006` = tag `3.1.0`)
+- **Swift 6 language mode** — every target compiles under Swift 6 strict concurrency (no `.swiftLanguageMode(.v5)` pins remain). The build is error-free; the compiler emits 7 `#UnnecessaryEffectMarker` notes from `Views.swift` (an `await` with no async work in ViewBuilder closures), and SwiftPM warns about a `swift-syntax` package-identity conflict through quicklmdb/nostr-kit versus no-webui/swift-mcp
+- **1,985 executed tests** — 1,178 core (172 suites) + 792 web UI (115 suites) + 15 daemon (2 suites); 1,179 / 792 / 15 `@Test` declarations. The environment-gated core test reads the live `~/.arc/config.json` (aux layout, reference endpoints); it passes on this configured host and is the only test that can go red on a machine configured with a different provider
+- **16 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, tessera, Hummingbird, swift-mcp, swift-nio, swift-nio-ssl, swift-nio-extras, swift-http-types, SwiftSlash, swift-log, swift-crypto, no-webui, ArcSidebarTabs — tessera and ArcSidebarTabs are **local path pins** while they are co-developed; no-webui is **revision-pinned** at `a5bd8869` = tag `3.1.1`)
 - **54 built-in tool registrations** across 16 toolsets (52 always on; `send_bot_message` and `send_group_chat` exist only when the messaging services are configured). Arc parity includes `project_*`, `skill_manage`, `skills_list`, `tool_search`, `send_message`, `mcp_tool`; `execute_code` is arc's own; the reference media/webhook ports stay deleted
 - **Zero hand-written client JS** — the web UI's entire client is no-webui's engine (`/ui/webui-engine.js` + `-ext`); arc's last 60 lines became `data-open` layers, a native radio group and a CSS transition, and `ZeroClientScriptTests` enforces the absence
 - **Gateway stack** — HTTP server (:8080), Telegram adapter, MCP server, session management
@@ -32,11 +32,11 @@ When asked to produce code, assume it is:
 | AGENTS.md | This file |
 | README.md | Updated |
 | Source files | 278 Swift files in `Sources/` (ArcAgentCore 203, ArcWebUI 46, arc-agent CLI 15, ArcTheme 5, ArcToolKit 5, ArcDaemon 2, ArcAssetTool 1, ArcSubprocessFixture 1) |
-| Tests | 1,978 executed (1,178 core in 172 suites + 785 web UI in 112 suites + 15 daemon in 2 suites); the environment-gated live-config test passes on this host and is the only expected red on a differently-configured one |
+| Tests | 1,985 executed (1,178 core in 172 suites + 792 web UI in 115 suites + 15 daemon in 2 suites); the environment-gated live-config test passes on this host and is the only expected red on a differently-configured one |
 | Client JS | **Zero** — `ZeroClientScriptTests` fails on any `*.js` under `Sources/`, a non-empty asset manifest, or an arc script tag in the served document |
-| no-webui pin | revision `f286006` = **3.1.0** (annotated tag, pushed to origin) |
-| Build | Error-free in Swift 6 language mode; 6 `#UnnecessaryEffectMarker` notes from `Views.swift`; SwiftPM `swift-syntax` identity warnings through the dependency graph |
-| Branch | `tessera` (active — 106 commits ahead of `dev`; `master` is the base of both) |
+| no-webui pin | revision `a5bd8869` = **3.1.1** (annotated tag, pushed to origin) |
+| Build | Error-free in Swift 6 language mode; 7 `#UnnecessaryEffectMarker` notes from `Views.swift`; SwiftPM `swift-syntax` identity warnings through the dependency graph |
+| Branch | `tessera` (active — 144 commits ahead of `dev`; `master` is the base of both) |
 
 ## Subsystem Inventory (highlights)
 
@@ -59,7 +59,7 @@ When asked to produce code, assume it is:
 | **MCP** — MCPServerAdapter, DynamicMCPTool | `Gateway/MCP/` | Built |
 | **Tessera** — TesseraConnection (shared tunnel), TesseraSessionStore, TesseraMemoryProvider | `Storage/` | Built |
 | **Web UI** — AppState, Actions, Views, Theme (chrome), ThemeCatalog (27 schemes), Queue, NewFeatures, Insights, BuiltInSidebarTabs, SidebarTabBridge, SidecarPlugin, WebUIHost; the client is no-webui's engine; typed components (`UploadZone`, `ChatScroller`, `ComposerText`) carry behavior attributes in their own open tags | `Sources/ArcWebUI/` + `Sources/ArcTheme/` | Built |
-| **Client consequences** — no-webui 3.1.0 behaviors: upload zones, scroll follow + reading keys, focus return/into/appear, dismiss stack + drawer, draft identity/seed, submit modes + clear-on-submit, theme `aria-pressed`, `FilterList` slash palette, clipboard + toast | `Sources/ArcWebUI/Components/` + empty asset manifest | Built |
+| **Client consequences** — no-webui **3.1.1** behaviors: upload zones, scroll follow + reading keys, dismiss stack + drawer, draft identity/seed, submit modes + clear-on-submit, theme `aria-pressed`, the `FilterList` slash palette (Enter **in the field** inserts the highlighted row; arrows move the highlight), clipboard + toast (a refused clipboard toasts `Copy failed`, not `Copied`), focus return/into/appear (a declared `data-focus-return` wins over the pre-dialog memory; `FocusInto` leaves intrinsically focusable targets alone), and roving that skips rows a reader cannot reach | `Sources/ArcWebUI/Components/` + empty asset manifest | Built |
 | **Sidebar Tab Plugins** — `SidebarTab` protocol kit (`Plugins/ArcSidebarTabs`, dependency-free), sidecar plugin host bridge + built-in adapters (`SidebarTabBridge.swift`, `BuiltInSidebarTabs.swift`), Settings → Sidebar plugins | `Plugins/` + `Sources/ArcWebUI/` | Built |
 | **Shared renderers** — arc-parity markdownToHTML + MarkdownRenderer + highlightCode + URL/HTML sanitizers; the WebSocket transport itself is no-webui's `WebUIServer` | `ArcAgentCore/WebUI/Utilities.swift` (1 file) | Built |
 | **Compression** — MicroCompactor (per-turn transcript absorption) | `Compression/` | Built |
@@ -72,6 +72,8 @@ When asked to produce code, assume it is:
 2. **Test before hardening.** Write the test that proves the current behavior is wrong, then fix the code. Tests are the diagnostic monitors on the vascular system.
 
 3. **One program at a time.** The overlay-eradication program closed on 2026-11-14; hardening work continues in slices, each with its own gate. The record is mechanical: `make verify` (three suite runs), `node Scripts/ux-gates.mjs` (the browser matrix), and `Scripts/ship-gate.sh` (the consolidated ship gate).
+
+   **The gate has preconditions — observe them or the numbers lie.** Restart the daemon before a `--strict` run: a daemon that has served many turns churns its composer and its session list's `scrollTop` reads `-1`, which an aged-vs-fresh A/B showed produces infra skips or aborts. Prove `:8890` *and* `:8080` free before relaunching, and name the served sheet sha — the stylesheet is compiled into the binary, so a stale binary measures the old palette. Run the matrix detached from any short command timeout (it takes 8–12 minutes; a killed run returns `143`, which is not a verdict). The standing expectation is `--strict` **78/78, 0 failed, 0 skipped** and `Scripts/ship-gate.sh` **18 passed / 0 failed** with no known-red exemption. Under `--strict` a skip counts as a failure, and a mid-run infra timeout now costs one row rather than the whole run's evidence. Every token that paints text (`--success`, `--muted`, `--warning-strong`, `--link`) has a Swift ratio test over all 108 scheme×mode blocks, so a palette change is caught without a browser.
 
 4. **Commit early, commit often.** Each hardening step is a separate commit with a clear before/after. The `tessera` branch is the active development branch.
 
