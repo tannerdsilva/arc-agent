@@ -367,10 +367,45 @@ extension AppState {
     /// store's CURRENT copy — a stale render cache must never be written
     /// back, or the save silently reverts anything that landed in the store
     /// while the page was open (run counters, edits).
+    // MARK: Verified store writes
+    // A store write can fail without throwing through the UI (the tessera
+    // relay's echo-wait throws when the write is not confirmed). Every
+    // mutation below routes through these helpers: the write is verified by
+    // re-reading the store, and a failure surfaces an error toast instead of
+    // silently pretending success (an optimistic UI on a failed write is how
+    // deleted tasks "reappeared" after reload).
+
+    /// Save `job` and confirm the store now returns it. Returns false when
+    /// the save threw or the re-read could not confirm the record.
+    private func verifiedSave(_ job: CronJob) async -> Bool {
+        do { try await cronStore.save(job) } catch {
+            toast("Scheduled task change failed — the relay did not confirm the write. Try again in a moment.", kind: "error")
+            return false
+        }
+        guard let reread = try? await cronStore.get(id: job.id), reread != nil else {
+            toast("Scheduled task change failed — the write could not be verified. Try again in a moment.", kind: "error")
+            return false
+        }
+        return true
+    }
+
+    /// Delete `id` and confirm the store no longer returns it.
+    private func verifiedDelete(_ id: String) async -> Bool {
+        do { try await cronStore.delete(id: id) } catch {
+            toast("Scheduled task deletion failed — the relay did not confirm the write. The job was kept; try again in a moment.", kind: "error")
+            return false
+        }
+        if let still = try? await cronStore.get(id: id), still != nil {
+            toast("Scheduled task deletion failed — the job is still in the store. Try again in a moment.", kind: "error")
+            return false
+        }
+        return true
+    }
+
     private func updateJob(_ id: String, _ mutate: (inout CronJob) -> Void) async {
         guard var job = try? await cronStore.get(id: id), job != nil else { return }
         mutate(&job)
-        try? await cronStore.save(job)
+        guard await verifiedSave(job) else { return }
         await refreshScheduledJobs()
     }
 
@@ -449,13 +484,22 @@ extension AppState {
         let p = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         // An empty schedule is a MANUAL job — legal (fires only via Run
         // now). A one-shot with a recurring schedule is not.
-        guard !n.isEmpty, !p.isEmpty else { return nil }
-        if runBudget == 1, CronSchedule.isRecurring(s) { return nil }
+        guard !n.isEmpty, !p.isEmpty else {
+            toast("Scheduled task not saved — a name and prompt are required.", kind: "error")
+            return nil
+        }
+        if runBudget == 1, CronSchedule.isRecurring(s) {
+            toast("Scheduled task not saved — a one-shot cannot use a recurring schedule.", kind: "error")
+            return nil
+        }
         // A nonexistent workspace would fail silently every firing — the
         // form refuses to save it (mirrors CronOps.vetWorkspace).
         if let ws = CronOps.normalizedWorkspace(workspace) {
             var isDir: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: ws, isDirectory: &isDir), isDir.boolValue else { return nil }
+            guard FileManager.default.fileExists(atPath: ws, isDirectory: &isDir), isDir.boolValue else {
+                toast("Scheduled task not saved — workspace path does not exist: \(ws)", kind: "error")
+                return nil
+            }
         }
         var job = CronJob(name: n, schedule: s, prompt: p)
         job.deliver = (deliver?.isEmpty ?? true) ? nil : deliver
@@ -470,7 +514,7 @@ extension AppState {
         // interval tick); a manual job stays unarmed until Run now.
         job.nextRunAt = s.isEmpty ? firstRun : (firstRun ?? CronNext(expression: job.schedule, from: Date()))
         job.lastOutput = nil
-        try? await cronStore.save(job)
+        guard await verifiedSave(job) else { return nil }
         await refreshScheduledJobs()
         return job.id
     }
@@ -490,7 +534,7 @@ extension AppState {
         job.runsRemaining = src.runsRemaining
         job.resetEveryRuns = src.resetEveryRuns
         job.isActive = false
-        try? await cronStore.save(job)
+        guard await verifiedSave(job) else { return }
         tasksMode = .detail
         await selectTaskJob(job.id)
         await refreshScheduledJobs()
@@ -507,8 +551,14 @@ extension AppState {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let s = schedule.trimmingCharacters(in: .whitespacesAndNewlines)
         let p = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !n.isEmpty, !p.isEmpty else { return }
-        if runBudget == 1, CronSchedule.isRecurring(s) { return }
+        guard !n.isEmpty, !p.isEmpty else {
+            toast("Scheduled task not saved — a name and prompt are required.", kind: "error")
+            return
+        }
+        if runBudget == 1, CronSchedule.isRecurring(s) {
+            toast("Scheduled task not saved — a one-shot cannot use a recurring schedule.", kind: "error")
+            return
+        }
         let scheduleChanged = job.schedule != s
         job.name = n
         job.schedule = s
@@ -521,7 +571,10 @@ extension AppState {
         if let ws = workspace {
             if let normalized = CronOps.normalizedWorkspace(ws) {
                 var isDir: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDir), isDir.boolValue else { return }
+                guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDir), isDir.boolValue else {
+                    toast("Scheduled task not saved — workspace path does not exist: \(normalized)", kind: "error")
+                    return
+                }
                 job.workspace = normalized
             } else {
                 job.workspace = nil
@@ -544,7 +597,7 @@ extension AppState {
         if scheduleChanged {
             job.nextRunAt = job.isActive && !s.isEmpty ? CronNext(expression: s, from: Date()) : nil
         }
-        try? await cronStore.save(job)
+        guard await verifiedSave(job) else { return }
         tasksMode = .detail
         await refreshScheduledJobs()
         if let next = job.nextRunAt { _ = next }
@@ -712,7 +765,7 @@ extension AppState {
     }
 
     func removeJob(_ id: String) async {
-        try? await cronStore.delete(id: id)
+        guard await verifiedDelete(id) else { return }
         await refreshScheduledJobs()
     }
 
@@ -721,7 +774,12 @@ extension AppState {
     func deleteJob(_ id: String) async {
         guard let job = settings.scheduledJobs.first(where: { $0.id == id }) else { return }
         let sid = jobSessionID(job)
-        try? await cronStore.delete(id: id)
+        // Verify the delete landed BEFORE destroying anything local — an
+        // optimistic removal on a failed write resurrects the job on reload.
+        guard await verifiedDelete(id) else {
+            await refreshScheduledJobs()
+            return
+        }
         if tasksSelectedID == id { tasksSelectedID = nil }
         tasksMode = .detail
         taskRunHistory.removeValue(forKey: id)

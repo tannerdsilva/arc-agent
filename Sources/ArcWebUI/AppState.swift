@@ -1355,6 +1355,9 @@ actor AppState {
     /// needed to draw a fragment. every renderer reads only the fields below.
     struct RenderFixture: Sendable {
         var settings = AppSettings()
+        /// Injected cron store: scheduled-task mutation tests need a store
+        /// they can make fail (the default RuntimeCronStore owns real paths).
+        var cronStore: (any CronStore)? = nil
         var sessions: [Session] = []
         var messages: [Message] = []
         var arcConfig = ArcConfig()
@@ -1500,6 +1503,7 @@ actor AppState {
     init(renderFixture fixture: RenderFixture,
          configurationStore: ConfigurationStore? = nil) {
         self.settings = fixture.settings
+        if let injected = fixture.cronStore { self.cronStore = injected }
         self.sessions = fixture.sessions
         self.arcConfig = fixture.arcConfig
         self.runtimeBackend = fixture.runtimeBackend
