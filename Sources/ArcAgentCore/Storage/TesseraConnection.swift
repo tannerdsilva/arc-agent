@@ -114,6 +114,9 @@ private struct PendingRecord {
 /// kind 3004  arc/p/<name>/<seq>         profile records
 /// kind 3005  arc/cron/<jobID>/<seq>     cron jobs
 /// kind 3006  arc/goals/<sessionID>/<seq> standing goals
+/// kind 3011  arc/kb/board/<boardID>/<seq>               kanban-agent boards
+/// kind 3012  arc/kb/board/<boardID>/card/<cardID>/<seq> kanban-agent cards
+/// kind 3013  arc/kb/board/<boardID>/evt/<seq>           kanban-agent event log
 /// ```
 public actor TesseraConnection {
 
@@ -155,8 +158,14 @@ public actor TesseraConnection {
     public static let leaveKind: UInt32 = 3_010
     /// The prefix on every `d` tag value.
     public static let dTagPrefix = "arc/"
-    /// One subscription per kind; the model receives all ten.
-    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares", "arc-stream", "arc-tombstones", "arc-left"]
+    /// Kanban-agent board documents (TesseraKanbanAgentStore).
+    public static let kanbanBoardKind: UInt32 = 3_011
+    /// Kanban-agent card records (TesseraKanbanAgentStore).
+    public static let kanbanCardKind: UInt32 = 3_012
+    /// Kanban-agent board event log (TesseraKanbanAgentStore).
+    public static let kanbanEventKind: UInt32 = 3_013
+    /// One subscription per kind; the model receives all thirteen.
+    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares", "arc-stream", "arc-left", "arc-kb", "arc-kb-cards", "arc-kb-events", "arc-tombstones"]
 
     /// Kinds the client subscribes to, paired with `subscriptionIDs`.
     static let subscriptionKinds: [(String, UInt32)] = {
@@ -164,6 +173,7 @@ public actor TesseraConnection {
             ("arc-msgs", messageKind), ("arc-mem", memoryKind), ("arc-meta", metadataKind),
             ("arc-profiles", profileKind), ("arc-cron", cronKind), ("arc-goals", goalKind),
             ("arc-shares", shareKind), ("arc-stream", streamKind), ("arc-left", leaveKind),
+            ("arc-kb", kanbanBoardKind), ("arc-kb-cards", kanbanCardKind), ("arc-kb-events", kanbanEventKind),
         ]
         return data + [("arc-tombstones", deletionKind)]
     }()
