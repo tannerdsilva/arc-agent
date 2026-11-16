@@ -331,7 +331,8 @@ struct CronCreate: AsyncParsableCommand {
     )
 
     @Option(name: .shortAndLong) var name: String
-    @Option(name: .shortAndLong) var schedule: String
+    /// Optional: omit for a manual-only (idle) job that runs via Run-now.
+    @Option(name: .shortAndLong) var schedule: String?
     @Option(name: .shortAndLong) var prompt: String
     /// Delivery target `platform:chatID` (e.g. `telegram:123456789`), or
     /// "none". Run results are sent there after each run.
@@ -346,7 +347,7 @@ struct CronCreate: AsyncParsableCommand {
 
     func run() async throws {
         let job = try await CronOps.create(store: RuntimeCronStore(), name: name,
-                                           schedule: schedule, prompt: prompt, deliver: deliver,
+                                           schedule: schedule ?? "", prompt: prompt, deliver: deliver,
                                            script: script, resetEveryRuns: resetEvery,
                                            contextFrom: contextFrom.isEmpty ? nil : contextFrom)
         print("Created \(job.id) — \(job.name)")
@@ -374,7 +375,8 @@ struct CronEdit: AsyncParsableCommand {
     @Option(name: .long) var resetEvery: Int?
 
     func run() async throws {
-        let job = try await CronOps.edit(store: RuntimeCronStore(), id: id,
+        let store = RuntimeCronStore()
+        let job = try await CronOps.edit(store: store, id: try await CronOps.resolveJobID(store: store, id: id),
                                          name: name, schedule: schedule, prompt: prompt,
                                          deliver: deliver.map { Optional($0) },
                                          script: script.map { Optional($0) },
@@ -395,7 +397,8 @@ struct CronPause: AsyncParsableCommand {
     @Argument var id: String
 
     func run() async throws {
-        let job = try await CronOps.pause(store: RuntimeCronStore(), id: id)
+        let store = RuntimeCronStore()
+        let job = try await CronOps.pause(store: store, id: try await CronOps.resolveJobID(store: store, id: id))
         print("Paused \(job.id) at \(job.pausedAt.map { "\($0)" } ?? "?")")
     }
 }
@@ -410,7 +413,8 @@ struct CronResume: AsyncParsableCommand {
     @Argument var id: String
 
     func run() async throws {
-        let job = try await CronOps.resume(store: RuntimeCronStore(), id: id)
+        let store = RuntimeCronStore()
+        let job = try await CronOps.resume(store: store, id: try await CronOps.resolveJobID(store: store, id: id))
         print("Resumed \(job.id)")
         if let next = job.nextRunAt { print("Next run: \(next)") }
     }
@@ -426,7 +430,8 @@ struct CronRunNow: AsyncParsableCommand {
     @Argument var id: String
 
     func run() async throws {
-        let job = try await CronOps.runNow(store: RuntimeCronStore(), id: id)
+        let store = RuntimeCronStore()
+        let job = try await CronOps.runNow(store: store, id: try await CronOps.resolveJobID(store: store, id: id))
         print("Armed \(job.id) — fires on the next scheduler pass (≤30s).")
         if let next = job.nextRunAt { print("Next run: \(next)") }
     }
@@ -442,8 +447,10 @@ struct CronRemove: AsyncParsableCommand {
     @Argument var id: String
 
     func run() async throws {
-        try await CronOps.remove(store: RuntimeCronStore(), id: id)
-        print("Removed \(id) (job + history).")
+        let store = RuntimeCronStore()
+        let fullID = try await CronOps.resolveJobID(store: store, id: id)
+        try await CronOps.remove(store: store, id: fullID)
+        print("Removed \(fullID) (job + history).")
     }
 }
 
@@ -459,12 +466,13 @@ struct CronHistory: AsyncParsableCommand {
 
     func run() async throws {
         let history = RuntimeCronRunHistory()
-        let runs = try await history.listRuns(jobID: id, limit: limit)
+        let fullID = try await CronOps.resolveJobID(store: RuntimeCronStore(), id: id)
+        let runs = try await history.listRuns(jobID: fullID, limit: limit)
         if runs.isEmpty {
             print("No recorded runs for \(id).")
             return
         }
-        print("⚡ ARC Agent — Run history for \(id)")
+        print("⚡ ARC Agent — Run history for \(fullID)")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         for run in runs {
             let status = run.status ?? "?"

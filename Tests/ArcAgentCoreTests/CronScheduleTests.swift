@@ -14,6 +14,32 @@ struct CronScheduleTests {
 
     // MARK: 5-field cron
 
+
+    // MARK: relative one-shots ("+2m")
+
+    @Test("Plus-prefixed offset fires once, N units out")
+    func plusOffsetOneShot() {
+        let tz = TimeZone(identifier: "UTC")!
+        let after = date("2026-06-01T09:07:00Z")!
+        #expect(CronSchedule.next("+2m", after: after, timeZone: tz)
+                == after.addingTimeInterval(120))
+        #expect(CronSchedule.next("+90s", after: after, timeZone: tz)
+                == after.addingTimeInterval(90))
+        #expect(CronSchedule.next("+1h", after: after, timeZone: tz)
+                == after.addingTimeInterval(3600))
+    }
+
+    @Test("Plus-prefixed offsets are NOT recurring")
+    func plusOffsetNotRecurring() {
+        #expect(!CronSchedule.isRecurring("+2m"))
+        #expect(!CronSchedule.isRecurring("+30s"))
+        // A bare interval stays recurring; garbage "+" stays dead.
+        #expect(CronSchedule.isRecurring("2m"))
+        #expect(!CronSchedule.isRecurring("+junk"))
+        #expect(!CronSchedule.isValid("+junk"))
+        #expect(CronSchedule.isValid("+5m"))
+    }
+
     @Test("Daily at 9am in the schedule's timezone")
     func dailyAtNine() {
         let tz = TimeZone(identifier: "Europe/Berlin")!

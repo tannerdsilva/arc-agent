@@ -67,7 +67,17 @@ public actor TesseraCronStore: CronStore {
         try await conn.ensureStarted()
         let seq = await conn.takeSequence()
         let content = String(decoding: try JSONEncoder().encode(TesseraCronRecord(seq: seq, job: job)), as: UTF8.self)
-        try await conn.publish(kind: Self.kind, dTagValue: Self.dTag(for: job.id, seq: seq), content: content)
+        // Cron writes are correctness-critical and low-frequency: wait for
+        // the relay's echo. A wedged tunnel previously swallowed the frame
+        // while the caller reported success — the job never existed.
+        do {
+            _ = try await conn.publishAwaitingEcho(kind: Self.kind, dTagValue: Self.dTag(for: job.id, seq: seq), content: content)
+        } catch TesseraStoreError.echoTimeout {
+            // The local index already holds the write (read-after-write) —
+            // drop it, the event does not exist on the relay.
+            cache[job.id] = nil
+            throw TesseraStoreError.echoTimeout("cron job '\(job.id)' not persisted")
+        }
         cache[job.id] = job
     }
 

@@ -19,6 +19,9 @@ public enum TesseraStoreError: Swift.Error, CustomStringConvertible {
     case publishTimeout
     /// The tunnel deletion did not complete within the bound.
     case deleteTimeout
+    /// The relay never echoed a write awaiting acknowledgement — the event
+    /// was framed but the relay did not durably store it (wedged tunnel).
+    case echoTimeout(String)
 
     public var description: String {
         switch self {
@@ -36,6 +39,8 @@ public enum TesseraStoreError: Swift.Error, CustomStringConvertible {
             return "Tessera relay write timed out"
         case .deleteTimeout:
             return "Tessera relay delete timed out"
+        case .echoTimeout(let detail):
+            return "Tessera relay never acknowledged the write: \(detail)"
         }
     }
 
@@ -45,7 +50,7 @@ public enum TesseraStoreError: Swift.Error, CustomStringConvertible {
     public var isUnavailable: Bool {
         switch self {
         case .notConfigured, .notStarted, .connectTimeout, .eoseTimeout,
-             .publishTimeout, .deleteTimeout:
+             .publishTimeout, .deleteTimeout, .echoTimeout:
             return true
         case .invalidKeys:
             return false
@@ -186,6 +191,15 @@ public actor TesseraConnection {
     /// write would miss it. These pending records give deterministic
     /// read-after-write semantics; they are dropped once the echo lands.
     private var pendingRecords: [PendingRecord] = []
+    // Subscription liveness (see monitorSubscriptionLiveness). lastEOSEAt
+    // updates on every EOSE frame; lastModelGrowthAt on every echo landing
+    // or external arrival. A tunnel that receives nothing for minutes has
+    // almost certainly lost its fan-out (the observed "scheduler runs a
+    // days-old snapshot" failure) — the watchdog re-subscribes, then
+    // escalates to a hard reconnect.
+    private var lastEOSEAt = Date()
+    private var lastModelGrowthAt = Date()
+    private var livenessStrikes = 0
 
     // MARK: Live change signal (fix — session list refreshes on share events)
 
@@ -501,11 +515,13 @@ public actor TesseraConnection {
         // the index (we indexed it at publish time), so nothing to add.
         var unlanded: [PendingRecord] = []
         unlanded.reserveCapacity(pendingRecords.count)
+        var echoLanded = false
         for pending in pendingRecords {
-            if storage[pending.id] != nil { continue }
+            if storage[pending.id] != nil { echoLanded = true; continue }
             unlanded.append(pending)
         }
         pendingRecords = unlanded
+        if echoLanded { lastModelGrowthAt = Date() }
 
         let expected = recordIndex.count - unlanded.count
         if storage.count == expected { return } // converged: O(pending) only
@@ -542,6 +558,7 @@ public actor TesseraConnection {
         // Additions: external events that arrived since the last reconcile.
         // Delta-add only the unknown ids (O(model) iteration, but this fires
         // only on genuinely external arrivals).
+        lastModelGrowthAt = Date()
         for (id, event) in storage {
             guard !recordIndex.ids.contains(id) else { continue }
             let dTag = findTag(tags: event.tags.array, as: DTag.self)
@@ -591,8 +608,9 @@ public actor TesseraConnection {
                 myNostrPublicKey: publicKey
             )
             let tracker = EOSETracker(expected: Self.subscriptionIDs)
-            session.onEOSE = { [weak tracker] eose in
+            session.onEOSE = { [weak tracker, weak self] eose in
                 tracker?.mark(String(eose.subscriptionID))
+                Task { await self?.markReceiveAlive() }
             }
             session.onNotice = { [weak self] text in
                 FileHandle.standardError.write(Data("[tessera] notice: \(text)\n".utf8))
@@ -668,6 +686,7 @@ public actor TesseraConnection {
             // guest tunnel as they arrive. Structured-concurrency Task; the
             // connection is process-wide so it lives for the process.
             Task { await self.monitorStreamDeltas() }
+            Task { await self.monitorSubscriptionLiveness() }
 
             // Recover a partial/empty history after a reconnect. Reconnecting to
             // a long-running relay can land while it is still recreating its KCP
@@ -713,6 +732,32 @@ public actor TesseraConnection {
     /// Build, sign, and publish an event with the given kind, `d` tag value,
     /// and UTF-8 content.
     public func publish(kind: UInt32, dTagValue: String, content: String) async throws {
+        _ = try await signAndSend(kind: kind, dTagValue: dTagValue, content: content)
+    }
+
+    /// Publish, then WAIT for the relay's echo. Fire-and-forget sends can
+    /// vanish into a wedged tunnel while still returning success — the
+    /// event is signed, framed, and then silently dropped, and nothing in
+    /// the caller sees a failure (the observed "tool created a job" that
+    /// never persisted). Returns the event id after the echo has landed in
+    /// the local model, proving the relay durably stored it.
+    public func publishAwaitingEcho(
+        kind: UInt32, dTagValue: String, content: String,
+        timeout: TimeInterval = 5
+    ) async throws -> NOSTR_id {
+        let eventID = try await signAndSend(kind: kind, dTagValue: dTagValue, content: content)
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        while ContinuousClock.now < deadline {
+            if let model, model.modelStorage[eventID] != nil { return eventID }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        throw TesseraStoreError.echoTimeout(
+            "write not acknowledged by relay within \(Int(timeout))s (kind \(kind))"
+        )
+    }
+
+    /// Sign, index locally, enqueue as pending, and frame out to the relay.
+    private func signAndSend(kind: UInt32, dTagValue: String, content: String) async throws -> NOSTR_id {
         guard isStarted, let session, let nostrPublicKey, let nostrPrivateKey else {
             throw TesseraStoreError.notStarted
         }
@@ -746,6 +791,7 @@ public actor TesseraConnection {
         // A clean write proves the agent's user is authorized — drop any stale
         // rejection the health check would otherwise keep reporting.
         lastAuthRejection = nil
+        return signed.unsignedEvent.id
     }
 
     /// Records a relay authorization rejection for the health check to report.
@@ -1001,6 +1047,56 @@ public actor TesseraConnection {
     /// Coalescing background diff of kind-3008 arrivals, yielding each new
     /// delta onto ``streamDeltas``. Dedupes by event id so a reconnect replay
     /// never re-emits already-surfaced chunks.
+    /// Echo landed or an external event arrived — the receive path works.
+    private func markReceiveAlive() {
+        lastEOSEAt = Date()
+        lastModelGrowthAt = Date()
+        livenessStrikes = 0
+    }
+
+    /// Background subscription liveness watchdog. A wedged tunnel can keep
+    /// ACCEPTING writes (frames vanish) while delivering nothing back — the
+    /// local model freezes and every cached read serves days-old data.
+    /// Detection: no EOSE AND no model growth for `staleness` seconds.
+    /// Response: re-subscribe the cron kind (cheap, idempotent — the relay
+    /// re-emits stored events into the keyed model, no duplicates); if two
+    /// more quiet periods pass, hardShutdown so the next operation
+    /// reconnects from scratch.
+    private func monitorSubscriptionLiveness() async {
+        let staleness: TimeInterval = 600      // 10 quiet minutes...
+        let period: UInt64 = 60                // ...checked every minute
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: period * 1_000_000_000)
+            guard isStarted, session != nil else { continue }
+            let quietFor = min(Date().timeIntervalSince(lastEOSEAt),
+                               Date().timeIntervalSince(lastModelGrowthAt))
+            if quietFor < staleness {
+                livenessStrikes = 0
+                continue
+            }
+            livenessStrikes += 1
+            if livenessStrikes >= 3 {
+                Logger(label: "arc-agent.tessera").error(
+                    "Tessera subscription delivered nothing for \(Int(quietFor))s — reconnecting (stale model would serve days-old data)")
+                await hardShutdown()
+                return  // a fresh ensureStarted relaunches the watchdog
+            }
+            // Gentle first response: re-subscribe the cron kind. The relay
+            // re-emits stored events + EOSE, which refreshes the model AND
+            // (if the frames land) proves the receive path alive.
+            Logger(label: "arc-agent.tessera").notice(
+                "Tessera quiet \(Int(quietFor))s — re-subscribing cron kind to verify the subscription")
+            if let session, let config {
+                for (sub, kind) in Self.subscriptionKinds where sub == "arc-cron" {
+                    try? await session.subscribe(
+                        subscriptionID: sub,
+                        filters: [Filter(applications: [config.application], kinds: [kind])]
+                    )
+                }
+            }
+        }
+    }
+
     private func monitorStreamDeltas() async {
         while true {
             try? await Task.sleep(nanoseconds: 200_000_000)

@@ -229,9 +229,13 @@ public enum ArcDaemon {
         jobRunner = { job in
             if let script = job.script, !script.isEmpty {
                 let outcome = await CronScriptRunner.run(script: script)
+                // A failed script is a FAILED RUN: the descriptive text
+                // rides `output` (visible in the run row) and `error`
+                // (stamps `lastStatus`/`lastError` on the job).
                 return CronRunResult(
                     output: outcome.failed ? (outcome.output ?? "script failed") : (outcome.output ?? ""),
-                    deliveryError: nil
+                    deliveryError: nil,
+                    error: outcome.failed ? (outcome.output ?? "script failed") : nil
                 )
             }
             // context_from chaining (§8): inject upstreams' latest ok
@@ -245,7 +249,17 @@ public enum ArcDaemon {
                     resolve: CronChaining.makeResolver(store: cronStore, history: cronHistory)
                 )
             }
-            return try await selectedRunner(runJob)
+            var result = try await selectedRunner(runJob)
+            // The turn engine surfaces exhausted retries as the literal
+            // first response "Error: <reason>" (ArcAgent turn loop) — that
+            // is a failed run, not a successful answer, so it stamps
+            // error instead of [ok].
+            if result.error == nil, result.output.hasPrefix("Error: ") {
+                result = CronRunResult(output: result.output,
+                                       deliveryError: result.deliveryError,
+                                       error: result.output)
+            }
+            return result
         }
         // One daemon-wide wall-clock zone: jobs are statements about this
         // machine, so a job's hour means the hour *here* (`cron.time_zone`,

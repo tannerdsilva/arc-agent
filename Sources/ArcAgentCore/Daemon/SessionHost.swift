@@ -233,7 +233,8 @@ public struct SessionHost: Service {
                 let outcome = await CronScriptRunner.run(script: script)
                 if outcome.failed {
                     return CronRunResult(output: outcome.output ?? "script failed",
-                                         deliveryError: nil)
+                                         deliveryError: nil,
+                                         error: outcome.output ?? "script failed")
                 }
                 if let text = outcome.output {
                     return CronRunResult(output: text)
@@ -295,7 +296,15 @@ public struct SessionHost: Service {
                     deliveryError = "delivery to '\(job.deliver ?? "?")' failed: \(error)"
                 }
             }
-            return CronRunResult(output: finalOutput, deliveryError: deliveryError)
+            var result = CronRunResult(output: finalOutput, deliveryError: deliveryError)
+            // The turn engine surfaces exhausted retries as the literal
+            // first response "Error: <reason>" — a failed run, not an ok one.
+            if finalOutput.hasPrefix("Error: ") {
+                result = CronRunResult(output: finalOutput,
+                                       deliveryError: deliveryError,
+                                       error: finalOutput)
+            }
+            return result
         }
     }
 

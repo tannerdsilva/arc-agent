@@ -231,6 +231,21 @@ public enum CronOps {
         return job
     }
 
+    /// Resolve a job id that may be a PREFIX. Exact match wins; otherwise a
+    /// unique prefix resolves to the full id. The CLI's `list` prints
+    /// `id.prefix(8)` — every verb must be usable with what it prints.
+    public static func resolveJobID(store: any CronStore, id: String) async throws -> String {
+        if try await store.get(id: id) != nil { return id }
+        let all = try await store.listAll()
+        let hits = all.filter { $0.id.hasPrefix(id) }
+        switch hits.count {
+        case 1: return hits[0].id
+        case 0: throw CronOpsError("no such job: \(id)")
+        default:
+            throw CronOpsError("ambiguous id prefix '\(id)' — matches \(hits.map { String($0.id.prefix(8)) }.joined(separator: ", "))")
+        }
+    }
+
     // MARK: - Run now
 
     /// Arm a job to fire on the scheduler's next pass: `nextRunAt = now`.

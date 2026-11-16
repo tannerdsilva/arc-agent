@@ -176,10 +176,15 @@ public struct CronRunResult: Sendable {
     /// Why delivery to `job.deliver` failed, if it did. Nil = delivered
     /// (or nothing to deliver). Never affects `lastStatus`.
     public let deliveryError: String?
+    /// Why the RUN itself failed, if it did. Nil = the run succeeded and
+    /// `lastStatus` stamps "ok"; non-nil stamps "error" (with `output`
+    /// preserved as the failure text — a failed run still has a record).
+    public let error: String?
 
-    public init(output: String, deliveryError: String? = nil) {
+    public init(output: String, deliveryError: String? = nil, error: String? = nil) {
         self.output = output
         self.deliveryError = deliveryError
+        self.error = error
     }
 }
 

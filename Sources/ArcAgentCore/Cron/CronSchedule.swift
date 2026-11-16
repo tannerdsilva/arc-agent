@@ -60,6 +60,15 @@ public enum CronSchedule {
             return nextISO(trimmed, after: date, timeZone: timeZone)
         }
 
+        // A "+N<unit>" RELATIVE schedule is a one-shot offset from the
+        // reference instant: "+2m" means "two minutes from `after`". The
+        // leading + is what makes it an offset rather than a cadence —
+        // "2m" alone remains recurring (every two minutes).
+        if lowered.hasPrefix("+"),
+           let interval = intervalSeconds(String(lowered.dropFirst())) {
+            return date.addingTimeInterval(interval)
+        }
+
         if let interval = intervalSeconds(lowered) {
             return date.addingTimeInterval(interval)
         }
@@ -78,6 +87,13 @@ public enum CronSchedule {
         if trimmed.contains("T") || lowered.contains("t") {
             return false  // ISO instant — fires at most once
         }
+        // "+2m" is an offset one-shot (fire once, two minutes out), not a
+        // cadence — the + distinguishes it from a plain "2m" interval. An
+        // unparseable "+" expression can never fire at all, so it is not
+        // recurring either (it lands on the dead-job path, not re-arm).
+        if lowered.hasPrefix("+") {
+            return false
+        }
         return true
     }
 
@@ -91,6 +107,9 @@ public enum CronSchedule {
         let lowered = trimmed.lowercased()
         if trimmed.contains("T") || lowered.contains("t") {
             return parseISO(trimmed, in: .current) != nil
+        }
+        if lowered.hasPrefix("+") {
+            return intervalSeconds(String(lowered.dropFirst())) != nil
         }
         if intervalSeconds(lowered) != nil { return true }
         return parseCron(lowered) != nil

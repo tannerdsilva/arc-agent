@@ -638,10 +638,20 @@ extension AppState {
     /// The cron expression the current draft builds. The job kind comes
     /// first: a one-shot builds an ISO instant, a manual job builds an
     /// empty schedule, and only recurring uses the preset machinery.
-    func taskScheduleExpression() -> String {
+    func taskScheduleExpression() -> String { taskScheduleExpression(from: nil) }
+
+    /// Submit-time variant: prefer the form payload over the actor draft.
+    /// The draft is fed by change wires, and a Save click can reach the
+    /// controller before the typed value's change event — reading the draft
+    /// there silently SAVED THE OLD SCHEDULE (the custom-cron drop).
+    func taskScheduleExpression(from event: EventData?) -> String {
+        func field(_ id: String, _ draft: String) -> String {
+            guard let event, let v = event.string(id), !v.isEmpty else { return draft }
+            return v
+        }
         switch taskJobKind {
         case "oneshot":
-            return taskSchedWhen.trimmingCharacters(in: .whitespacesAndNewlines)
+            return field("task-when", taskSchedWhen).trimmingCharacters(in: .whitespacesAndNewlines)
         case "manual":
             return ""
         default:
@@ -649,14 +659,14 @@ extension AppState {
         }
         switch taskSchedPreset {
         case "every":
-            let n = max(1, Int(taskSchedEvery) ?? 15)
-            return "every \(n)\(taskSchedUnit)"
+            let n = max(1, Int(field("task-every", taskSchedEvery)) ?? 15)
+            return "every \(n)\(field("task-unit", taskSchedUnit))"
         case "daily":
-            return clockCron(taskSchedTime, dow: nil)
+            return clockCron(field("task-time", taskSchedTime), dow: nil)
         case "weekly":
-            return clockCron(taskSchedTime, dow: Int(taskSchedDow))
+            return clockCron(field("task-time", taskSchedTime), dow: Int(field("task-dow", taskSchedDow)))
         default:
-            return taskSchedCustom
+            return field("task-custom", taskSchedCustom)
         }
     }
 
@@ -1672,7 +1682,7 @@ extension Controller {
             let profile = event.string("task-profile") ?? ""
             let workspace = event.string("task-workspace") ?? ""
             let jobModel = event.string("task-model") ?? ""
-            let schedule = await self.app.taskScheduleExpression()
+            let schedule = await self.app.taskScheduleExpression(from: event)
             let kind = await self.app.taskJobKind
             let runBudget: Int? = kind == "oneshot" ? 1 : nil
             // The edit target rides the form payload (hidden field), not
