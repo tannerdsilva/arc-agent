@@ -252,6 +252,9 @@ extension KanbanAgent {
         public var result: CardResult?
         /// Artifact ids — raw outputs live here, not in the body.
         public var attachments: [String]
+        /// Triage cooldown: when set, the card re-runs no earlier than this
+        /// (invariant 1, answer 10). Nil = not cooling down.
+        public var triageRetryAt: Date?
 
         public init(
             id: String = UUID().uuidString,
@@ -282,6 +285,7 @@ extension KanbanAgent {
             self.transitionProvenance = []
             self.result = nil
             self.attachments = []
+            self.triageRetryAt = nil
         }
     }
 }
@@ -463,6 +467,9 @@ extension KanbanAgent {
         public var settings: BoardSettings
         /// Bumped on every save; the store refuses stale writers.
         public var revision: Int
+        /// Single-writer lease (spec 04 §1): the daemon currently driving
+        /// this board. Nil or stale → free to claim.
+        public var engineLease: EngineLease?
         public let schemaVersion: Int
 
         public init(
@@ -483,7 +490,20 @@ extension KanbanAgent {
             self.roots = roots
             self.settings = settings
             self.revision = revision
+            self.engineLease = nil
             self.schemaVersion = Self.schemaVersion
+        }
+    }
+
+    /// A claim on a board by one daemon's engine (spec 04 §1). A second
+    /// daemon may claim the same board only after the heartbeat goes stale.
+    public struct EngineLease: Sendable, Codable, Equatable {
+        public var ownerID: String
+        public var heartbeatAt: Date
+
+        public init(ownerID: String, heartbeatAt: Date = Date()) {
+            self.ownerID = ownerID
+            self.heartbeatAt = heartbeatAt
         }
     }
 
