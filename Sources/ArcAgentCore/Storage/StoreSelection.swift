@@ -152,7 +152,20 @@ public actor RuntimeCronStore: CronStore {
 
     private func resolve() async -> any CronStore {
         if let store { return store }
-        let tessera = await TesseraAvailability.shared.isTesseraActive()
+        // The availability probe can fail transiently (relay restarting,
+        // first-connect latency). Locking File mode on one bad probe would
+        // strand jobs in ~/.arc/cron — the "deleted tasks reappear" bug —
+        // so retry before falling back.
+        var tessera = await TesseraAvailability.shared.isTesseraActive()
+        if !tessera {
+            for _ in 0..<2 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if await TesseraAvailability.shared.isTesseraActive() {
+                    tessera = true
+                    break
+                }
+            }
+        }
         let chosen: any CronStore = tessera ? TesseraCronStore() : FileCronStore()
         store = chosen
         return chosen

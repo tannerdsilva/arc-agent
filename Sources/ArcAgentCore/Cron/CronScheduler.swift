@@ -25,6 +25,10 @@ import ServiceLifecycle
 public actor CronScheduler: Service {
 
     private let store: any CronStore
+    /// Jobs whose post-run save failed (e.g. the relay write was not
+    /// acknowledged). Their run ALREADY happened — re-firing would burn the
+    /// LLM again; instead the next pass retries ONLY the bookkeeping.
+    private var pendingBookkeeping: Set<String> = []
     private let pollInterval: UInt64
     /// The wall-clock zone cron schedules in. Daemon-wide (``CronConfig``):
     /// a job's "9am" means 9am *here*, regardless of which profile wrote it.
@@ -105,6 +109,23 @@ public actor CronScheduler: Service {
 
         var due: [CronJob] = []
         for var job in activeJobs {
+            // A run whose bookkeeping failed last pass: do NOT re-fire the
+            // job (the run already happened — a re-fire would double-burn
+            // the LLM). Retry the save alone until the store accepts it.
+            if pendingBookkeeping.contains(job.id), job.lastRunAt != nil {
+                var repair = job
+                repair.nextRunAt = CronSchedule.isRecurring(job.schedule)
+                    ? CronSchedule.next(job.schedule, after: job.lastRunAt!, timeZone: timeZone)
+                    : nil
+                do {
+                    try await store.save(repair)
+                    pendingBookkeeping.remove(job.id)
+                    logger.info("Cron job '\(job.name)': delayed bookkeeping landed after the store recovered")
+                } catch {
+                    logger.warning("Cron job '\(job.name)': bookkeeping retry failed (\(error)) — will retry")
+                }
+                continue
+            }
             // Paused jobs never fire. `isActive` is false AND `pausedAt`
             // set — the transition is visible on the job, no per-poll
             // spam beyond one debug line.
@@ -137,7 +158,13 @@ public actor CronScheduler: Service {
                 continue
             }
             var nextRun = job.nextRunAt ?? CronSchedule.next(job.schedule, after: now, timeZone: timeZone)
-            if job.nextRunAt == nil, let computed = nextRun {
+            // First-compute must not resurrect a SPENT one-shot: next()
+            // for a "+2m" offset always returns a future instant, so a
+            // fired one-shot whose pointer is nil would be re-armed into
+            // the future and fire AGAIN (the +2m repeat-forever bug).
+            // Only recurring schedules (and never-fired jobs) arm here.
+            if job.nextRunAt == nil, let computed = nextRun,
+               job.lastRunAt == nil || CronSchedule.isRecurring(job.schedule) {
                 // First compute — store once, so the UI shows a real next
                 // run instead of "—" until the firing pass.
                 job.nextRunAt = computed
@@ -239,8 +266,6 @@ public actor CronScheduler: Service {
                 job.lastOutput = "Executed at \(now)"
                 job.lastDeliveryError = nil
             }
-            job.lastStatus = "ok"
-            job.lastError = nil
         } catch {
             if isTimeout(error) {
                 logger.error("Cron job \(job.name) exceeded its \(self.runTimeout.map { Int($0) } ?? 0)s run timeout — cancelled")
@@ -348,7 +373,13 @@ public actor CronScheduler: Service {
             )
             try? await history.record(run, jobID: job.id)
         }
-        try? await store.save(persist)
+        do {
+            try await store.save(persist)
+        } catch {
+            pendingBookkeeping.insert(job.id)
+            logger.error("Cron job '\(job.name)': post-run save failed (\(error)) — bookkeeping deferred, job will NOT re-fire until it lands")
+            return
+        }
     }
 
     /// Bound one runner invocation by the run timeout: a structured race

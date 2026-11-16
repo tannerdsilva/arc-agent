@@ -24,6 +24,22 @@ struct CronRunHistoryTests {
         return run
     }
 
+    @Test("a runner-reported failure stamps lastStatus=error, not ok")
+    func runnerReportedFailureStampsError() async throws {
+        let dir = tempDir("errstamp")
+        let store = FileCronStore(directory: dir)
+        var job = CronJob(name: "failing", schedule: "1h", prompt: "x")
+        job.nextRunAt = Date().addingTimeInterval(-10)
+        try await store.save(job)
+        let scheduler = CronScheduler(store: store, pollIntervalSeconds: 1,
+            jobRunner: { _ in CronRunResult(output: "script failed (exit 3)", error: "script failed (exit 3)") })
+        try await scheduler.runDueJobs()
+        let after = try await store.get(id: job.id)
+        #expect(after?.lastStatus == "error")
+        #expect(after?.lastError == "script failed (exit 3)")
+        #expect(after?.lastOutput == "script failed (exit 3)")
+    }
+
     @Test("records append per attempt; listRuns is newest-first")
     func appendAndOrder() async throws {
         let dir = tempDir("order")

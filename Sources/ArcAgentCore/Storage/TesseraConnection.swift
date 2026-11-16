@@ -558,9 +558,10 @@ public actor TesseraConnection {
         // Additions: external events that arrived since the last reconcile.
         // Delta-add only the unknown ids (O(model) iteration, but this fires
         // only on genuinely external arrivals).
-        lastModelGrowthAt = Date()
+        var arrivals = 0
         for (id, event) in storage {
             guard !recordIndex.ids.contains(id) else { continue }
+            arrivals += 1
             let dTag = findTag(tags: event.tags.array, as: DTag.self)
                 .flatMap { Self.stringValue($0.value) }
             let content = Self.stringValue(event.content) ?? ""
@@ -571,6 +572,7 @@ public actor TesseraConnection {
                 seq: seq
             )
         }
+        if arrivals > 0 { lastModelGrowthAt = Date() }
     }
 
     // MARK: - Connection lifecycle
@@ -751,6 +753,13 @@ public actor TesseraConnection {
             if let model, model.modelStorage[eventID] != nil { return eventID }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
+        // The echo arrives via the live subscription — a timeout means the
+        // receive path is dead (or the frame was lost). Escalate NOW: the
+        // next operation reconnects from scratch instead of serving a
+        // frozen model for days (the observed 3-day wedge).
+        Logger(label: "arc-agent.tessera").error(
+            "Tessera write echo never landed after \(Int(timeout))s (kind \(kind)) — forcing reconnect")
+        await hardShutdown()
         throw TesseraStoreError.echoTimeout(
             "write not acknowledged by relay within \(Int(timeout))s (kind \(kind))"
         )
