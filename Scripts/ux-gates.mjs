@@ -100,8 +100,87 @@ function record(gate, name, status, detail) {
   console.log(`  [${mark}] ${gate} · ${name}`);
 }
 const skipped = () => results.filter((r) => r.ok === 'skip');
+const infraRows = () => results.filter((r) => r.detail && r.detail.infra === true);
 let checks = 0;
 const check = (cond, label) => { checks++; if (!cond) throw new Error(label); };
+
+// ---------------------------------------------------------------------------
+// infra guard (D2c.2)
+//
+// An infra error — a CDP command that times out, a `waitFor` whose predicate
+// never holds, a navigation that never lands — is a verdict about the
+// INSTRUMENT, not about the page. It may cost ONE row; it may never cost the
+// run. Measured (D8): 77 of 78 rows passed, then `waitFor(scheme ares active)`
+// threw and every one of those rows went unprinted — exit 2, "not a
+// measurement". A run that does not reach its tally line is not evidence of
+// anything, however good its rows looked.
+//
+// `guard()` wraps one gate group. A thrown error records a single
+// `infra: <step> — <message>` SKIP for that group and the next group runs.
+// The skip is an honest verdict, not a quiet pass: under `--strict` a skip
+// fails the run exactly like a failed row does.
+//
+// What this deliberately does NOT touch: `record(gate, name, false, …)`. An
+// assertion is a verdict about the page and is recorded by the gate itself;
+// `guard()` only sees what is THROWN. There is no path from a false assertion
+// to a skip — if an error's class is uncertain, it stays a FAIL and is
+// reported.
+//
+// `stepInFlight` names the step a throw came out of. `instrumentDriver()`
+// keeps it current on the driver's own methods, so no gate body has to
+// remember to say where it was.
+
+let stepInFlight = 'setup';
+
+/// one-line, length-bounded rendering of an expression/path for a row name
+const stepHead = (v, n = 70) => {
+  const s = String(v).replace(/\s+/g, ' ').trim();
+  return s.length > n ? s.slice(0, n) + '…' : s;
+};
+
+/// wrap the driver so the last-started CDP operation is knowable when one
+/// throws. Only the operations with a human-meaningful name are wrapped.
+function instrumentDriver(d) {
+  // depth of an operation whose OUTER name should win: waitFor/navigate poll
+  // through js(), and that inner call must not rename the step from the label
+  // the gate asked for to the expression it polls.
+  let inNamed = 0;
+  const waitFor = d.waitFor.bind(d);
+  d.waitFor = async (expr, o = {}) => {
+    stepInFlight = o.label || `eval ${stepHead(expr)}`;
+    inNamed++;
+    try { return await waitFor(expr, o); } finally { inNamed--; }
+  };
+  const js = d.js.bind(d);
+  d.js = async (expr, o) => {
+    if (!inNamed) stepInFlight = `eval ${stepHead(expr)}`;
+    return js(expr, o);
+  };
+  const navigate = d.navigate.bind(d);
+  d.navigate = async (url, o) => {
+    stepInFlight = `navigate ${url}`;
+    inNamed++;
+    try { return await navigate(url, o); } finally { inNamed--; }
+  };
+  const screenshot = d.screenshot.bind(d);
+  d.screenshot = async (path) => { stepInFlight = `screenshot ${String(path).split('/').pop()}`; return screenshot(path); };
+  return d;
+}
+
+/// run one gate group; a throw costs that group one infra SKIP row, not the run
+async function guard(gate, fn) {
+  const rowsBefore = results.length;
+  try {
+    await fn();
+  } catch (err) {
+    const message = (err && err.message) ? err.message : String(err);
+    const step = stepInFlight || 'unknown step';
+    record(gate, `infra: ${step} — ${message}`, 'skip', {
+      infra: true, gate, step, error: message, rowsBefore,
+    });
+    console.error(`  ! ${gate}: infra error cost one row (${rowsBefore} rows already recorded); continuing to the next group`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // driver + page helpers
@@ -3643,6 +3722,39 @@ async function runSchemes() {
   const dir = `${HERE}assets/schemes/`;
   mkdirSync(dir, { recursive: true });
 
+  // A capture that times out is an instrument verdict, not a page verdict.
+  // Retry ONCE at the driver's existing 30 s CDP deadline (no bound changes:
+  // the retry is a second attempt, not a longer wait), and if it fails again
+  // record one infra SKIP for that capture and keep going — the scheme's own
+  // row and the other 26 schemes survive. D4b/D4c died here.
+  const shots = { ok: 0, skipped: 0 };
+  const shot = async (path, label) => {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try { await driver.screenshot(path); shots.ok++; return true; }
+      catch (err) {
+        const message = (err && err.message) ? err.message : String(err);
+        console.warn(`  schemes: ${label} attempt ${attempt}/2 failed — ${message}`);
+        if (attempt === 2) {
+          shots.skipped++;
+          record('schemes', `infra: ${label} — ${message}`, 'skip', {
+            infra: true, step: label, error: message, attempts: 2,
+          });
+          return false;
+        }
+        await waitMs(500);
+      }
+    }
+    return false;
+  };
+
+  // the settings grid is where every scheme is selected from; a page that
+  // cannot get back there is the GROUP's failure, so this throws to guard().
+  const backToGrid = async () => {
+    await ev(`document.getElementById('nav-settings')?.click()`);
+    await driver.waitFor(`document.querySelectorAll('[data-scheme-choice]').length > 0`, { timeoutMs: 8000, label: 'scheme grid' });
+    await settle(200);
+  };
+
   await ev(`document.getElementById('nav-settings')?.click()`);
   await driver.waitFor(`document.querySelectorAll('[data-scheme-choice]').length > 0`, { timeoutMs: 10000, label: 'scheme grid' });
   await settle(300);
@@ -3671,18 +3783,16 @@ async function runSchemes() {
     const tokens = await ev(`uxSchemes.tokens()`);
     // settings screenshot (we are on settings right now)
     await settle(300);
-    await driver.screenshot(`${dir}${slug(id)}-settings.png`);
+    const settingsShot = await shot(`${dir}${slug(id)}-settings.png`, `screenshot ${slug(id)}-settings.png`);
     // chat screenshot
     await ev(`document.getElementById('nav-chat')?.click()`);
     await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000, label: 'chat view' });
     await settle(500);
-    await driver.screenshot(`${dir}${slug(id)}-chat.png`);
-    out.schemes.push({ id, label, slug: slug(id), tokens, order: idx });
+    const chatShot = await shot(`${dir}${slug(id)}-chat.png`, `screenshot ${slug(id)}-chat.png`);
+    out.schemes.push({ id, label, slug: slug(id), tokens, order: idx, shots: { settings: settingsShot, chat: chatShot } });
     if (idx % 5 === 0) console.log(`    ${idx}/${ordered.length} schemes captured`);
-    // back to settings
-    await ev(`document.getElementById('nav-settings')?.click()`);
-    await driver.waitFor(`document.querySelectorAll('[data-scheme-choice]').length > 0`, { timeoutMs: 8000 });
-    await settle(200);
+    // back to settings for the next scheme
+    await backToGrid();
   }
 
   const index = {
@@ -3690,14 +3800,18 @@ async function runSchemes() {
     app: APP,
     generatedAt: new Date().toISOString(),
     count: out.schemes.length,
+    shots,
     notes: 'tokens are computed CSS custom-property values on :root for each scheme; ratios are sanity numbers (0 when a token could not be parsed).',
     schemes: out.schemes,
   };
   writeFileSync(`${HERE}schemes-index.json`, JSON.stringify(index, null, 2));
-  console.log(`  schemes-index.json written (${out.schemes.length} schemes); PNGs in Scripts/assets/schemes/`);
+  console.log(`  schemes-index.json written (${out.schemes.length} schemes); PNGs in Scripts/assets/schemes/ (${shots.ok} captured, ${shots.skipped} skipped)`);
 
+  // The row is the sheet's coverage — every registry scheme was visited and
+  // its tokens read. A capture that failed is its own infra SKIP above (and
+  // fails the run under --strict); it does not turn coverage into a FAIL.
   const ok = out.schemes.length === list.count && list.count === 27;
-  record('schemes', `contact sheet of ${list.count} registry schemes (chat+settings each)`, ok, { gridCount: list.count, captured: out.schemes.length });
+  record('schemes', `contact sheet of ${list.count} registry schemes (chat+settings each)`, ok, { gridCount: list.count, captured: out.schemes.length, shots });
   if (list.count !== 27) {
     console.error(`  NOTE: settings grid lists ${list.count} schemes; expected 27 from the catalog. This is a registry/app discrepancy worth reporting.`);
   }
@@ -3706,6 +3820,73 @@ async function runSchemes() {
 // ---------------------------------------------------------------------------
 // main
 
+// The gate groups, in the order they run. Each is wrapped by guard(), so a
+// throw costs that group one infra SKIP row and the next group still runs.
+const GROUPS = [
+  ['contrast', () => RUN.contrast, runContrast],
+  ['interactions', () => RUN.interactions, runInteractions],
+  ['upload', () => RUN.upload, runUpload],
+  ['scroll', () => RUN.scroll, runScroll],
+  ['focus', () => RUN.focus, runFocus],
+  ['drawer', () => RUN.drawer, runDrawer],
+  ['draft', () => RUN.draft, runDraft],
+  ['composer', () => RUN.composer, runComposer],
+  ['theme', () => RUN.theme, runTheme],
+  ['residue', () => RUN.residue, runResidue],
+  ['motion', () => RUN.motion, runMotion],
+  ['regression', () => RUN.regression, runRegression],
+  ['round4', () => RUN.round4, runRound4],
+  ['schemes', () => RUN.schemes, runSchemes],
+];
+
+function writeReport() {
+  const refused = results.filter((r) => r.ok === false);
+  const skp = skipped();
+  writeFileSync(`${HERE}gates-report.json`, JSON.stringify({
+    command: `node Scripts/ux-gates.mjs${opts.only ? ' --only=' + opts.only.join(',') : ''}${opts.strict ? ' --strict' : ''}`,
+    app: APP,
+    generatedAt: new Date().toISOString(),
+    node: process.version,
+    interactions: results.filter((r) => r.gate === 'interactions'),
+    upload: results.filter((r) => r.gate === 'upload'),
+    scroll: results.filter((r) => r.gate === 'scroll'),
+    focus: results.filter((r) => r.gate === 'focus'),
+    drawer: results.filter((r) => r.gate === 'drawer'),
+    draft: results.filter((r) => r.gate === 'draft'),
+    composer: results.filter((r) => r.gate === 'composer'),
+    theme: results.filter((r) => r.gate === 'theme'),
+    residue: results.filter((r) => r.gate === 'residue'),
+    motion: results.filter((r) => r.gate === 'motion'),
+    regression: results.filter((r) => r.gate === 'regression'),
+    round4: results.filter((r) => r.gate === 'round4'),
+    allPass: refused.length === 0,
+    skippedCount: skp.length,
+    infraSkippedCount: infraRows().length,
+    strict: opts.strict,
+  }, null, 2));
+}
+
+/// print every row + the tally line, and return this run's exit code.
+/// Called by BOTH the normal path and the late-error path — a measured row
+/// that never prints is evidence thrown away.
+function summarize(started) {
+  const refused = results.filter((r) => r.ok === false);
+  const skp = skipped();
+  console.log('\n— summary —');
+  for (const r of results) {
+    const mark = r.ok === 'skip' ? 'SKIP' : r.ok ? 'PASS' : 'FAIL';
+    const detail = JSON.stringify(r.detail) ?? 'undefined';
+    console.log(`  [${mark}] ${r.gate} · ${r.name}  ${detail.length > 160 ? detail.slice(0, 160) + '…' : detail}`);
+  }
+  const passedCount = results.filter((r) => r.ok === true).length;
+  console.log(`  ${passedCount}/${results.length} gates passed in ${((Date.now() - started) / 1000).toFixed(0)}s; ${refused.length} failed; ${skp.length} skipped${opts.strict ? ' (--strict: skips fail)' : ''}`);
+  // leave the app's view + settings exactly as found; skips are honorable
+  // verdicts and only fail the run (as hard failures) with --strict
+  const hardFailures = opts.strict
+    ? results.filter((r) => r.ok !== true)
+    : refused;
+  return hardFailures.length ? 1 : 0;
+}
 
 async function main() {
   const started = Date.now();
@@ -3720,7 +3901,11 @@ async function main() {
       if (!opts.keepProfile) try { rmSync(profile, { recursive: true, force: true }); } catch { /* ignore */ }
       driver = await UxDriver.launch({ port: opts.port, userDataDir: profile, headless: opts.headless });
     }
+    instrumentDriver(driver);
 
+    // Everything up to the first record() is the instrument STARTING: driver
+    // attach/launch, probe injection, page load, boot. A throw in here has no
+    // row to print, so it keeps `exit 2` (see the catch below).
     await installProbes();
     await driver.navigate(APP);
     await waitReady();
@@ -3728,68 +3913,42 @@ async function main() {
     await settle(300);
     await snapshotInitialState();
 
-    if (RUN.contrast) await runContrast();
-    if (RUN.interactions) await runInteractions();
-    if (RUN.upload) await runUpload();
-    if (RUN.scroll) await runScroll();
-    if (RUN.focus) await runFocus();
-    if (RUN.drawer) await runDrawer();
-    if (RUN.draft) await runDraft();
-    if (RUN.composer) await runComposer();
-    if (RUN.theme) await runTheme();
-    if (RUN.residue) await runResidue();
-    if (RUN.motion) await runMotion();
-    if (RUN.regression) await runRegression();
-    if (RUN.round4) await runRound4();
-    if (RUN.schemes) await runSchemes();
-
-    const refused = results.filter((r) => r.ok === false);
-    const skp = skipped();
-    writeFileSync(`${HERE}gates-report.json`, JSON.stringify({
-      command: `node Scripts/ux-gates.mjs${opts.only ? ' --only=' + opts.only.join(',') : ''}${opts.strict ? ' --strict' : ''}`,
-      app: APP,
-      generatedAt: new Date().toISOString(),
-      node: process.version,
-      interactions: results.filter((r) => r.gate === 'interactions'),
-      upload: results.filter((r) => r.gate === 'upload'),
-      scroll: results.filter((r) => r.gate === 'scroll'),
-      focus: results.filter((r) => r.gate === 'focus'),
-      drawer: results.filter((r) => r.gate === 'drawer'),
-      draft: results.filter((r) => r.gate === 'draft'),
-      composer: results.filter((r) => r.gate === 'composer'),
-      theme: results.filter((r) => r.gate === 'theme'),
-      residue: results.filter((r) => r.gate === 'residue'),
-      motion: results.filter((r) => r.gate === 'motion'),
-      regression: results.filter((r) => r.gate === 'regression'),
-      round4: results.filter((r) => r.gate === 'round4'),
-      allPass: refused.length === 0,
-      skippedCount: skp.length,
-      strict: opts.strict,
-    }, null, 2));
-
-    await cleanupProbeSessions();
-    await restoreState();
-
-    console.log('\n— summary —');
-    for (const r of results) {
-      const mark = r.ok === 'skip' ? 'SKIP' : r.ok ? 'PASS' : 'FAIL';
-      const detail = JSON.stringify(r.detail) ?? 'undefined';
-      console.log(`  [${mark}] ${r.gate} · ${r.name}  ${detail.length > 160 ? detail.slice(0, 160) + '…' : detail}`);
+    for (const [gate, on, fn] of GROUPS) {
+      if (on()) await guard(gate, fn);
     }
-    const passedCount = results.filter((r) => r.ok === true).length;
-    console.log(`  ${passedCount}/${results.length} gates passed in ${((Date.now() - started) / 1000).toFixed(0)}s; ${refused.length} failed; ${skp.length} skipped${opts.strict ? ' (--strict: skips fail)' : ''}`);
 
-    // leave the app's view + settings exactly as found; skips are honorable
-    // verdicts and only fail the run (as hard failures) with --strict
-    const hardFailures = opts.strict
-      ? results.filter((r) => r.ok !== true)
-      : refused;
-    process.exitCode = hardFailures.length ? 1 : 0;
+    stepInFlight = 'gates-report.json write';
+    await guard('run', writeReport);
+
+    // teardown is infra too: a cleanup that throws must not erase the tally
+    stepInFlight = 'probe cleanup';
+    await guard('run', cleanupProbeSessions);
+    // restoreState already swallows its own error (it is all inside one
+    // try/catch); this guard is the belt to that braces — it cannot rethrow
+    // into main() and mask the tally.
+    stepInFlight = 'state restore';
+    await guard('run', restoreState);
+    process.exitCode = summarize(started);
   } catch (err) {
-    console.error('\nux-gates.mjs failed:', err.message || String(err));
-    try { await cleanupProbeSessions(); } catch { /* ignore */ }
-    try { await restoreState(); } catch { /* ignore */ }
-    process.exitCode = 2;
+    const message = (err && err.message) ? err.message : String(err);
+    // THE PREDICATE: `results.length === 0`. With no row recorded there is no
+    // evidence to print — the instrument never started (launch/attach failed,
+    // the page never loaded, the probe could not be injected), so 2 is the
+    // honest code. One row or more and this run HAS measurements: record the
+    // error as the one row it costs and print the tally like any other run.
+    if (results.length === 0) {
+      console.error(`\nux-gates.mjs could not start (0 rows recorded) at ${stepInFlight}:`, message);
+      try { await restoreState(); } catch { /* ignore */ }
+      process.exitCode = 2;
+    } else {
+      const rowsBefore = results.length;
+      record('run', `infra: ${stepInFlight} — ${message}`, 'skip', {
+        infra: true, step: stepInFlight, error: message, rowsBefore,
+      });
+      console.error(`\nux-gates.mjs: late infra error after ${rowsBefore} row(s) — printing the tally`);
+      try { await restoreState(); } catch { /* restoreState swallows its own error */ }
+      process.exitCode = summarize(started);
+    }
   } finally {
     try { await driver?.close(); } catch { /* ignore */ }
   }
