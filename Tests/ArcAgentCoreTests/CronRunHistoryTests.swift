@@ -17,7 +17,7 @@ struct CronRunHistoryTests {
         return url
     }
 
-    private func record(_ jobID: String = "j1", started: TimeInterval = 1_000) -> CronRunRecord {
+    private func record(_ jobID: String = "hist-j1", started: TimeInterval = 1_000) -> CronRunRecord {
         var run = CronRunRecord(jobID: jobID, startedAt: Date(timeIntervalSince1970: started), output: "hi")
         run.finishedAt = Date(timeIntervalSince1970: started + 5)
         run.status = "ok"
@@ -44,10 +44,10 @@ struct CronRunHistoryTests {
     func appendAndOrder() async throws {
         let dir = tempDir("order")
         let history = FileCronRunHistory(directory: dir)
-        try await history.record(record(started: 1_000), jobID: "j1")
-        try await history.record(record(started: 2_000), jobID: "j1")
-        try await history.record(record(started: 3_000), jobID: "j1")
-        let runs = try await history.listRuns(jobID: "j1", limit: 50)
+        try await history.record(record(started: 1_000), jobID: "hist-j1")
+        try await history.record(record(started: 2_000), jobID: "hist-j1")
+        try await history.record(record(started: 3_000), jobID: "hist-j1")
+        let runs = try await history.listRuns(jobID: "hist-j1", limit: 50)
         #expect(runs.count == 3)
         #expect(runs.first?.startedAt == Date(timeIntervalSince1970: 3_000), "newest first")
         #expect(runs.last?.startedAt == Date(timeIntervalSince1970: 1_000))
@@ -58,13 +58,13 @@ struct CronRunHistoryTests {
         let dir = tempDir("cap")
         let history = FileCronRunHistory(directory: dir)
         for i in 0..<60 {
-            try await history.record(record(started: Double(i)), jobID: "j1")
+            try await history.record(record(started: Double(i)), jobID: "hist-j1")
         }
-        let limited = try await history.listRuns(jobID: "j1", limit: 50)
+        let limited = try await history.listRuns(jobID: "hist-j1", limit: 50)
         #expect(limited.count == 50)
         #expect(limited.first?.startedAt.timeIntervalSince1970 == 59, "the 50 NEWEST, not the first 50 written")
         // nothing was deleted
-        let all = try await history.listRuns(jobID: "j1", limit: 1_000)
+        let all = try await history.listRuns(jobID: "hist-j1", limit: 1_000)
         #expect(all.count == 60)
     }
 
@@ -73,10 +73,10 @@ struct CronRunHistoryTests {
         let dir = tempDir("prune")
         let history = FileCronRunHistory(directory: dir)
         for i in 0..<10 {
-            try await history.record(record(started: Double(i)), jobID: "j1")
+            try await history.record(record(started: Double(i)), jobID: "hist-j1")
         }
-        try await history.prune(jobID: "j1", keep: 3)
-        let runs = try await history.listRuns(jobID: "j1", limit: 1_000)
+        try await history.prune(jobID: "hist-j1", keep: 3)
+        let runs = try await history.listRuns(jobID: "hist-j1", limit: 1_000)
         #expect(runs.count == 3)
         #expect(runs.first?.startedAt.timeIntervalSince1970 == 9)
         #expect(runs.last?.startedAt.timeIntervalSince1970 == 7)
@@ -86,11 +86,11 @@ struct CronRunHistoryTests {
     func corruptedSkipped() async throws {
         let dir = tempDir("corrupt")
         let history = FileCronRunHistory(directory: dir)
-        try await history.record(record(started: 1_000), jobID: "j1")
-        let jobDir = dir.appendingPathComponent("j1", isDirectory: true)
+        try await history.record(record(started: 1_000), jobID: "hist-j1")
+        let jobDir = dir.appendingPathComponent("hist-j1", isDirectory: true)
         try Data("not json".utf8).write(to: jobDir.appendingPathComponent("garbage.json"))
-        try await history.record(record(started: 2_000), jobID: "j1")
-        let runs = try await history.listRuns(jobID: "j1", limit: 50)
+        try await history.record(record(started: 2_000), jobID: "hist-j1")
+        let runs = try await history.listRuns(jobID: "hist-j1", limit: 50)
         #expect(runs.count == 2)
     }
 
@@ -98,10 +98,10 @@ struct CronRunHistoryTests {
     func historyNotInJobPayload() async throws {
         let jobs = tempDir("jobs")
         let store = FileCronStore(directory: jobs)
-        var job = CronJob(id: "j1", name: "x", schedule: "5m", prompt: "p")
+        var job = CronJob(id: "hist-j1", name: "x", schedule: "5m", prompt: "p")
         job.lastOutput = String(repeating: "x", count: 4_096)
         try await store.save(job)
-        let data = try Data(contentsOf: jobs.appendingPathComponent("j1.json"))
+        let data = try Data(contentsOf: jobs.appendingPathComponent("hist-j1.json"))
         #expect(data.count < 6_000)
     }
 
@@ -109,7 +109,7 @@ struct CronRunHistoryTests {
 
     @Test("tessera decode: N per-run events → N newest-first records")
     func tesseraDecodeNewestFirst() throws {
-        var old = CronJob(id: "j1", name: "x", schedule: "5m", prompt: "p")
+        var old = CronJob(id: "hist-j1", name: "x", schedule: "5m", prompt: "p")
         old.runCount = 1
         old.lastStatus = "ok"
         old.lastStartedAt = Date(timeIntervalSince1970: 1_000)
@@ -123,10 +123,10 @@ struct CronRunHistoryTests {
         new.lastOutput = "second"
         new.lastError = "boom"
         let records = [
-            tessEvent("arc/cron/j1/1", encodeJob(old, seq: 1)),
-            tessEvent("arc/cron/j1/2", encodeJob(new, seq: 2)),
+            tessEvent("arc/cron/hist-j1/1", encodeJob(old, seq: 1)),
+            tessEvent("arc/cron/hist-j1/2", encodeJob(new, seq: 2)),
         ]
-        let runs = TesseraCronRunHistory.runs(from: records, jobID: "j1", limit: 50)
+        let runs = TesseraCronRunHistory.runs(from: records, jobID: "hist-j1", limit: 50)
         #expect(runs.count == 2)
         #expect(runs[0].status == "error", "highest seq first")
         #expect(runs[0].error == "boom")
@@ -136,24 +136,24 @@ struct CronRunHistoryTests {
 
     @Test("tessera decode: an event predating the status fields is not a run (no stamp)")
     func tesseraDecodeLegacyPayload() throws {
-        var legacy = CronJob(id: "j1", name: "x", schedule: "5m", prompt: "p")
+        var legacy = CronJob(id: "hist-j1", name: "x", schedule: "5m", prompt: "p")
         legacy.runCount = 1
         legacy.lastOutput = "legacy"
         // no lastStatus/lastStartedAt — the pre-Phase-2 shape. Without a
         // start time there is no way to tell a run from a state save, and
         // rendering it as a run produced the Dec-31-1969 phantom.
         let records = [
-            tessEvent("arc/cron/j1/1", encodeJob(legacy, seq: 1)),
+            tessEvent("arc/cron/hist-j1/1", encodeJob(legacy, seq: 1)),
         ]
-        let runs = TesseraCronRunHistory.runs(from: records, jobID: "j1", limit: 50)
+        let runs = TesseraCronRunHistory.runs(from: records, jobID: "hist-j1", limit: 50)
         #expect(runs.isEmpty)
     }
 
     @Test("tessera decode: limit honored, other jobs' events ignored")
     func tesseraDecodeLimitAndFilter() throws {
-        var a = CronJob(id: "a", name: "a", schedule: "5m", prompt: "p")
+        var a = CronJob(id: "hist-a", name: "a", schedule: "5m", prompt: "p")
         a.lastStatus = "ok"; a.lastStartedAt = Date(timeIntervalSince1970: 1)
-        var b = CronJob(id: "b", name: "b", schedule: "5m", prompt: "p")
+        var b = CronJob(id: "hist-b", name: "b", schedule: "5m", prompt: "p")
         b.lastStatus = "ok"; b.lastStartedAt = Date(timeIntervalSince1970: 2)
         // distinct runs need distinct startedAt — equal stamps are one run
         var a2 = a
@@ -162,28 +162,28 @@ struct CronRunHistoryTests {
             tessEvent("arc/cron/\($0.job.id)/\($0.seq)", encodeJob($0.job, seq: $0.seq))
         }
         records.remove(at: 1) // drop job b; job a keeps seq 1 and 3
-        #expect(TesseraCronRunHistory.runs(from: records, jobID: "a", limit: 50).count == 2)
-        #expect(TesseraCronRunHistory.runs(from: records, jobID: "a", limit: 1).count == 1)
+        #expect(TesseraCronRunHistory.runs(from: records, jobID: "hist-a", limit: 50).count == 2)
+        #expect(TesseraCronRunHistory.runs(from: records, jobID: "hist-a", limit: 1).count == 1)
     }
 
     @Test("tessera decode: same-run snapshots (equal startedAt) collapse to one record")
     func tesseraDecodeSameRunCollapse() throws {
         // one run, saved four times (UI update + scheduler + stale saves) —
         // the shape the live store showed for the smoke job
-        var job = CronJob(id: "j1", name: "x", schedule: "5m", prompt: "p")
+        var job = CronJob(id: "hist-j1", name: "x", schedule: "5m", prompt: "p")
         job.lastStatus = "ok"
         job.lastStartedAt = Date(timeIntervalSince1970: 1_000)
         job.lastOutput = "SMOKE-OK"
         var records = [1, 2, 3, 4].map { seq in
-            tessEvent("arc/cron/j1/\(seq)", encodeJob(job, seq: seq))
+            tessEvent("arc/cron/hist-j1/\(seq)", encodeJob(job, seq: seq))
         }
         // a DIFFERENT run (new startedAt) must not collapse into it
         var next = job
         next.lastStartedAt = Date(timeIntervalSince1970: 2_000)
         next.runCount = job.runCount + 1
-        records.append(tessEvent("arc/cron/j1/5", encodeJob(next, seq: 5)))
+        records.append(tessEvent("arc/cron/hist-j1/5", encodeJob(next, seq: 5)))
 
-        let runs = TesseraCronRunHistory.runs(from: records, jobID: "j1", limit: 50)
+        let runs = TesseraCronRunHistory.runs(from: records, jobID: "hist-j1", limit: 50)
         #expect(runs.count == 2, "four snapshots of one run + one new run")
         #expect(runs[0].startedAt == Date(timeIntervalSince1970: 2_000), "newest first")
         #expect(runs[1].startedAt == Date(timeIntervalSince1970: 1_000))
@@ -236,7 +236,7 @@ struct CronRunHistorySchedulerTests {
 
     @Test("a run stamps last* fields and performs exactly ONE store.save")
     func singleSavePerRun() async throws {
-        var job = CronJob(id: "j1", name: "x", schedule: "5m", prompt: "p")
+        var job = CronJob(id: "hist-j1", name: "x", schedule: "5m", prompt: "p")
         job.nextRunAt = Date().addingTimeInterval(-60)
         let store = CountingStore(job: job)
         let history = FileCronRunHistory(directory: FileManager.default.temporaryDirectory
@@ -250,13 +250,13 @@ struct CronRunHistorySchedulerTests {
         #expect(saved.lastFinishedAt != nil)
         #expect(saved.lastOutput == "ran!")
         #expect(saved.runCount == 1)
-        let runs = try await history.listRuns(jobID: "j1", limit: 10)
+        let runs = try await history.listRuns(jobID: "hist-j1", limit: 10)
         #expect(runs.count == 1, "file-mode history recorded alongside the single save")
     }
 
     @Test("a failed run records status 'error' and still advances the schedule")
     func failureRecordsError() async throws {
-        var job = CronJob(id: "j2", name: "x", schedule: "5m", prompt: "p")
+        var job = CronJob(id: "hist-j2", name: "x", schedule: "5m", prompt: "p")
         job.nextRunAt = Date().addingTimeInterval(-60)
         let store = CountingStore(job: job)
         let scheduler = CronScheduler(store: store, pollIntervalSeconds: 1, jobRunner: { _ in throw TestFailure() })
