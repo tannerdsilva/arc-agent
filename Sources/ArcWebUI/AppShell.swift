@@ -8,12 +8,6 @@ import WebUIState
 /// through, and the two `WebUIAsset`s the server answers with.
 public enum AppShell {
 
-    /// The page region's id — `WebUIServer.pageRegionID`, spelled here because the
-    /// framework keeps the constant internal and the id is the wire contract. The
-    /// server patches this element when a re-render cannot be expressed as a
-    /// region diff; without it, it reloads the document instead.
-    static let pageRegionID = "webui-page"
-
     /// The policy every re-render of this page is diffed under.
     ///
     /// One value, one owner of the wire contract. `WebUIServerConfig.refreshPolicy`
@@ -130,8 +124,8 @@ public enum AppShell {
             // A re-render the region differ cannot express — a first render, a
             // change outside every control, a region that appeared or vanished —
             // ships as this element's replacement (`WebUIServer.pageRegionID`,
-            // a constant the framework keeps internal; the id is the wire
-            // contract). Without it the server has nowhere to put those bytes
+            // the framework's public constant — the id is the wire contract).
+            // Without it the server has nowhere to put those bytes
             // and honestly answers a full document load instead, which is what
             // every structural `@Wired` handler would turn into: a handler that
             // answers `.refresh` would reload the page (no-webui 2.12.0). With
@@ -151,7 +145,7 @@ public enum AppShell {
             // transition flag on it, so without this the client wraps the patch
             // in `startViewTransition` and a viewport change mid-transition
             // throws `InvalidStateError: Transition was aborted…`.
-            let page = Div(id: Self.pageRegionID) { Raw(body) }
+            let page = Div(id: WebUIServer.pageRegionID) { Raw(body) }
                 .data("webui-transition", "off")
                 .markup
             return WebUI.HTMLDocument(

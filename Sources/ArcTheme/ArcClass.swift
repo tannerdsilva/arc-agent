@@ -222,7 +222,6 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case dotErr = "dot-err"
 	case dotInfo = "dot-info"
 	case dotWarn = "dot-warn"
-	case drag = "drag"
 	case dragSrc = "drag-src"
 	case dragging = "dragging"
 	case drawerScrim = "drawer-scrim"

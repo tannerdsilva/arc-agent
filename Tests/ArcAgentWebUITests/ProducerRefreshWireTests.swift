@@ -601,8 +601,8 @@ extension ArcWebUITestRoot {
                     let frame = await socket.inbox.first(containing: "webui-page", within: .seconds(5))
                     #expect(frame != nil, "a change outside every child region shipped nothing: the page is stale")
                     let parts = fragments(inFrame: frame ?? "")
-                    #expect(parts.map(\.id) == [AppShell.pageRegionID],
-                            "a change outside every region must answer \(AppShell.pageRegionID), got \(parts.map(\.id))")
+                    #expect(parts.map(\.id) == [WebUIServer.pageRegionID],
+                            "a change outside every region must answer \(WebUIServer.pageRegionID), got \(parts.map(\.id))")
                     #expect(parts.first?.html.contains("tail-1") == true,
                             "the page patch must carry the bytes that moved")
                 }
@@ -630,8 +630,8 @@ extension ArcWebUITestRoot {
                     let frame = await socket.inbox.first(containing: "webui-page", within: .seconds(5))
                     #expect(frame != nil, "a removed region shipped nothing: the stale toast stays on screen")
                     let parts = fragments(inFrame: frame ?? "")
-                    #expect(parts.map(\.id) == [AppShell.pageRegionID],
-                            "a removal must answer \(AppShell.pageRegionID), got \(parts.map(\.id))")
+                    #expect(parts.map(\.id) == [WebUIServer.pageRegionID],
+                            "a removal must answer \(WebUIServer.pageRegionID), got \(parts.map(\.id))")
                     #expect(parts.first?.html.contains("t-1") != true,
                             "the dismissed control must not be repeated back to the client")
                 }

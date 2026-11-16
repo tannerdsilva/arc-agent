@@ -1065,7 +1065,7 @@ public static let css: String = """
     .kb-lane-single { flex: 1 1 auto; min-height: 0; }
     .kb-lane-head { display: flex; align-items: center; gap: 6px;
       padding: 0 2px 6px; flex: none; }
-    .kb-lane-name { font-size: 0.8rem; font-weight: 600; color: var(--text-dim);
+    .kb-lane-name { font-size: 0.8rem; font-weight: 600; color: var(--muted);
       letter-spacing: 0.02em; min-width: 0; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
     .kb-lane-cols { display: flex; gap: 12px; align-items: stretch; flex: 1 1 auto;
@@ -1076,7 +1076,7 @@ public static let css: String = """
     .kb-boards-head { display: flex; align-items: center; justify-content: space-between;
       margin: 10px 0 4px; }
     .kb-boards-label { font-size: 11px; font-weight: 600; letter-spacing: .06em;
-      text-transform: uppercase; color: var(--muted, var(--text-dim, #888)); }
+      text-transform: uppercase; color: var(--muted, #888); }
     /* Script jobs: the script box (mono, inset) + helper, and the
        Hermes-style per-run output disclosure rows. */
     .task-script-box { font-family: var(--mono, monospace); font-size: 0.9em;
@@ -3214,9 +3214,12 @@ public static let css: String = """
     .ws-caret { width: 12px; flex: 0 0 12px; color: var(--muted); font-size: 0.86em; }
     .ws-ic { flex: 0 0 auto; font-size: 0.95em; }
     .ws-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-    .ws-panel.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); }
-    #ws-dock.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); border-radius: var(--radius-sm); }
-    .composer-bar.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); }
+    /* Upload affordance: the engine paints `data-upload-active` on the zone while
+       a drag is over it. All three arc zones carry `data-upload-into` (the
+       composer form via `UploadDestination.attachments`, `#ws-dock`, `#ws-panel`),
+       so the engine owns the state and the sheet only styles it. */
+    [data-upload-active] { box-shadow: inset 0 0 0 2px var(--accent-strong); }
+    #ws-dock[data-upload-active] { border-radius: var(--radius-sm); }
     /* Upload progress tray. The rows are the ENGINE's (its upload transport
        appends the tray to <body>), so they must not depend on a server
        fragment: a workspace re-render replaces #ws-panel wholesale. */

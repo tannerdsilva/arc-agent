@@ -201,7 +201,6 @@ extension ClassName {
 	public static var dotErr: ClassName { ClassName(ArcClass.dotErr.token) }
 	public static var dotInfo: ClassName { ClassName(ArcClass.dotInfo.token) }
 	public static var dotWarn: ClassName { ClassName(ArcClass.dotWarn.token) }
-	public static var drag: ClassName { ClassName(ArcClass.drag.token) }
 	public static var dragSrc: ClassName { ClassName(ArcClass.dragSrc.token) }
 	public static var dragging: ClassName { ClassName(ArcClass.dragging.token) }
 	public static var drawerScrim: ClassName { ClassName(ArcClass.drawerScrim.token) }
