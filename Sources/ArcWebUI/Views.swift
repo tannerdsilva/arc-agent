@@ -4187,6 +4187,259 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
         }
     }
 
+    // MARK: Tool policy (Settings)
+
+    /// Settings → Tool policy: the ordered allow / deny rules of `toolPolicy`
+    /// in `~/.arc/config.json`, with the scope summary `ToolPolicy.describe`
+    /// renders.
+    ///
+    /// Order is the semantics: `ToolPolicy.decide` walks the list and lets the
+    /// **last** matching rule win, so up/down here are policy controls, not
+    /// layout preferences. Nothing on this surface sorts the list. `describe`
+    /// is rendered exactly as it comes back — re-wording the summary here would
+    /// let the panel and the agent disagree about what the policy says — and a
+    /// new rule is appended at the END (the strongest position), which the Add
+    /// row says where the button is.
+    ///
+    /// Controls register during the render pass (`controlAttributes`) and answer
+    /// `.refresh`, the shape the per-tool switches above already use: one write
+    /// through the configuration store, one structural re-render.
+    func toolPolicySettingsHTML() -> some WebUI.View {
+        let policy = arcConfig.security.toolPolicy
+        return Group {
+            toolPolicyEnableRow(policy)
+            toolPolicyRuleList(policy)
+            toolPolicySummary(policy)
+            toolPolicyAddRow()
+        }
+    }
+
+    /// The enable switch: `toolPolicy.enabled`, the flag `decide` short-circuits
+    /// on. Rules are never cleared by turning it off.
+    private func toolPolicyEnableRow(_ policy: ToolPolicyConfig) -> some WebUI.View {
+        Div(class: ClassName(.setRow, .setRowStackTight)) {
+            RowSplit {
+                Div(class: .setLabel) {
+                    Text("Enforce this policy")
+                    Small("Off allows every tool. The rules below stay in the file, unconsulted, so turning it back on restores exactly this policy.")
+                }
+                Div(class: ClassName(.rowActions, .rowActionsInline)) {
+                    ArcSwitch(id: "tool-policy-enabled", on: policy.enabled, value: "tool-policy-enabled",
+                              ariaLabel: "Enforce the tool policy",
+                              extraAttributes: controlAttributes(id: "tool-policy-enabled", event: .change, outcome: { event in
+                                  await self.setToolPolicyEnabled(event.checked == true)
+                                  return .refresh
+                              }))
+                }
+            }
+        }
+    }
+
+    /// The ordered rule rows — rendered in the array's own order, always.
+    private func toolPolicyRuleList(_ policy: ToolPolicyConfig) -> some WebUI.View {
+        Group {
+            if policy.rules.isEmpty {
+                EmptyHint { Text("No rules — with the policy on, every tool is still allowed.") }
+            }
+            for (index, rule) in policy.rules.enumerated() {
+                ErasedViews([toolPolicyRuleRow(rule, at: index, of: policy.rules.count)])
+            }
+        }
+    }
+
+    /// The scope summary, `ToolPolicy.describe` VERBATIM.
+    ///
+    /// `<pre>` because the summary is line-oriented and its leading double space
+    /// per rule is part of what it says; collapsing the whitespace would print a
+    /// different document from the one the agent's scope is described by.
+    private func toolPolicySummary(_ policy: ToolPolicyConfig) -> some WebUI.View {
+        Div(class: ClassName(.setRow, .setRowStackTight)) {
+            Div(class: .setLabel) {
+                Text("Effective policy")
+                Small {
+                    Text("Rendered by ")
+                    InlineCode("ToolPolicy.describe")
+                    Text(" — never re-worded here, so the panel and the agent read one policy.")
+                }
+            }
+            Preformatted(ToolPolicy.describe(config: policy))
+        }
+    }
+
+    /// The Add affordance, replaced by the form while the form is open.
+    private func toolPolicyAddRow() -> some WebUI.View {
+        Group {
+            if toolPolicyEditor != nil {
+                toolPolicyRuleFormHTML()
+            } else {
+                SetRow {
+                    Div(class: .setLabel) {
+                        Text("Add a rule")
+                        Small("New rules are appended at the END of the list: the last matching rule decides, so the end is the strongest position.")
+                    }
+                    ArcButton("Add rule", id: "tp-add", class: "btn", type: .button,
+                              extraAttributes: controlAttributes(id: "tp-add", event: .click, outcome: { _ in
+                                  await self.openToolPolicyEditor(.adding)
+                                  return .refresh
+                              }))
+                }
+            }
+        }
+    }
+
+    /// One rule: its position (which IS its precedence), its verdict, its match
+    /// and toolset, and the four controls that move, edit and remove it.
+    ///
+    /// The first row's up arrow and the last row's down arrow are inert rather
+    /// than absent: a control that vanishes at the edge makes the edge look like
+    /// a different kind of row.
+    private func toolPolicyRuleRow(_ rule: ToolPolicyRule, at index: Int, of count: Int) -> some WebUI.View {
+        Div(class: ClassName(.setRow, .setRowStackTight)) {
+            RowSplit {
+                Div(class: .setLabel) {
+                    Text("\(index + 1). \(rule.action.rawValue)  \(rule.match)")
+                    Small(rule.toolset.map { "toolset: \($0)" } ?? "any toolset")
+                }
+                Div(class: ClassName(.rowActions, .rowActionsInline)) {
+                    ArcButton(id: "tp-up-\(index)", class: .iconMini, type: .button,
+                              disabled: index == 0,
+                              extraAttributes: index == 0 ? "" : controlAttributes(id: "tp-up-\(index)", event: .click, outcome: { _ in
+                                  await self.moveToolPolicyRuleUp(index)
+                                  return .refresh
+                              })) {
+                        WebUIIcon(.arrowUp, size: .small)
+                    }
+                    .title(index == 0
+                           ? "Already first — every later rule overrides it"
+                           : "Move up: earlier means weaker, because the last match wins")
+                    ArcButton(id: "tp-down-\(index)", class: .iconMini, type: .button,
+                              disabled: index == count - 1,
+                              extraAttributes: index == count - 1 ? "" : controlAttributes(id: "tp-down-\(index)", event: .click, outcome: { _ in
+                                  await self.moveToolPolicyRuleDown(index)
+                                  return .refresh
+                              })) {
+                        WebUIIcon(.arrowDown, size: .small)
+                    }
+                    .title(index == count - 1
+                           ? "Already last — it has the final say"
+                           : "Move down: later means stronger, because the last match wins")
+                    ArcButton("Edit", id: "tp-edit-\(index)", class: "btn", type: .button,
+                              extraAttributes: controlAttributes(id: "tp-edit-\(index)", event: .click, outcome: { _ in
+                                  await self.openToolPolicyEditor(.editing(index))
+                                  return .refresh
+                              }))
+                    ArcButton(id: "tp-del-\(index)", class: ClassName(.iconMini, .danger), type: .button,
+                              extraAttributes: controlAttributes(id: "tp-del-\(index)", event: .click, outcome: { _ in
+                                  await self.removeToolPolicyRule(at: index)
+                                  _ = await self.hint("Rule \(index + 1) removed.")
+                                  return .refresh
+                              })) {
+                        WebUIIcon(.x, size: .small)
+                    }
+                    .title("Remove rule")
+                }
+            }
+            if let reason = rule.reason {
+                SetHint { Text(reason) }
+            }
+        }
+    }
+
+    /// The add / edit form. Field values come from `formValues` first (a refused
+    /// save restores exactly what was typed), then from the rule being edited.
+    ///
+    /// The submit is one registered control on the `<form>` itself: the engine
+    /// collects every `name`-keyed field into the event, which is why the field
+    /// ids and the keys the handler reads are the same strings
+    /// (`AppState.toolPolicyFieldKeys`).
+    func toolPolicyRuleFormHTML() -> some WebUI.View {
+        var editing: (index: Int, rule: ToolPolicyRule)?
+        if case .editing(let index) = toolPolicyEditor, arcConfig.security.toolPolicy.rules.indices.contains(index) {
+            editing = (index, arcConfig.security.toolPolicy.rules[index])
+        }
+        let title = editing.map { "Edit rule \($0.index + 1)" } ?? "New rule"
+        // the form's own id IS its routing key: a divergence would make the
+        // element a patch address distinct from the component the submit routes
+        // to, and nothing needs that split here.
+        return Form(action: "", method: nil, id: "tp-rule-form", class: ClassName(.detailCard, .mcpForm)) {
+            Heading(title, level: .h1, class: .detailTitle)
+            DetailSub {
+                Text("A rule matches a tool-name glob and, when you name one, exactly that toolset. The list is applied top to bottom and the last matching rule decides — so the rule's position is part of the policy, and Save keeps the position it was opened at.")
+            }
+            FormGrid {
+                // the fields carry an id and a name and nothing else: the submit
+                // event collects every `name`-keyed value, so no field needs its
+                // own routing key.
+                WebUIField(label: "Match", controlID: "tp-match-input") {
+                    Input(field: "tp-match-input",
+                          placeholder: "run_command or mcp_*", type: .text,
+                          value: formValues["tp-match-input"] ?? editing?.rule.match ?? "",
+                          attributes: [("autocomplete", "off")])
+                    Small("Glob on the tool name; * matches any run of characters. Required.")
+                }
+                WebUIField(label: "Toolset (optional)", controlID: "tp-toolset-input") {
+                    Input(field: "tp-toolset-input",
+                          placeholder: "terminal", type: .text,
+                          value: formValues["tp-toolset-input"] ?? editing?.rule.toolset ?? "",
+                          attributes: [("autocomplete", "off")])
+                    Small("Leave empty to match the name in every toolset.")
+                }
+                WebUIField(label: "Action", controlID: "tp-action-input") {
+                    Select(field: "tp-action-input",
+                           options: Self.toolPolicyActionOptions,
+                           selected: formValues["tp-action-input"] ?? editing?.rule.action.rawValue
+                               ?? ToolPolicyAction.deny.rawValue)
+                    Small("denyWithHint refuses and hands the reason to the agent — nothing prompts a human.")
+                }
+                WebUIField(label: "Reason (optional)", controlID: "tp-reason-input") {
+                    Input(field: "tp-reason-input",
+                          placeholder: "why the agent must not call it", type: .text,
+                          value: formValues["tp-reason-input"] ?? editing?.rule.reason ?? "",
+                          attributes: [("autocomplete", "off")])
+                    Small("Shown with the refusal.")
+                }
+            }
+            RowActionsMain {
+                ArcButton("Save rule", class: .primaryBtn, type: .submit)
+                ArcButton("Cancel", id: "tp-cancel", class: .ghostBtn, type: .button,
+                          extraAttributes: controlAttributes(id: "tp-cancel", event: .click, outcome: { _ in
+                              await self.openToolPolicyEditor(nil)
+                              return .refresh
+                          }))
+            }
+        }
+        .control(id: "tp-rule-form", on: .submit, perform: { event in
+            let match = event.string("tp-match-input") ?? ""
+            let toolset = event.string("tp-toolset-input") ?? ""
+            let reason = event.string("tp-reason-input") ?? ""
+            // an unknown spelling cannot be written anew (the enum's rawValue is
+            // the honest one), so a garbled field falls back to the refusing
+            // verdict rather than to an allow nobody asked for.
+            let action = ToolPolicyAction(rawValue: event.string("tp-action-input") ?? "") ?? .deny
+            let editor = await self.toolPolicyEditor
+            let saved: Bool
+            switch editor {
+            case .editing(let index):
+                saved = await self.updateToolPolicyRule(
+                    at: index, match: match, toolset: toolset, action: action, reason: reason)
+            default:
+                saved = await self.appendToolPolicyRule(
+                    match: match, toolset: toolset, action: action, reason: reason)
+            }
+            if saved {
+                await self.openToolPolicyEditor(nil)
+            } else {
+                // the form stays open holding what was submitted: `formValues`
+                // is what the fields render from.
+                await self.storeFormValue("tp-match-input", match)
+                await self.storeFormValue("tp-toolset-input", toolset)
+                await self.storeFormValue("tp-action-input", action.rawValue)
+                await self.storeFormValue("tp-reason-input", reason)
+            }
+            return .refresh
+        })
+    }
+
     // MARK: MCP servers (Settings)
 
     /// Settings → MCP servers: the `mcp_servers` block of `~/.arc/config.json`,
@@ -4997,6 +5250,7 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                 settingsAssistanceSection()
                 agentLimitsSection()
                 storageSettingsHTML()
+                settingsToolPolicySection()
                 settingsToolPluginsSection()
                 settingsMCPSection()
                 settingsSidebarPluginsSection()
@@ -5652,6 +5906,25 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                                   return .refresh
                               }))
                 }
+            }
+        }
+    }
+
+    private func settingsToolPolicySection() -> some WebUI.View {
+        SetSection(id: "tool-policy") {
+            Heading("Tool policy", level: .h2)
+            DetailCard {
+                Div(class: ClassName(.setRow, .setRowStack)) {
+                    Div(class: .setLabel) {
+                        Text("Ordered allow / deny rules")
+                        Small {
+                            Text("A managed scope over tool calls (")
+                            InlineCode("toolPolicy")
+                            Text(" in config.json). Rules are applied in order and the last match wins, so the list's order is part of the policy. A deny here outranks the per-tool switches in the Tools panel; nothing here can switch on a tool those switches turned off.")
+                        }
+                    }
+                }
+                toolPolicySettingsHTML()
             }
         }
     }

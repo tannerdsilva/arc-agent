@@ -1357,6 +1357,24 @@ actor AppState {
     /// Why the last "Test" probe failed, per server (absent = no failure).
     var mcpTestError: [String: String] = [:]
 
+    // MARK: Tool policy (Settings → Tool policy)
+
+    /// Which rule the Settings → Tool policy form is open on.
+    ///
+    /// `nil` is closed. `editing` carries the rule's POSITION, not its contents:
+    /// a `ToolPolicyRule` has no identity of its own (its match string is
+    /// mutable), and the position is exactly what Save replaces — replacing in
+    /// place is what keeps the list's order, which is its semantics.
+    var toolPolicyEditor: ToolPolicyEditor? = nil
+
+    /// The editor's two states. `.adding` appends at the END of the list: the
+    /// last rule to match is the one that decides, so the end is the strongest
+    /// position, and the panel says so where the button is.
+    enum ToolPolicyEditor: Sendable, Equatable {
+        case adding
+        case editing(Int)
+    }
+
     // MARK: Runtime pieces (rebuilt when workspace / tessera mode changes)
 
     var httpClient: HTTPClient?
@@ -1466,6 +1484,8 @@ actor AppState {
         var selectedWorkspace: String?
         var skillFilter = ""
         var toolFilter = ""
+        /// the Settings → Tool policy form's open state (`nil` = closed).
+        var toolPolicyEditor: ToolPolicyEditor? = nil
         // create/edit forms + the profile skills picker are transient view state
         var createProfile = false
         var createWorkspace = false
@@ -1602,6 +1622,7 @@ actor AppState {
         self.selectedWorkspace = fixture.selectedWorkspace
         self.skillFilter = fixture.skillFilter
         self.toolFilter = fixture.toolFilter
+        self.toolPolicyEditor = fixture.toolPolicyEditor
         self.createProfile = fixture.createProfile
         self.createWorkspace = fixture.createWorkspace
         self.editingProfile = fixture.editingProfile
