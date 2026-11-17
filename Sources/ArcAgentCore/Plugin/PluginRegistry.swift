@@ -495,7 +495,12 @@ public struct MutableToolRegistry: ToolRegistry {
     }
 
     public var allTools: [RegisteredTool] {
-        builtIn.allTools + pluginEntries.values
+        // name order is a wire contract, not a preference: this array is the
+        // prompt prefix, and the runtime tier arrives in dictionary order
+        // (per-process seeded), so an unsorted append makes the schema bytes —
+        // and therefore the provider's prompt cache — differ every process.
+        // `CompileTimeToolRegistry.allTools` already sorts; one rule for both.
+        (builtIn.allTools + pluginEntries.values).sorted { $0.name < $1.name }
     }
 
     /// A copy whose named built-ins are re-pointed, leaving the runtime tier
@@ -542,18 +547,12 @@ public struct MutableToolRegistry: ToolRegistry {
         return true
     }
 
-    public func buildToolSchemas(enabled: Set<String>, disabled: Set<String>) -> [[String: Any]] {
-        var schemas = builtIn.buildToolSchemas(enabled: enabled, disabled: disabled)
-        for (name, entry) in pluginEntries where !disabled.contains(entry.toolset) {
-            if !enabled.isEmpty && !enabled.contains(entry.toolset) { continue }
-            schemas.append(["type": "function", "function": [
-                "name": name,
-                "description": entry.description,
-                "parameters": entry.schema.asDictionary(),
-            ]])
-        }
-        return schemas
-    }
+    // `buildToolSchemas` is deliberately NOT overridden here. `ToolRegistry`'s
+    // default runs the same enabled/disabled/checkFn filter over `allTools`,
+    // which now carries the runtime tier in the same name order. The override
+    // that used to live here re-implemented the filter without `checkFn` and
+    // appended `pluginEntries` in dictionary order — two divergences (F3, F2)
+    // that existed only because the default could not see the plugin tier.
 
     /// Build the full registry used by the agent: built-ins + discovered
     /// plugins (reference agent_init plugin toolset bundling). When

@@ -54,7 +54,12 @@ public protocol ToolRegistry: Sendable {
 
     /// All registered tools, each with its origin.
     ///
-    /// The order is insertion order — tools registered first appear first.
+    /// The order is **name order**, and that is a contract rather than a
+    /// convenience: this array is rendered into the prompt prefix, so a
+    /// registry whose order is stable across processes is what lets the
+    /// provider's prompt cache hit. Both implementations sort — a runtime tier
+    /// that arrives in dictionary iteration order would otherwise reorder the
+    /// prefix on every launch.
     var allTools: [RegisteredTool] { get }
 
     /// Build the OpenAI-compatible function-calling schema array.
