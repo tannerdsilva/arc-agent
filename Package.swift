@@ -247,6 +247,8 @@ let package = Package(
                 // the shutdown-contract test builds a real ServiceGroup.
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
                 .product(name: "Logging", package: "swift-log"),
+                // ToolSurfaceInventoryTests prints a sha256 of the prompt schema array.
+                .product(name: "Crypto", package: "swift-crypto"),
                 // HTMLEscapeTests compares arc's escaping against the framework's
                 // (and, after the swap, pins the framework's output as a golden).
                 .product(name: "WebUIIslandWire", package: "no-webui"),
