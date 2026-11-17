@@ -1652,7 +1652,7 @@
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!t || !t.closest) return;
-    var trig = t.closest('#kb-addcol-menu, #kb-addlane-menu');
+    var trig = t.closest('#kb-addcol-menu, #kb-addlane-menu, #kba-newboard-menu');
     if (trig) {
       var pop = trig.parentElement.querySelector('.kb-pop');
       var was = pop && pop.classList.contains('open');
