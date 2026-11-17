@@ -259,7 +259,7 @@ public enum ComputerUseTool {
 
     public static let entry: ToolEntry = ToolEntry(
         name: "computer_use",
-        toolset: "computer_use",
+        toolset: .computerUse,
         description: "Universal desktop control via cua-driver (macOS, Windows, Linux). "
             + "Background computer-use: does NOT steal the user's cursor (capture runs "
             + "headless). Actions: " + actions.joined(separator: ", ")

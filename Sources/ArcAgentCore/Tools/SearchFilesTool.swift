@@ -8,7 +8,7 @@ public enum SearchFilesTool {
 
     public static let entry = ToolEntry(
         name: "search_files",
-        toolset: "file",
+        toolset: .file,
         description: "Search file contents or find files by name. Use this instead of grep/rg/find/ls in terminal. Ripgrep-backed, faster than shell equivalents. "
             + "Content search (target='content'): Regex search inside files. Output modes: full matches with line numbers, file paths only, or match counts. "
             + "File search (target='files'): Find files by glob pattern (e.g., '*.py', '*config*'). Also use this instead of ls — results sorted by modification time.",

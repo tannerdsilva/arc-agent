@@ -79,7 +79,7 @@ public enum ClarifyTool {
 
     static let entry = ToolEntry(
         name: "clarify",
-        toolset: "core",
+        toolset: .core,
         description: "Ask the user a question and wait for their answer. "
             + "Pass up to 4 predefined choices when the answer is one of a set; "
             + "the user may also type a free-form response. The turn pauses until "

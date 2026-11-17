@@ -65,7 +65,7 @@ struct CronJobToolTests {
     func entryShape() {
         let entry = CronJobTool.entry(context: context, store: tempStore())
         #expect(entry.name == "cronjob")
-        #expect(entry.toolset == "scheduling")
+        #expect(entry.toolsetName == "scheduling")
     }
 
     @Test("create persists to the bound store and stamps the profile")

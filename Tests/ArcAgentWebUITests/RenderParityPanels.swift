@@ -7,7 +7,7 @@ import ArcAgentCore
 /// false is what makes the panel print its "needs env" badge.
 struct StubTool: AgentTool {
 	let name: String
-	let toolset: String
+	let toolset: Toolset
 	var description: String = "A stub tool."
 	var emoji: String = "🔧"
 	var available: Bool = true
@@ -15,6 +15,20 @@ struct StubTool: AgentTool {
 	var handler: ToolHandler = { _ in "ok" }
 	var checkFn: ToolRequirementCheck? {
 		available ? nil : { @Sendable in false }
+	}
+
+	/// the fixture spells its toolset as text. a name outside the catalog
+	/// normalises to the narrowest reach, which is what a fixture wants; a known
+	/// name resolves to its canonical entry.
+	init(
+		name: String, toolset: String, description: String = "A stub tool.",
+		emoji: String = "🔧", available: Bool = true
+	) {
+		self.name = name
+		self.toolset = Toolset(claimed: toolset)
+		self.description = description
+		self.emoji = emoji
+		self.available = available
 	}
 }
 

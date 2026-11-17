@@ -24,13 +24,13 @@ extension ArcCoreTestRoot {
             let registry = try ArcAgentCore.testRegistry()
             #expect(registry.allTools.count == 54)
 
-            #expect(registry.lookup(name: "read_file")?.toolset == "file")
+            #expect(registry.lookup(name: "read_file")?.toolsetName == "file")
             #expect(registry.lookup(name: "read_file")?.emoji == "📄")
-            #expect(registry.lookup(name: "write_file")?.toolset == "file")
-            #expect(registry.lookup(name: "patch")?.toolset == "file")
-            #expect(registry.lookup(name: "search_files")?.toolset == "file")
-            #expect(registry.lookup(name: "terminal")?.toolset == "terminal")
-            #expect(registry.lookup(name: "process")?.toolset == "terminal")
+            #expect(registry.lookup(name: "write_file")?.toolsetName == "file")
+            #expect(registry.lookup(name: "patch")?.toolsetName == "file")
+            #expect(registry.lookup(name: "search_files")?.toolsetName == "file")
+            #expect(registry.lookup(name: "terminal")?.toolsetName == "terminal")
+            #expect(registry.lookup(name: "process")?.toolsetName == "terminal")
 
             // the full surface is registered: the opt-in families are present
             #expect(registry.lookup(name: "web_search") != nil)
@@ -76,7 +76,7 @@ extension ArcCoreTestRoot {
         @Test("registry toolset filtering with all toolsets disabled")
         func allToolsetsDisabled() throws {
             let registry = try ArcAgentCore.testRegistry()
-            let allToolsets = Set(registry.allTools.map(\.toolset))
+            let allToolsets = Set(registry.allTools.map(\.toolsetName))
             let schemas = ToolSchemaRenderer.eagerSchemas(registry: registry, disabled: allToolsets)
             #expect(schemas.isEmpty)
         }
@@ -208,14 +208,14 @@ extension ArcCoreTestRoot {
         func toolEntryProperties() {
             let entry = ToolEntry(
                 name: "test_tool",
-                toolset: "test",
+                toolset: Toolset(claimed: "test"),
                 description: "A test tool",
                 schema: .string(description: "A param"),
                 handler: { _ in "done" },
                 emoji: "🧪"
             )
             #expect(entry.name == "test_tool")
-            #expect(entry.toolset == "test")
+            #expect(entry.toolsetName == "test")
             #expect(entry.description == "A test tool")
             #expect(entry.emoji == "🧪")
             #expect(entry.requiresEnv.isEmpty)
@@ -227,7 +227,7 @@ extension ArcCoreTestRoot {
             let checked = LockedBool(false)
             let entry = ToolEntry(
                 name: "conditional_tool",
-                toolset: "test",
+                toolset: Toolset(claimed: "test"),
                 description: "Conditional tool",
                 schema: .string(description: "x"),
                 handler: { _ in "ok" },
@@ -911,7 +911,7 @@ extension ArcCoreTestRoot {
                 sessions: FileSessionStore(),
                 cron: store
             )
-            let cronTools = with.allTools.filter { $0.toolset == "scheduling" }
+            let cronTools = with.allTools.filter { $0.toolsetName == "scheduling" }
             #expect(cronTools.map(\.name) == ["cronjob"], "the web UI surface must advertise cronjob or the agent reaches for crontab")
 
             let bare = try ArcAgentCore.buildRegistry(

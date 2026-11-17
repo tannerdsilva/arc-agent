@@ -6,7 +6,7 @@ import Foundation
 public enum ProjectListTool {
     public static let entry = ToolEntry(
         name: "project_list",
-        toolset: "project",
+        toolset: .project,
         description: "List the named workspaces (projects) and which one is active.",
         schema: .object(description: "Project list", properties: [:], required: []),
         handler: { _ in
@@ -40,7 +40,7 @@ public enum ProjectListTool {
 public enum ProjectCreateTool {
     public static let entry = ToolEntry(
         name: "project_create",
-        toolset: "project",
+        toolset: .project,
         description: "Create a named workspace (project) and switch this chat into it. "
             + "Pass `path` to anchor it to a folder — this chat's workspace moves there. "
             + "Use when starting work in a new repo/folder; this is the intentional way "
@@ -80,7 +80,7 @@ public enum ProjectCreateTool {
 public enum ProjectSwitchTool {
     public static let entry = ToolEntry(
         name: "project_switch",
-        toolset: "project",
+        toolset: .project,
         description: "Switch this chat into an existing project (by name, slug, or id). "
             + "Moves the session's workspace to the project's primary folder. "
             + "The intentional way to move between projects, not `cd`.",

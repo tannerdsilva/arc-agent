@@ -131,7 +131,7 @@ public actor SessionAgent: Service {
             disabledToolsets: {
                 var disabled = agentConfig.disabledToolsets.union(profileDisabledToolsets)
                 if let enabled = profileEnabledToolsets {
-                    disabled.formUnion(Set(registry.allTools.map(\.toolset)).subtracting(enabled))
+                    disabled.formUnion(Set(registry.allTools.map(\.toolsetName)).subtracting(enabled))
                 }
                 return disabled
             }(),

@@ -8,7 +8,7 @@ public enum MCPClientTool {
 
     public nonisolated(unsafe) static var entry = ToolEntry(
         name: "mcp_tool",
-        toolset: "mcp",
+        toolset: .mcp,
         description: "Call a tool from a connected MCP (Model Context Protocol) server. "
             + "External MCP servers expose additional tools — filesystem access, source control, "
             + "databases — that the agent can call like any built-in tool.\n\n"

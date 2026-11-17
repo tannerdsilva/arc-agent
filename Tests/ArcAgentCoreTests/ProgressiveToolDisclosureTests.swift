@@ -17,7 +17,8 @@ extension ArcCoreTestRoot {
         ) -> ToolEntry {
             ToolEntry(
                 name: name,
-                toolset: toolset,
+                // the fixture names its toolset as text, as a pack would
+                toolset: Toolset(claimed: toolset),
                 description: description,
                 schema: .object(properties: [:], required: []),
                 handler: { _ in "ok" },
@@ -191,7 +192,7 @@ extension ArcCoreTestRoot {
             func rich(_ name: String, toolset: String) -> ToolEntry {
                 ToolEntry(
                     name: name,
-                    toolset: toolset,
+                    toolset: Toolset(claimed: toolset),
                     description: "Synchronizes with a remote service: lists, creates, and mutates entities "
                         + "with detailed parameter documentation covering every field, default, and edge case.",
                     schema: .object(properties: [

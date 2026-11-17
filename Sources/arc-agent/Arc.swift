@@ -256,7 +256,7 @@ struct Chat: AsyncParsableCommand {
             disabledToolsets.formUnion(Self.parseList(t))
         }
         if let enabled = profileEnabledToolsets {
-            let all = Set(registry.allTools.map(\.toolset))
+            let all = Set(registry.allTools.map(\.toolsetName))
             disabledToolsets.formUnion(all.subtracting(enabled))
         }
         disabledToolsets.formUnion(profileDisabledToolsets)
@@ -546,7 +546,7 @@ struct Tools: AsyncParsableCommand {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         for tool in tools {
             let emoji = tool.emoji ?? "🔧"
-            print("\(emoji) \(tool.name) [\(tool.toolset)]")
+            print("\(emoji) \(tool.name) [\(tool.toolsetName)]")
             print("   \(tool.description)")
             print("")
         }

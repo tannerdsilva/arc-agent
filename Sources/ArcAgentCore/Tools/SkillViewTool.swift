@@ -9,7 +9,7 @@ struct SkillViewTool {
 
     static let entry = ToolEntry(
         name: "skill_view",
-        toolset: "core",
+        toolset: .core,
         description: "Load a skill's full content by name. "
             + "Use this when the skills index mentions a skill you need to follow. "
             + "Pass the exact skill name as shown in the Available Skills section.",

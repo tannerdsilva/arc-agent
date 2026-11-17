@@ -3918,9 +3918,9 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                     mainScroll {
                         DetailCard {
                             DetailTitle(tool.name, icon: toolIconName(tool.emoji))
-                            DetailSub { Text(tool.toolset) }
+                            DetailSub { Text(tool.toolsetName) }
                             AkvRow(key: "Description", value: tool.description)
-                            AkvRow(key: "Toolset", value: tool.toolset)
+                            AkvRow(key: "Toolset", value: tool.toolsetName)
                             AkvRow(key: "Requires env",
                                    value: tool.requiresEnv.isEmpty
                                        ? "none"

@@ -26,7 +26,7 @@ public enum ToolSearchTool {
     ) -> ToolEntry {
         ToolEntry(
             name: "tool_search",
-            toolset: "tools",
+            toolset: .tools,
             description: "Search the available tool catalog for a keyword/phrase, or list all tools. "
                 + "Returns tool names with short descriptions so you can pick the right tool. "
                 + "Parameters: query (omit for the full listing), limit (default 5), form "
@@ -56,7 +56,7 @@ public enum ToolSearchTool {
                 }
                 let tools = registry.allTools
                 let catalog: [CatalogEntry] = tools.map {
-                    CatalogEntry(name: $0.name, description: $0.description, toolset: $0.toolset)
+                    CatalogEntry(name: $0.name, description: $0.description, toolset: $0.toolsetName)
                 }
                 let results: [CatalogEntry]
                 if query.isEmpty {

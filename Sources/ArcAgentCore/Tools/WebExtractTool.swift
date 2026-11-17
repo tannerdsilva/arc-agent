@@ -11,7 +11,7 @@ public enum WebExtractTool {
 
     public static let entry = ToolEntry(
         name: "web_extract",
-        toolset: "web",
+        toolset: .web,
         description: "Extract content from web pages (URLs) as clean markdown/text. "
             + "Accepts a single URL or a list of URLs; each page is returned with a "
             + "grounding envelope ([TITLE]/[H1]/[LENGTH] — explicit (none) when absent), "

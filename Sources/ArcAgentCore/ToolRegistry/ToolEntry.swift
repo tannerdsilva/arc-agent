@@ -16,11 +16,11 @@ public struct ToolEntry: Sendable {
     /// Names should be `snake_case` and unique within a registry.
     public let name: String
 
-    /// The toolset this tool belongs to (e.g. `"file"`, `"web"`, `"terminal"`).
+    /// The toolset this tool belongs to (e.g. `.file`, `.web`, `.terminal`).
     ///
     /// Toolsets are the grouping mechanism for enabling/disabling categories of
     /// tools at the agent level.
-    public let toolset: String
+    public let toolset: Toolset
 
     /// A human-readable description of what this tool does.
     ///
@@ -83,7 +83,7 @@ public struct ToolEntry: Sendable {
     ///   - emoji: Optional display emoji.
     public init(
         name: String,
-        toolset: String,
+        toolset: Toolset,
         description: String,
         schema: JSONSchema,
         handler: @escaping ToolHandler,

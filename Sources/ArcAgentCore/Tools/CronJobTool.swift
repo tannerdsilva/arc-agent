@@ -40,7 +40,7 @@ public enum CronJobTool {
     ) -> ToolEntry {
         ToolEntry(
             name: "cronjob",
-            toolset: "scheduling",
+            toolset: .scheduling,
             description: "Manage your scheduled jobs (cron). Actions: create, edit, list, "
                 + "pause, resume, run, remove, history.\n\n"
                 + "create needs name and either a prompt (LLM job) or a script (shell job — "

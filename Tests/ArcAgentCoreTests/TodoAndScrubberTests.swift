@@ -185,7 +185,7 @@ extension ArcCoreTestRoot {
         @Test("tool entry is registered under the todo toolset")
         func entryType() {
             #expect(TodoTool.entry().name == "todo")
-            #expect(TodoTool.entry().toolset == "todo")
+            #expect(TodoTool.entry().toolsetName == "todo")
             #expect(TodoTool.entry().emoji == "📋")
         }
 

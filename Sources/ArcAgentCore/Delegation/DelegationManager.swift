@@ -315,7 +315,7 @@ public actor DelegationManager {
         allowedToolsets: [String],
         maxTurns: Int
     ) -> ArcAgent.Configuration {
-        let parentToolsets = Set(parent.registry.allTools.map(\.toolset))
+        let parentToolsets = Set(parent.registry.allTools.map(\.toolsetName))
         let desired = allowedToolsets.isEmpty
             ? parentToolsets
             : Set(allowedToolsets).intersection(parentToolsets)

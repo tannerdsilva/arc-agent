@@ -23,7 +23,7 @@ struct DelegateTaskTool {
     static func entry(manager: ToolDependency<DelegationManager> = ToolDependency()) -> ToolEntry {
         ToolEntry(
             name: "delegate_task",
-            toolset: "delegation",
+            toolset: .delegation,
             description: "Spawn a subagent to work on a task in isolation. "
                 + "The subagent runs independently with its own context and returns its "
                 + "final answer when done. Use for reasoning-heavy subtasks, parallel work, "

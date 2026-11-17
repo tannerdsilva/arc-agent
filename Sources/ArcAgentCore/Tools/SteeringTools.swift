@@ -9,7 +9,7 @@ struct ListChildrenTool {
     static func entry(manager: ToolDependency<DelegationManager> = ToolDependency()) -> ToolEntry {
         ToolEntry(
             name: "list_children",
-            toolset: "delegation",
+            toolset: .delegation,
             description: "List all subagents managed by the delegation system, "
                 + "showing their ID, status, goal, and creation time.",
             schema: .object(
@@ -44,7 +44,7 @@ struct SteerChildTool {
     static func entry(manager: ToolDependency<DelegationManager> = ToolDependency()) -> ToolEntry {
         ToolEntry(
             name: "steer_child",
-            toolset: "delegation",
+            toolset: .delegation,
             description: "Send a message to a running subagent to adjust its direction.",
             schema: .object(
                 description: "Steer parameters",
@@ -82,7 +82,7 @@ struct StopChildTool {
     static func entry(manager: ToolDependency<DelegationManager> = ToolDependency()) -> ToolEntry {
         ToolEntry(
             name: "stop_child",
-            toolset: "delegation",
+            toolset: .delegation,
             description: "Cancel a running subagent by ID.",
             schema: .object(
                 description: "Stop parameters",

@@ -192,7 +192,14 @@ public struct PluginTool: Sendable {
     public let args: [String]
     /// Script relative to the plugin directory (see ``PluginManifest/Tool``).
     public let entry: String?
-    public let toolset: String
+    /// The toolset this tool claims, normalised to a catalog entry at init.
+    ///
+    /// The manifest names its toolset as text, so the init parameter stays a
+    /// `String`; the stored value is ``Toolset/init(claimed:)``, which maps a
+    /// known name to its canonical entry and a foreign one to the most
+    /// restrictive reach. A plugin's claim can therefore narrow reach, never
+    /// expand it.
+    public let toolset: Toolset
     public let requiresEnv: [String]
     /// Parsed OpenAI function-call parameter schema. Falls back to a free-form
     /// `{args: {}}` object when the manifest omits a usable schema.
@@ -218,7 +225,7 @@ public struct PluginTool: Sendable {
         self.command = command
         self.args = args
         self.entry = entry
-        self.toolset = toolset
+        self.toolset = Toolset(claimed: toolset)
         self.requiresEnv = requiresEnv
         self.schema = Self.parseSchema(from: schema)
         self.cwdOverride = cwdOverride

@@ -40,11 +40,11 @@ public enum ToolSchemaRenderer {
         registry.allTools
             .filter { entry in
                 // If disabled, exclude.
-                guard !disabled.contains(entry.toolset) else { return false }
+                guard !disabled.contains(entry.toolsetName) else { return false }
 
                 // If enabled is non-empty, toolset must be in it.
                 if !enabled.isEmpty {
-                    guard enabled.contains(entry.toolset) else { return false }
+                    guard enabled.contains(entry.toolsetName) else { return false }
                 }
 
                 // Run availability check.
@@ -80,7 +80,7 @@ public enum ToolSchemaRenderer {
         contextLength: Int?
     ) -> [[String: Any]] {
         let candidates = registry.allTools
-            .filter { !disabled.contains($0.toolset) }
+            .filter { !disabled.contains($0.toolsetName) }
             .map { $0.tool }
         let (visible, deferred) = DeferredToolPolicy.plan(entries: candidates, config: config)
         guard deferred.isEmpty == false, config.enabled != "off" else {

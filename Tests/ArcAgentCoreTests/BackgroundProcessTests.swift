@@ -74,7 +74,7 @@ extension ArcCoreTestRoot {
         func registryWiring() async throws {
             let registry = try ArcAgentCore.testRegistry()
             #expect(registry.lookup(name: "process") != nil)
-            #expect(registry.lookup(name: "process")?.toolset == "terminal")
+            #expect(registry.lookup(name: "process")?.toolsetName == "terminal")
             #expect(registry.lookup(name: "terminal") != nil)
         }
     }

@@ -13,7 +13,7 @@ public struct SessionSearchTool: Sendable {
     ) -> ToolEntry {
         ToolEntry(
             name: "session_search",
-            toolset: "core",
+            toolset: .core,
             description: "Search past conversation sessions for a keyword or phrase. Returns matching session IDs, titles, and message excerpts.",
             schema: .object(properties: [
                 "query": .string(description: "Keyword or phrase to search for"),

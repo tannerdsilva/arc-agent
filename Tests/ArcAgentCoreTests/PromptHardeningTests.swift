@@ -139,7 +139,7 @@ extension ArcCoreTestRoot {
         private func readFileEntry(_ handler: @escaping @Sendable ([String: Any]) async throws -> String) -> ToolEntry {
             ToolEntry(
                 name: "read_file",
-                toolset: "file",
+                toolset: .file,
                 description: "test read tool",
                 schema: .object(properties: ["path": .string(description: "path")], required: ["path"]),
                 handler: handler
@@ -269,7 +269,7 @@ extension ArcCoreTestRoot {
             })
             try registry.register(ToolEntry(
                 name: "web_search",
-                toolset: "web",
+                toolset: .web,
                 description: "test search tool",
                 schema: .object(properties: ["query": .string(description: "query")], required: ["query"]),
                 handler: { args in

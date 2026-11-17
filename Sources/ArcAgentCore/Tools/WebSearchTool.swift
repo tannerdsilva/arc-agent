@@ -12,7 +12,7 @@ public enum WebSearchTool {
     /// The ``ToolEntry`` for this tool.
     public static let entry = ToolEntry(
         name: "web_search",
-        toolset: "web",
+        toolset: .web,
         description: "Search the web for information. Returns up to 5 results "
             + "with titles, URLs, and descriptions.",
         schema: .object(

@@ -1720,7 +1720,7 @@ actor AppState {
             cron: cronStore,
             cronHistory: cronHistory
         ))
-        let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
+        let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolsetName })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
         let loadedSettings = Self.loadSettings()
         self.settings = loadedSettings.settings
@@ -1893,7 +1893,7 @@ actor AppState {
         if let made = await rebuiltRegistry(for: activeSessionID) {
             self.registry = made
         }
-        let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
+        let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolsetName })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
     }
 
@@ -3019,7 +3019,7 @@ actor AppState {
             effectiveDisabled.formUnion(bound.disabledToolsets ?? [])
             if let enabled = bound.enabledToolsets {
                 effectiveDisabled.formUnion(
-                    Set(registry.allTools.map(\.toolset)).subtracting(enabled))
+                    Set(registry.allTools.map(\.toolsetName)).subtracting(enabled))
             }
         }
 

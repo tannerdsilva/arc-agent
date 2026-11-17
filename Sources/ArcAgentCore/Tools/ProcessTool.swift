@@ -17,7 +17,7 @@ public enum ProcessTool {
     /// The ``ToolEntry`` for this tool.
     public static let entry = ToolEntry(
         name: "process",
-        toolset: "terminal",
+        toolset: .terminal,
         description: "Manage background processes started with terminal(background=true): "
             + "list, poll, log, wait, kill. Use this to run long jobs (test suites, "
             + "builds, servers) without blocking the turn: start in background, keep "

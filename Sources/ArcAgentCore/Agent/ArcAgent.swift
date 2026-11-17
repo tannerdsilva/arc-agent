@@ -1346,7 +1346,7 @@ public actor ArcAgent: Service {
     /// Tool index text for the ShareGPT trajectory system preamble.
     public func toolsIndexText() async -> String {
         config.registry.allTools
-            .filter { !config.disabledToolsets.contains($0.toolset) }
+            .filter { !config.disabledToolsets.contains($0.toolsetName) }
             .map { "\($0.name): \($0.description)" }
             .joined(separator: "\n")
     }
@@ -1772,14 +1772,14 @@ public actor ArcAgent: Service {
         }
 
         let candidates = config.registry.allTools
-            .filter { !config.disabledToolsets.contains($0.toolset) }
+            .filter { !config.disabledToolsets.contains($0.toolsetName) }
             .map { $0.tool }
         let (visible, deferred) = DeferredToolPolicy.plan(entries: candidates, config: config.toolSearch)
 
         var builtin = 0
         var mcp = 0
         for tool in visible {
-            if tool.toolset == "mcp" { mcp += schemaTokens(tool) } else { builtin += schemaTokens(tool) }
+            if tool.toolsetName == "mcp" { mcp += schemaTokens(tool) } else { builtin += schemaTokens(tool) }
         }
 
         if !deferred.isEmpty, config.toolSearch.enabled != "off" {
@@ -1790,7 +1790,7 @@ public actor ArcAgent: Service {
                 ToolSchemaRenderer.toolDescribeSchema(),
                 ToolSchemaRenderer.toolCallSchema(),
             ])
-            let nonMCP = deferred.filter { $0.toolset != "mcp" }
+            let nonMCP = deferred.filter { $0.toolsetName != "mcp" }
             if let full = ProgressiveToolDisclosure.manifest(
                 deferred: deferred, config: config.toolSearch, contextLength: config.maxContextTokens
             ) {
@@ -3792,8 +3792,8 @@ public actor ArcAgent: Service {
         guard let entry = config.registry.lookup(name: tool) else {
             return "Error: Unknown tool '\(tool)'."
         }
-        guard !config.disabledToolsets.contains(entry.toolset) else {
-            return "Error: Tool '\(tool)' is disabled (toolset '\(entry.toolset)' is disabled by configuration)."
+        guard !config.disabledToolsets.contains(entry.toolsetName) else {
+            return "Error: Tool '\(tool)' is disabled (toolset '\(entry.toolsetName)' is disabled by configuration)."
         }
         if name == "tool_describe" {
             let schema = ToolSchemaRenderer.schema(for: entry.tool)
@@ -3848,15 +3848,15 @@ public actor ArcAgent: Service {
         // toolsets are removed from the registry). Schemas are filtered by
         // ProgressiveToolDisclosure; dispatch must enforce the same set so a
         // disabled tool can never execute even when the model names it.
-        guard !config.disabledToolsets.contains(entry.toolset) else {
-            return "Error: Tool '\(toolCall.function.name)' is disabled (toolset '\(entry.toolset)' is disabled by configuration)."
+        guard !config.disabledToolsets.contains(entry.toolsetName) else {
+            return "Error: Tool '\(toolCall.function.name)' is disabled (toolset '\(entry.toolsetName)' is disabled by configuration)."
         }
 
         // ── Tool policy (reference managed tool scope): policy is
         // evaluated before any approval/danger logic and before execution. ──
         let gate = ToolPolicy.decide(
             toolName: toolCall.function.name,
-            toolset: entry.toolset,
+            toolset: entry.toolsetName,
             config: config.toolPolicy
         )
         switch gate.action {
@@ -4382,10 +4382,10 @@ public actor ArcAgent: Service {
         // Parity with the schema disclosure: disabled toolsets are not
         // advertised in the tool index either (ProgressiveToolDisclosure
         // filters the same set for schemas).
-        let tools = config.registry.allTools.filter { !config.disabledToolsets.contains($0.toolset) }
+        let tools = config.registry.allTools.filter { !config.disabledToolsets.contains($0.toolsetName) }
         return tools.map { tool in
             let emoji = tool.emoji ?? "🔧"
-            return "\(emoji) `\(tool.name)` [\(tool.toolset)] — \(tool.description)"
+            return "\(emoji) `\(tool.name)` [\(tool.toolsetName)] — \(tool.description)"
         }.joined(separator: "\n")
     }
 }

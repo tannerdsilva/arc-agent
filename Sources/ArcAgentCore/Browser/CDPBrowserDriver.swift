@@ -480,7 +480,7 @@ public enum BrowserTools {
 
     public static let navigate = ToolEntry(
         name: "browser_navigate",
-        toolset: "browser",
+        toolset: .browser,
         description: "Navigate the browser to a URL (CDP provider).",
         schema: .object(properties: ["url": .string(description: "Absolute URL to open")], required: ["url"]),
         handler: { args in
@@ -493,7 +493,7 @@ public enum BrowserTools {
 
     public static let snapshot = ToolEntry(
         name: "browser_snapshot",
-        toolset: "browser",
+        toolset: .browser,
         description: "Read the visible text of the current page (CDP provider).",
         schema: .object(properties: [:]),
         handler: { _ in
@@ -505,7 +505,7 @@ public enum BrowserTools {
 
     public static let click = ToolEntry(
         name: "browser_click",
-        toolset: "browser",
+        toolset: .browser,
         description: "Click an element by CSS selector (CDP provider).",
         schema: .object(properties: ["selector": .string(description: "CSS selector")], required: ["selector"]),
         handler: { args in
@@ -518,7 +518,7 @@ public enum BrowserTools {
 
     public static let type = ToolEntry(
         name: "browser_type",
-        toolset: "browser",
+        toolset: .browser,
         description: "Type text into an input by CSS selector (CDP provider).",
         schema: .object(properties: [
             "selector": .string(description: "CSS selector"),
@@ -535,7 +535,7 @@ public enum BrowserTools {
 
     public static let press = ToolEntry(
         name: "browser_press",
-        toolset: "browser",
+        toolset: .browser,
         description: "Press a keyboard key on the focused element (CDP provider).",
         schema: .object(properties: ["key": .string(description: "Key name, e.g. Enter")], required: ["key"]),
         handler: { args in
@@ -548,7 +548,7 @@ public enum BrowserTools {
 
     public static let scroll = ToolEntry(
         name: "browser_scroll",
-        toolset: "browser",
+        toolset: .browser,
         description: "Scroll the page up or down (CDP provider).",
         schema: .object(properties: ["direction": .string(description: "up or down")], required: ["direction"]),
         handler: { args in
@@ -561,7 +561,7 @@ public enum BrowserTools {
 
     public static let back = ToolEntry(
         name: "browser_back",
-        toolset: "browser",
+        toolset: .browser,
         description: "Navigate back in browser history (CDP provider).",
         schema: .object(properties: [:]),
         handler: { _ in
@@ -581,7 +581,7 @@ public enum BrowserTools {
 
     public static let console = ToolEntry(
         name: "browser_console",
-        toolset: "browser",
+        toolset: .browser,
         description: "Get browser console output and JavaScript errors from the current page. "
             + "Returns console.log/warn/error/info messages and uncaught JS exceptions. Use this "
             + "to detect silent JavaScript errors, failed API calls, and application warnings. "
@@ -608,7 +608,7 @@ public enum BrowserTools {
 
     public static let getImages = ToolEntry(
         name: "browser_get_images",
-        toolset: "browser",
+        toolset: .browser,
         description: "Get a list of all images on the current page with their URLs and alt text. "
             + "Useful for finding images to analyze with the vision tool. Requires browser_navigate "
             + "to be called first.",
@@ -622,7 +622,7 @@ public enum BrowserTools {
 
     public static let vision = ToolEntry(
         name: "browser_vision",
-        toolset: "browser",
+        toolset: .browser,
         description: "Take a screenshot of the current page so you can inspect it visually (CDP "
             + "provider). Returns a screenshot_path you can share with the user by including "
             + "MEDIA:<screenshot_path> in your response. Requires browser_navigate to be called first.",
@@ -639,7 +639,7 @@ public enum BrowserTools {
 
     public static let dialog = ToolEntry(
         name: "browser_dialog",
-        toolset: "browser",
+        toolset: .browser,
         description: "Respond to a native JavaScript dialog (alert / confirm / prompt / "
             + "beforeunload) that is currently blocking the page. Call browser_snapshot first — if "
             + "a dialog is open, it appears in the output. Then call this tool with action='accept' "
@@ -660,7 +660,7 @@ public enum BrowserTools {
 
     public static let cdp = ToolEntry(
         name: "browser_cdp",
-        toolset: "browser",
+        toolset: .browser,
         description: "Send a raw Chrome DevTools Protocol (CDP) command. Escape hatch for browser "
             + "operations not covered by browser_navigate, browser_click, browser_console, etc. "
             + "Examples: method='Target.getTargets'; method='Network.getAllCookies'; "
@@ -681,7 +681,7 @@ public enum BrowserTools {
 
     public static let connect = ToolEntry(
         name: "browser_connect",
-        toolset: "browser",
+        toolset: .browser,
         description: "Connect the browser toolkit to a CDP endpoint. If 'endpoint' is omitted, "
             + "BROWSER_CDP_URL (default ws://localhost:9222/devtools/browser) is used. "
             + "Idempotent: registers the driver as the active provider (reference browser connect).",
@@ -703,7 +703,7 @@ public enum BrowserTools {
 
     public static let close = ToolEntry(
         name: "browser_close",
-        toolset: "browser",
+        toolset: .browser,
         description: "Close the active cloud browser session (Browserbase/Browser Use/Firecrawl) "
             + "and fall back to the local CDP provider. No-op when a local session is active "
             + "(reference browser_close).",

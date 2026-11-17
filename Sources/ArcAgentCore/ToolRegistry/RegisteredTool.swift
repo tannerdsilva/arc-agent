@@ -34,7 +34,11 @@ public struct RegisteredTool: Sendable {
     public var name: String { tool.name }
 
     /// The toolset the tool belongs to. See ``AgentTool/toolset``.
-    public var toolset: String { tool.toolset }
+    public var toolset: Toolset { tool.toolset }
+
+    /// The toolset's display / config / wire spelling. See
+    /// ``AgentTool/toolsetName``.
+    public var toolsetName: String { tool.toolsetName }
 
     /// The tool's human-readable description. See ``AgentTool/description``.
     public var description: String { tool.description }

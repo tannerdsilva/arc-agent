@@ -38,7 +38,7 @@ public enum ProfileEditTool {
     ) -> ToolEntry {
         ToolEntry(
             name: "profile_edit",
-            toolset: "profile",
+            toolset: .profile,
             description: "Read or edit the agent's profile files: MEMORY (the agent's persistent "
                 + "notes), USER (the user profile), SOUL (the profile persona/prompt), AGENTS "
                 + "(workspace AGENTS.md). Read is always allowed; writes refuse locked files. "

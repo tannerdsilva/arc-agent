@@ -159,7 +159,7 @@ extension ArcCoreTestRoot {
             try await registry.loadAll()
             let tools = await registry.tools()
             #expect(tools.count == 1)
-            #expect(tools[0].toolset == "weather")
+            #expect(tools[0].toolsetName == "weather")
             #expect(tools[0].entry == "tool.py")
 
             var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.testRegistry())
@@ -317,7 +317,7 @@ extension ArcCoreTestRoot {
         func agentToolProtocolShared() throws {
             // A generic consumer written against the protocol accepts both kinds.
             func describe(_ tool: any AgentTool) -> String {
-                "\(tool.name)[\(tool.toolset)]"
+                "\(tool.name)[\(tool.toolsetName)]"
             }
             let builtIn = try ArcAgentCore.testRegistry()
             let builtInEntry = try #require(builtIn.lookup(name: "read_file")?.tool)

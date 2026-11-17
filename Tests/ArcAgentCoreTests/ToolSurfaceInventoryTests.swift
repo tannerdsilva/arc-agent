@@ -12,7 +12,7 @@ extension ArcCoreTestRoot {
 
         @Test("the toolset universe is the declared one")
         func toolsetUniverse() throws {
-            let actual = Set(try ArcAgentCore.testRegistry().allTools.map(\.toolset))
+            let actual = Set(try ArcAgentCore.testRegistry().allTools.map(\.toolsetName))
             // a tripwire, not a policy: adding a toolset is a decision, so it must
             // edit this line. T3 deletes this test once the type carries the decision.
             #expect(actual == [

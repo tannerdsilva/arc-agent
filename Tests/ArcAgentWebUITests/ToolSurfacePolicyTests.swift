@@ -171,7 +171,7 @@ extension ArcWebUITestRoot {
             // A registry whose toolsets are known exactly, so the allowlist
             // math is assertable: alpha, beta, gamma — and nothing else.
             let registry = StubToolsetRegistry(toolsets: ["alpha", "beta", "gamma"])
-            let all = Set(registry.allTools.map(\.toolset))
+            let all = Set(registry.allTools.map(\.toolsetName))
 
             func config(global: Set<String>, disabled: Set<String>?, enabled: Set<String>?)
                 -> ArcAgent.Configuration {
@@ -475,9 +475,16 @@ private struct StubToolsetRegistry: ToolRegistry {
 
     private struct Tool: AgentTool {
         let name: String
-        let toolset: String
+        let toolset: Toolset
         var description: String { "stub" }
         var schema: JSONSchema { .object(properties: [:], required: []) }
         var handler: ToolHandler { { _ in "" } }
+
+        /// the fixture's names are arbitrary (`alpha`, `beta`, `gamma`), so every
+        /// one of them claims a foreign namespace and lands on the narrowest reach.
+        init(name: String, toolset: String) {
+            self.name = name
+            self.toolset = Toolset(claimed: toolset)
+        }
     }
 }

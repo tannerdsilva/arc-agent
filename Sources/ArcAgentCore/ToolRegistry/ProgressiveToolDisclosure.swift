@@ -143,7 +143,7 @@ public enum DeferredToolPolicy {
         var deferred: [any AgentTool] = []
         for entry in entries {
             if let check = entry.checkFn, !check() { continue }
-            if isDeferred(name: entry.name, toolset: entry.toolset, config: config) {
+            if isDeferred(name: entry.name, toolset: entry.toolsetName, config: config) {
                 deferred.append(entry)
             } else {
                 visible.append(entry)
@@ -213,7 +213,7 @@ public enum ProgressiveToolDisclosure {
     /// Grouped name + short-description listing (arc skills-style).
     public static func renderListing(_ deferred: [any AgentTool]) -> String {
         var lines: [String] = ["Deferred tools (load a schema with tool_describe, call with tool_call):\n"]
-        let groups = Dictionary(grouping: deferred, by: { $0.toolset })
+        let groups = Dictionary(grouping: deferred, by: { $0.toolsetName })
         for (toolset, entries) in groups.sorted(by: { $0.key < $1.key }) {
             lines.append("📦 \(toolset)")
             for entry in entries.sorted(by: { $0.name < $1.name }) {

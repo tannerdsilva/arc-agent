@@ -107,7 +107,7 @@ extension ArcCoreTestRoot {
             let dispatcher = ArcToolDispatcher(entries: [
                 ToolEntry(
                     name: "db_mutate",
-                    toolset: "db",
+                    toolset: Toolset(claimed: "db"),
                     description: "Mutates a field in the encrypted store.",
                     schema: .object(properties: ["field": .string(description: "Field")]),
                     handler: { _ in "ok" }
@@ -128,7 +128,7 @@ extension ArcCoreTestRoot {
             // toolset appears. This is that mechanism, not the table.
             let declared = ArcToolDispatcher.inProcessOnlyToolsets
                 .union(ArcToolDispatcher.localMachineToolsets)
-            let actual = Set(try ArcAgentCore.testRegistry().allTools.map(\.toolset))
+            let actual = Set(try ArcAgentCore.testRegistry().allTools.map(\.toolsetName))
 
             #expect(
                 actual.subtracting(declared).isEmpty,
@@ -171,7 +171,7 @@ extension ArcCoreTestRoot {
             let held = ArcToolDispatcher(entries: [
                 ToolEntry(
                     name: "db_mutate",
-                    toolset: "web",
+                    toolset: .web,
                     description: "Mutates a field in the encrypted store.",
                     schema: .object(properties: ["field": .string(description: "Field")]),
                     handler: { _ in "ok" },
@@ -190,7 +190,7 @@ extension ArcCoreTestRoot {
             let open = ArcToolDispatcher(entries: [
                 ToolEntry(
                     name: "db_read",
-                    toolset: "web",
+                    toolset: .web,
                     description: "Reads a field from the encrypted store.",
                     schema: .object(properties: ["field": .string(description: "Field")]),
                     handler: { _ in "ok" }
@@ -206,7 +206,7 @@ extension ArcCoreTestRoot {
             // thing keeping it off the wire.
             let inner = ToolEntry(
                 name: "db_mutate",
-                toolset: "web",
+                toolset: .web,
                 description: "Mutates a field in the encrypted store.",
                 schema: .object(
                     properties: ["field": .string(description: "Field to mutate")],
@@ -226,7 +226,7 @@ extension ArcCoreTestRoot {
             // (a) the agent surface sees it, carrying the declaration
             let tool = try #require(try await source.tools().first)
             #expect(tool.placement == .inProcessOnly)
-            #expect(tool.toolset == "web")
+            #expect(tool.toolsetName == "web")
 
             // (b) the in-process carrier runs it
             let result = try await tool.handler(["field": "email"])
@@ -257,7 +257,7 @@ extension ArcCoreTestRoot {
             // The measured half of the decision: the installed plugin's 25 tools
             // must stay reachable, because rung 2 was ratified on that basis.
             let tools = await PluginRegistry.shared.tools()
-            let installed = Set(tools.map(\.toolset))
+            let installed = Set(tools.map(\.toolsetName))
 
             #expect(
                 installed.subtracting(ArcToolDispatcher.localMachineToolsets).isEmpty,

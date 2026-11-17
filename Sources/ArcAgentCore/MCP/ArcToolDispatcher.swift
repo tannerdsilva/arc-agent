@@ -78,7 +78,7 @@ public struct ArcToolDispatcher: MCPToolDispatcher {
     /// whatever its toolset's tier would admit.
     static func access(for entry: any AgentTool) -> AccessLevel {
         if entry.placement == .inProcessOnly { return .root }
-        return access(for: entry.toolset)
+        return access(for: entry.toolsetName)
     }
 
     /// The level a toolset's tools default to. Deny by default.

@@ -56,11 +56,17 @@ public protocol AgentTool: Sendable {
     /// Names should be `snake_case` and unique within a registry.
     var name: String { get }
 
-    /// The toolset this tool belongs to (e.g. `"file"`, `"web"`, `"terminal"`).
+    /// The toolset this tool belongs to (e.g. `.file`, `.web`, `.terminal`).
     ///
     /// Toolsets are the grouping mechanism for enabling/disabling categories
-    /// of tools at the agent level.
-    var toolset: String { get }
+    /// of tools at the agent level — and, since T3a, the carrier of the two
+    /// decisions that used to live in four separate string tables: who may
+    /// reach the tools (``Toolset/Reach``) and whether they render eagerly or
+    /// defer behind the `tool_search` bridge (``Toolset/Disclosure``).
+    ///
+    /// A site that only needs the spelling reads ``toolsetName``; a site that
+    /// decides something takes the type.
+    var toolset: Toolset { get }
 
     /// A human-readable description of what this tool does.
     ///
@@ -112,6 +118,10 @@ public protocol AgentTool: Sendable {
 // MARK: - Default requirements
 
 extension AgentTool {
+
+    /// Display / config / wire spelling. Every site that only **reads** a name
+    /// keeps compiling; every site that **decides** something now needs the type.
+    public var toolsetName: String { toolset.name }
 
     /// Default: no availability check — the tool is always available.
     public var checkFn: ToolRequirementCheck? { nil }
