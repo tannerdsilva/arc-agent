@@ -41,5 +41,41 @@ extension ArcCoreTestRoot {
             #expect(registry.revision == before)
             #expect(try ArcAgentCore.testRegistry().revision == 0)
         }
+
+        @Test("every accepted mutation moves the identity, every refusal does not")
+        func everyMutationSiteIsPinned() throws {
+            // `revision` is the key T2's renderer cache invalidates on, so each
+            // bump site and each refusal path is pinned here: an accepted
+            // mutation that forgets to bump serves stale schemas forever, and a
+            // refusal that bumps throws the cache away for nothing.
+            var registry = MutableToolRegistry(builtIn: try ArcAgentCore.testRegistry())
+            let start = registry.revision
+
+            // register(origin:) — an accepted registration is a new surface.
+            let direct = fixturePlugin("registered_fixture")
+            try registry.register(direct, origin: .plugin("audit"))
+            #expect(registry.revision == start + 1)
+
+            // a duplicate registration throws and leaves the identity alone.
+            var threw = false
+            do { try registry.register(direct, origin: .plugin("audit")) } catch { threw = true }
+            #expect(threw)
+            #expect(registry.revision == start + 1)
+
+            // install(pluginTool:) — an unmet `requires_env` is not a mutation:
+            // the tool disappeared and the surface is byte-identical.
+            let gated = PluginTool(
+                plugin: "audit", name: "gated_fixture",
+                description: "needs a variable nothing sets",
+                command: "python3", requiresEnv: ["ARC_T5D_TEST_UNSET_VARIABLE_9F3A"])
+            let refused = registry.install(pluginTool: gated)
+            #expect(refused == false)
+            #expect(registry.revision == start + 1)
+
+            // replacingBuiltIns(_:) — the copy is a new surface, the original is not.
+            let replaced = registry.replacingBuiltIns([])
+            #expect(replaced.revision == start + 2)
+            #expect(registry.revision == start + 1)
+        }
     }
 }
