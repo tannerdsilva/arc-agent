@@ -34,6 +34,20 @@ public enum ToolPolicyAction: String, Codable, Sendable {
                 debugDescription: "unknown tool policy action '\(raw)'")
         }
     }
+
+    /// The operator-facing spelling.
+    ///
+    /// `rawValue` is the wire and config spelling, which is exactly why a
+    /// surface must not print it: `denyWithHint` is a name for the machine, and
+    /// a rule list is read by a person. The type owns both spellings so neither
+    /// caller has to invent the other.
+    public var displayName: String {
+        switch self {
+        case .allow: return "Allow"
+        case .deny: return "Deny"
+        case .denyWithHint: return "Deny with hint"
+        }
+    }
 }
 
 /// A rule: glob match on tool name (+ optional exact toolset).
@@ -115,11 +129,17 @@ public enum ToolPolicy {
     }
 
     /// Human-readable scope summary.
+    ///
+    /// A column, not a sentence: every rule gets the same action width so the
+    /// matches line up and the list reads as the ordered table it is. The
+    /// spelling is ``ToolPolicyAction/displayName`` — `rawValue` is the config
+    /// spelling and has no business in a document a person reads.
     public static func describe(config: ToolPolicyConfig) -> String {
         guard config.enabled else { return "tool policy: disabled (allow all)" }
         var lines = ["tool policy: enabled"]
         for rule in config.rules {
-            lines.append("  \(rule.action.rawValue)  \(rule.match)\(rule.toolset.map { " @\($0)" } ?? "")\(rule.reason.map { " — \($0)" } ?? "")")
+            let action = rule.action.displayName.padding(toLength: 15, withPad: " ", startingAt: 0)
+            lines.append("  \(action)\(rule.match)\(rule.toolset.map { " @\($0)" } ?? "")\(rule.reason.map { " — \($0)" } ?? "")")
         }
         if config.rules.isEmpty { lines.append("  (no rules — allow all)") }
         return lines.joined(separator: "\n")

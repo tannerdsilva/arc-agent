@@ -1743,10 +1743,10 @@ extension AppState {
     /// labels state what each one DOES — `denyWithHint` refuses and hands its
     /// reason to the agent, it does not prompt a human.
     static let toolPolicyActionOptions: [SelectOption] = [
-        SelectOption(value: ToolPolicyAction.allow.rawValue, label: "allow — let the call through"),
-        SelectOption(value: ToolPolicyAction.deny.rawValue, label: "deny — refuse the call"),
+        SelectOption(value: ToolPolicyAction.allow.rawValue, label: "Allow — let the call through"),
+        SelectOption(value: ToolPolicyAction.deny.rawValue, label: "Deny — refuse the call"),
         SelectOption(value: ToolPolicyAction.denyWithHint.rawValue,
-                     label: "denyWithHint — refuse and tell the agent why"),
+                     label: "Deny with hint — refuse and tell the agent why"),
     ]
 
     /// Open the rule editor on `editor`, or close it with `nil`.

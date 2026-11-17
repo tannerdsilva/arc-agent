@@ -3975,6 +3975,24 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
 
     // MARK: Tools main
 
+    /// What the operator's switches currently say about one tool.
+    ///
+    /// `ToolEnablement.isEnabled` is the same verdict the schema array and
+    /// dispatch act on, so this row cannot drift from the list's switch. The
+    /// toolset case is checked first because toolset-off wins over everything —
+    /// including a per-tool enable — and saying "this tool's switch" there would
+    /// point the operator at a control that cannot fix it.
+    func toolStateLabel(_ tool: RegisteredTool) -> String {
+        let enablement = arcConfig.tools.toolEnablement
+        if enablement.disabledToolsets.contains(tool.toolsetName) {
+            return "off — its toolset is switched off"
+        }
+        if !ToolEnablement.isEnabled(tool: tool.name, toolset: tool.toolset, config: enablement) {
+            return "off — this tool's switch is off"
+        }
+        return "on"
+    }
+
     func toolsMain() -> some WebUI.View {
         Group {
             if let name = selectedTool, let tool = registry.lookup(name: name) {
@@ -3989,6 +4007,11 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                             DetailSub { Text(tool.toolsetName) }
                             AkvRow(key: "Description", value: tool.description)
                             AkvRow(key: "Toolset", value: tool.toolsetName)
+                            // the switch's answer, from the resolver the schema
+                            // filter and dispatch both run: a pane that said
+                            // "available" about a tool the list has switched off
+                            // would be two surfaces disagreeing about one tool.
+                            AkvRow(key: "State", value: toolStateLabel(tool))
                             // provenance and reach were computed and stored but
                             // never shown (F6/F16). `origin` finally has a
                             // production reader: the operator's trust signal.
@@ -4297,16 +4320,16 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
         Div(class: ClassName(.setRow, .setRowStackTight)) {
             RowSplit {
                 Div(class: .setLabel) {
-                    Text("\(index + 1). \(rule.action.rawValue)  \(rule.match)")
+                    Text("\(index + 1). \(rule.action.displayName)  \(rule.match)")
                     Small(rule.toolset.map { "toolset: \($0)" } ?? "any toolset")
                 }
                 Div(class: ClassName(.rowActions, .rowActionsInline)) {
                     ArcButton(id: "tp-up-\(index)", class: .iconMini, type: .button,
                               disabled: index == 0,
-                              extraAttributes: index == 0 ? "" : controlAttributes(id: "tp-up-\(index)", event: .click, outcome: { _ in
+                              extraAttributes: " aria-label=\"Move rule \(index + 1) up\"" + (index == 0 ? "" : controlAttributes(id: "tp-up-\(index)", event: .click, outcome: { _ in
                                   await self.moveToolPolicyRuleUp(index)
                                   return .refresh
-                              })) {
+                              }))) {
                         WebUIIcon(.arrowUp, size: .small)
                     }
                     .title(index == 0
@@ -4314,10 +4337,10 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                            : "Move up: earlier means weaker, because the last match wins")
                     ArcButton(id: "tp-down-\(index)", class: .iconMini, type: .button,
                               disabled: index == count - 1,
-                              extraAttributes: index == count - 1 ? "" : controlAttributes(id: "tp-down-\(index)", event: .click, outcome: { _ in
+                              extraAttributes: " aria-label=\"Move rule \(index + 1) down\"" + (index == count - 1 ? "" : controlAttributes(id: "tp-down-\(index)", event: .click, outcome: { _ in
                                   await self.moveToolPolicyRuleDown(index)
                                   return .refresh
-                              })) {
+                              }))) {
                         WebUIIcon(.arrowDown, size: .small)
                     }
                     .title(index == count - 1
@@ -4329,7 +4352,7 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                                   return .refresh
                               }))
                     ArcButton(id: "tp-del-\(index)", class: ClassName(.iconMini, .danger), type: .button,
-                              extraAttributes: controlAttributes(id: "tp-del-\(index)", event: .click, outcome: { _ in
+                              extraAttributes: " aria-label=\"Remove rule \(index + 1)\"" + controlAttributes(id: "tp-del-\(index)", event: .click, outcome: { _ in
                                   await self.removeToolPolicyRule(at: index)
                                   _ = await self.hint("Rule \(index + 1) removed.")
                                   return .refresh
@@ -4389,7 +4412,7 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                            options: Self.toolPolicyActionOptions,
                            selected: formValues["tp-action-input"] ?? editing?.rule.action.rawValue
                                ?? ToolPolicyAction.deny.rawValue)
-                    Small("denyWithHint refuses and hands the reason to the agent — nothing prompts a human.")
+                    Small("Deny with hint refuses and hands the reason to the agent — nothing prompts a human.")
                 }
                 WebUIField(label: "Reason (optional)", controlID: "tp-reason-input") {
                     Input(field: "tp-reason-input",

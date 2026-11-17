@@ -136,10 +136,16 @@ extension ArcWebUITestRoot {
             #expect(Self.count(of: ToolPolicy.describe(config: policy), in: html) == 1,
                     "the summary appears once, verbatim, and no second copy paraphrases it")
 
+            // the summary is a document a person reads, so it carries the
+            // display spelling, never the wire one. this can go red: `rawValue`
+            // in `describe` is exactly what the operator used to see.
+            #expect(!ToolPolicy.describe(config: policy).contains("denyWithHint"),
+                    "the summary must not print the config spelling — it is read by a human")
+
             // the rows appear in array order — three labels at increasing offsets.
-            let first = try #require(html.range(of: "1. allow  *"))
-            let second = try #require(html.range(of: "2. deny  mcp_tool"))
-            let third = try #require(html.range(of: "3. denyWithHint  run_*"))
+            let first = try #require(html.range(of: "1. Allow  *"))
+            let second = try #require(html.range(of: "2. Deny  mcp_tool"))
+            let third = try #require(html.range(of: "3. Deny with hint  run_*"))
             #expect(first.lowerBound < second.lowerBound, "row 1 precedes row 2")
             #expect(second.lowerBound < third.lowerBound, "row 2 precedes row 3")
 
