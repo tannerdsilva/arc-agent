@@ -441,16 +441,6 @@ public static let css: String = """
     @keyframes sess-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
     .row-actions { display: flex; flex-direction: column; justify-content: center; gap: 2px; padding-right: 4px; }
     .icon-mini.kb-danger-icon { color: var(--danger); }
-    /* Kanban top-bar add menus: chat-row-style popovers. The trigger toggles
-       .open client-side; any outside click closes. */
-    .kb-pop-anchor { position: relative; }
-    .kb-pop {
-      display: none; position: absolute; top: calc(100% + 6px); right: 0;
-      min-width: 260px; background: var(--surface); border: 1px solid var(--border);
-      border-radius: 12px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
-      padding: 10px; z-index: 60; flex-direction: column; gap: 8px;
-    }
-    .kb-pop.open { display: flex; }
     .icon-mini {
       width: 24px; height: 24px;
       display: flex; align-items: center; justify-content: center;
@@ -1054,7 +1044,6 @@ public static let css: String = """
       flex: none; }
     .kb-topbar-name { font-size: 0.95rem; font-weight: 600; color: var(--text);
       min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .kb-topbar-actions { display: flex; gap: 8px; flex: none; }
     /* Lanes area: scrollable when there is more than one lane; a single lane
        stretches to fill the board height. */
     .kb-lanes { display: flex; flex-direction: column; gap: 16px;

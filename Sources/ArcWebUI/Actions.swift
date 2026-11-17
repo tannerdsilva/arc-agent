@@ -3286,6 +3286,12 @@ extension Controller {
         return await self.changed()
     }
 
+    @Wired("kb-addlane", events: [.click])
+    func handleKbAddLane(_ event: EventData) async -> HandlerOutcome {
+        await self.app.setAddingLane(!self.app.addingLane)
+        return await self.changed()
+    }
+
     @Wired("kb-addcol-form", events: [.submit, .click])
     func handleKbAddColForm(_ event: EventData) async -> HandlerOutcome {
         if event.event == "submit" {
@@ -3296,6 +3302,10 @@ extension Controller {
             // the swatch group is a native radio group (A17) — presentation only.
             return .fragments([])
         }
+        // the form is the panel's own, so it closes itself: a submit and a
+        // cancel both leave add mode (a stray click on the swatch group returned
+        // above, before this line).
+        await self.app.setAddingColumn(false)
         return await self.changed()
     }
 
@@ -3304,8 +3314,9 @@ extension Controller {
         if event.event == "submit" {
             await self.app.addKanbanLane(named: event.string("kb-addlane-name") ?? "")
         }
-        // cancel and stray clicks just close the popover client-side;
-        // the re-render drops the open class either way.
+        // submit and cancel both leave add mode: the form is the panel's, so
+        // closing it is this handler's job — there is no popover to dismiss.
+        await self.app.setAddingLane(false)
         return await self.changed()
     }
 

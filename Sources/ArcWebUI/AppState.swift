@@ -1176,6 +1176,9 @@ actor AppState {
 
     /// Kanban UI mode (phase: kanban).
     var addingColumn = false
+    /// The lane form's mode: the panel head's + Row toggles it, and the panel
+    /// body renders `kanbanAddLaneForm()` while it is on.
+    var addingLane = false
     var addingCardColumnID: String? = nil
     var addingCardLaneID: String? = nil
     /// Round-3 UX-34: inline reason for an empty card title, rendered next to
@@ -1494,6 +1497,7 @@ actor AppState {
         var renamingBoardID: String? = nil
         var renamingLaneID: String? = nil
         var addingColumn = false
+        var addingLane = false
         var addingCardColumnID: String? = nil
         var addingCardLaneID: String? = nil
         var kanbanAddError: String? = nil
@@ -1605,6 +1609,7 @@ actor AppState {
         self.profileSkillsDraft = fixture.profileSkillsDraft
         self.profileSkillsPickerOpen = fixture.profileSkillsPickerOpen
         self.addingColumn = fixture.addingColumn
+        self.addingLane = fixture.addingLane
         self.addingCardColumnID = fixture.addingCardColumnID
         self.kanbanAddError = fixture.kanbanAddError
         self.memoryDoc = fixture.memoryDoc

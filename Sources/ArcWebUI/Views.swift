@@ -5678,9 +5678,26 @@ extension AppState {
                         }
                     }
                     .title(addingColumn ? "Cancel" : "Add column")
+                    ArcButton(id: "kb-addlane", component: "kb-addlane", class: .plusBtn) {
+                        if addingLane {
+                            WebUIIcon(.x, size: .small)
+                        } else {
+                            WebUIIcon(.plus, size: .small)
+                        }
+                    }
+                    .title(addingLane ? "Cancel" : "Add row")
                 }
             }
             PanelBody {
+                // the add forms are the panel's own, rendered from server state:
+                // the head's + Column / + Row toggle it. there is no client
+                // popover in this path, so no `.open` class and no toggle script.
+                if addingColumn {
+                    kanbanAddColumnForm()
+                }
+                if addingLane {
+                    kanbanAddLaneForm()
+                }
                 // ── Boards (Hermes parity): select, create, rename, delete ──
                 Div(class: .kbBoardsHead) {
                     Span(class: .kbBoardsLabel) { Text("Boards") }
@@ -5790,21 +5807,12 @@ extension AppState {
     func kanbanTopbarHTML() -> some WebUI.View {
         let sel = selectedBoardID()
         let boardName = settings.kanbanBoards.first(where: { $0.id == sel })?.name ?? "Default"
+        // The board's name only. Its add menus used to live here as client-side
+        // popovers keyed on an `.open` class; the add forms are the panel's now
+        // (server state, `addingColumn` / `addingLane`), so this bar carries no
+        // controls and no client state at all.
         return Div(class: .kbTopbar) {
             Span(class: .kbTopbarName) { Text(boardName) }
-            Div(class: .kbTopbarActions) {
-                // Add menus are chat-row-style popovers: the trigger toggles a
-                // .kb-pop client-side (overlay.js), so naming a new column or
-                // lane never shifts the board layout.
-                Div(class: .kbPopAnchor) {
-                    ArcButton("+ Column", id: "kb-addcol-menu", component: nil, class: .ghostBtn)
-                    Div(class: .kbPop) { ErasedViews([kanbanAddColumnForm()]) }
-                }
-                Div(class: .kbPopAnchor) {
-                    ArcButton("+ Row", id: "kb-addlane-menu", component: nil, class: .ghostBtn)
-                    Div(class: .kbPop) { ErasedViews([kanbanAddLaneForm()]) }
-                }
-            }
         }
     }
 

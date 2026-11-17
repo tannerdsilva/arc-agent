@@ -368,7 +368,6 @@ extension ClassName {
 	public static var off: ClassName { ClassName(ArcClass.off.token) }
 	public static var on: ClassName { ClassName(ArcClass.on.token) }
 	public static var once: ClassName { ClassName(ArcClass.once.token) }
-	public static var open: ClassName { ClassName(ArcClass.open.token) }
 	public static var outlineCloseBtn: ClassName { ClassName(ArcClass.outlineCloseBtn.token) }
 	public static var outlineEmpty: ClassName { ClassName(ArcClass.outlineEmpty.token) }
 	public static var outlineEntries: ClassName { ClassName(ArcClass.outlineEntries.token) }
@@ -493,8 +492,6 @@ extension ClassName {
 	public static var sessCaret: ClassName { ClassName(ArcClass.sessCaret.token) }
 	public static var sessConfirm: ClassName { ClassName(ArcClass.sessConfirm.token) }
 	public static var iconMiniDanger: ClassName { ClassName(ArcClass.iconMiniDanger.token) }
-	public static var kbPopAnchor: ClassName { ClassName(ArcClass.kbPopAnchor.token) }
-	public static var kbPop: ClassName { ClassName(ArcClass.kbPop.token) }
 	public static var sessGroup: ClassName { ClassName(ArcClass.sessGroup.token) }
 	public static var sessGroupHead: ClassName { ClassName(ArcClass.sessGroupHead.token) }
 	public static var sessGroupRows: ClassName { ClassName(ArcClass.sessGroupRows.token) }
@@ -570,7 +567,6 @@ extension ClassName {
 	public static var taskHistRow: ClassName { ClassName(ArcClass.taskHistRow.token) }
 	public static var kbTopbar: ClassName { ClassName(ArcClass.kbTopbar.token) }
 	public static var kbTopbarName: ClassName { ClassName(ArcClass.kbTopbarName.token) }
-	public static var kbTopbarActions: ClassName { ClassName(ArcClass.kbTopbarActions.token) }
 	public static var kbLanes: ClassName { ClassName(ArcClass.kbLanes.token) }
 	public static var kbLanesSingle: ClassName { ClassName(ArcClass.kbLanesSingle.token) }
 	public static var kbLane: ClassName { ClassName(ArcClass.kbLane.token) }

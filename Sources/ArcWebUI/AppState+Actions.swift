@@ -840,6 +840,8 @@ extension AppState {
 
     func setAddingColumn(_ on: Bool) { addingColumn = on }
 
+    func setAddingLane(_ on: Bool) { addingLane = on }
+
     /// The id of the board the Kanban page is showing (nil selection reads
     /// as the default board, matching legacy data).
     func selectedBoardID() -> String {

@@ -242,9 +242,26 @@ struct KanbanBoardsTests {
         let app = makeApp(columns: [KBColumn(id: "c1", name: "Backlog", color: "#5BB98C")])
         let html = await app.kanbanMain().markup.html
         #expect(html.contains("kb-topbar-name\">Default"))
-        #expect(html.contains(">+ Column</button>") && html.contains(">+ Row</button>"))
         #expect(html.contains("kb-lanes-single"))     // one lane fills the height
         #expect(html.contains("kb-lane-name\">General"))
         #expect(html.contains("kb-renlane-"))          // inline lane rename
+        // the board's add controls are the PANEL's (server state), never the top
+        // bar's: the bar carries the name only, with no client-side popover.
+        #expect(!html.contains(">+ Column</button>"))
+    }
+
+    @Test("the panel head carries the board's add controls, and the body their forms")
+    func panelHeadCarriesAddControls() async {
+        let app = makeApp(columns: [KBColumn(id: "c1", name: "Backlog", color: "#5BB98C")])
+        let closed = await app.kanbanPanel().markup.html
+        #expect(closed.contains("id=\"kb-addcol\""))
+        #expect(closed.contains("id=\"kb-addlane\""))
+        #expect(!closed.contains("kb-addcol-form"))    // no form until the mode is on
+
+        await app.setAddingColumn(true)
+        await app.setAddingLane(true)
+        let open = await app.kanbanPanel().markup.html
+        #expect(open.contains("id=\"kb-addcol-form\""))
+        #expect(open.contains("id=\"kb-addlane-form\""))
     }
 }

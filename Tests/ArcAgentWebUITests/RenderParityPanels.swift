@@ -315,17 +315,17 @@ extension ArcWebUITestRoot {
 			Parity.expect(html, matches: "kanban-panel")
 		}
 
-		@Test("kanban main, add column form open, matches golden")
-		func kanbanMainAddColGolden() async {
+		@Test("kanban panel, add column form open, matches golden")
+		func kanbanPanelAddColGolden() async {
 			let html = await app {
 				$0.kanbanColumns = [
 					KBColumn(id: "col-1", name: "Backlog", color: "#5BB98C"),
 					KBColumn(id: "col-2", name: "In progress", color: "#2F9EB7"),
 				]
 				$0.addingColumn = true
-			}.kanbanMain().markup.html
-			Parity.capture(html, as: "kanban-main-addcol")
-			Parity.expect(html, matches: "kanban-main-addcol")
+			}.kanbanPanel().markup.html
+			Parity.capture(html, as: "kanban-panel-addcol")
+			Parity.expect(html, matches: "kanban-panel-addcol")
 		}
 
 		@Test("kanban main, three columns four cards, matches golden")
