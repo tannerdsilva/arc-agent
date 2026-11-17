@@ -213,6 +213,12 @@ extension KanbanAgent {
             self.summary = summary
             self.producedAt = producedAt
         }
+
+        /// Content equality — ignores `producedAt` (spec 07 §1: "the card's
+        /// result changes" means new *output*, not a new timestamp).
+        public func isSameContent(as other: CardResult) -> Bool {
+            outcome == other.outcome && summary == other.summary
+        }
     }
 
     /// A card — the unit of work (design doc §3). Position is (lane, column)

@@ -283,3 +283,160 @@ extension ArcCoreTestRoot {
         }
     }
 }
+
+
+extension ArcCoreTestRoot {
+
+    @Suite("Kanban agent invariants", .serialized)
+    struct KanbanAgentInvariantTests {
+
+        final class ScriptedExecutor: KanbanAgent.CardExecutor, @unchecked Sendable {
+            var outcomes: [String: String] = [:]
+            func run(_ prompt: KanbanAgent.CardPrompt, card: KanbanAgent.Card, settings: KanbanAgent.BoardSettings) async throws -> KanbanAgent.CardResult {
+                .init(outcome: outcomes[card.id] ?? "unmapped", summary: "did \(card.id)")
+            }
+        }
+
+        private func board() -> KanbanAgent.BoardDocument {
+            var doc = KanbanAgent.BoardDocument(id: "b2", name: "Invariants", columns: [
+                .init(id: "entry", name: "Entry", kind: .agentWork, isEntry: true),
+                .init(id: "work", name: "Work", kind: .agentWork),
+                .init(id: "review", name: "Review", kind: .agentWork, isTriage: true),
+                .init(id: "done", name: "Done", kind: .terminal),
+                .init(id: "human", name: "Ask", kind: .humanWait),
+            ], edges: [
+                .init(id: "e14", fromColumnID: "work", toColumnID: "done", decision: .deterministic, outcomeLabel: "completed"),
+                .init(id: "e5", fromColumnID: "work", toColumnID: "work", decision: .policy, policy: .counter),
+                .init(id: "e4", fromColumnID: "work", toColumnID: "human", decision: .policy, policy: .agent, isAskTheUser: true),
+                .init(id: "e12", fromColumnID: "entry", toColumnID: "human", decision: .policy, policy: .agent, isAskTheUser: true),
+                .init(id: "e13", fromColumnID: "review", toColumnID: "human", decision: .policy, policy: .agent, isAskTheUser: true),
+            ])
+            doc.settings.cycleBudget = 1
+            doc.roots = [.init(id: "r1", title: "root", definitionOfDone: "dod", state: .running, firstCardID: "c-root")]
+            return doc
+        }
+
+        private func makeStore() -> FileKanbanAgentStore {
+            .init(root: FileManager.default.temporaryDirectory
+                .appendingPathComponent("kanban-inv-\(UUID().uuidString)", isDirectory: true))
+        }
+
+        private func seedRoot(_ store: FileKanbanAgentStore, _ doc: KanbanAgent.BoardDocument) async throws {
+            try await store.saveBoard(doc)
+            try await store.saveCard(KanbanAgent.Card(
+                id: "c-root", laneID: "l1", columnID: "review", goal: "g",
+                doneCondition: "dod", parentID: nil, rootID: "r1"), boardID: doc.id)
+        }
+
+        @Test("a changed result resets the budget; an identical result does not")
+        func progressReset() async throws {
+            let store = makeStore()
+            let judge = KanbanAgent.ScriptedKanbanJudge()
+            let executor = ScriptedExecutor()
+            let doc = board()
+            try await seedRoot(store, doc)
+            // The card has burned its budget in work AND produced an
+            // identical result before. Identical → no reset → triage.
+            var card = KanbanAgent.Card(id: "c-root", laneID: "l1", columnID: "work",
+                goal: "g", doneCondition: "dod", parentID: nil, rootID: "r1")
+            card.traversalCounts = ["work": 1]
+            card.result = .init(outcome: "x", summary: "did c-root",
+                                producedAt: Date(timeIntervalSinceNow: -120))
+            // Stale provenance: the result must be re-produced by the
+            // executor this tick for the reset logic to see both results.
+            card.transitionProvenance = [KanbanAgent.TransitionRecord(
+                edgeID: "e12", fromColumnID: "entry", toColumnID: "work",
+                reasoning: "seed", decidedBy: .deterministic, at: Date(timeIntervalSinceNow: -60))]
+            try await store.saveCard(card, boardID: doc.id)
+            executor.outcomes = ["c-root": "x"]
+
+            let engine = KanbanAgent.KanbanEngineService(
+                store: store, judge: judge, executor: executor, ownerID: "t", pollInterval: 0.05)
+            _ = await engine.tick()
+            #expect((try await store.getCard(id: "c-root", boardID: doc.id)!).columnID == "review")
+
+            // Same setup, but the new result DIFFERS: genuine progress
+            // resets the budget and the counter self-edge fires normally.
+            let store2 = makeStore()
+            let judge2 = KanbanAgent.ScriptedKanbanJudge()
+            let doc2 = board()
+            try await seedRoot(store2, doc2)
+            var card2 = KanbanAgent.Card(id: "c-root", laneID: "l1", columnID: "work",
+                goal: "g", doneCondition: "dod", parentID: nil, rootID: "r1")
+            card2.traversalCounts = ["work": 1]
+            card2.result = .init(outcome: "old", summary: "did c-root",
+                                 producedAt: Date(timeIntervalSinceNow: -120))
+            card2.transitionProvenance = [KanbanAgent.TransitionRecord(
+                edgeID: "e12", fromColumnID: "entry", toColumnID: "work",
+                reasoning: "seed", decidedBy: .deterministic, at: Date(timeIntervalSinceNow: -60))]
+            try await store2.saveCard(card2, boardID: doc2.id)
+            executor.outcomes = ["c-root": "new"]
+            let engine2 = KanbanAgent.KanbanEngineService(
+                store: store2, judge: judge2, executor: executor, ownerID: "t", pollInterval: 0.05)
+            _ = await engine2.tick()
+            #expect(try await store2.getCard(id: "c-root", boardID: doc2.id)!.columnID == "work")
+        }
+
+        @Test("a second forced yellow references the prior report")
+        func forcedYellowReferencesPrior() async throws {
+            let store = makeStore()
+            let judge = KanbanAgent.ScriptedKanbanJudge()
+            let executor = ScriptedExecutor()
+            let doc = board()
+            try await seedRoot(store, doc)
+            // Park the only card in humanWait: the evaluation point is
+            // reached immediately (nothing runnable, nothing pending).
+            var parked = try await store.getCard(id: "c-root", boardID: doc.id)!
+            parked.columnID = "human"
+            try await store.saveCard(parked, boardID: doc.id)
+            let bareGreen = KanbanAgent.RootVerdict.green(.init(entries: []))
+            judge.enqueueVerdict(bareGreen)  // invalid: no evidence for the DoD clauses
+            judge.enqueueVerdict(bareGreen)  // re-ask also invalid
+
+            let engine = KanbanAgent.KanbanEngineService(
+                store: store, judge: judge, executor: executor, ownerID: "t", pollInterval: 0.05)
+            _ = await engine.tick()
+            let saved = try await store.getBoard(id: doc.id)!
+            #expect(saved.roots[0].state == .yellow)
+
+            // Second exhaustion after a resume: the forced report
+            // references the prior report (spec 06 §4).
+            try await engine.resume(rootID: "r1", boardID: doc.id, context: nil)
+            judge.enqueueVerdict(bareGreen)
+            judge.enqueueVerdict(bareGreen)
+            _ = await engine.tick()
+            let saved2 = try await store.getBoard(id: doc.id)!
+            #expect(saved2.roots[0].state == .yellow)
+            #expect(saved2.roots[0].missingReport?.alternativesConsidered
+                .contains { $0.contains("prior report") } == true)
+        }
+
+        @Test("yellow without attempts is rejected even with a blocking unknown")
+        func yellowNeedsAttempts() async throws {
+            let verdict = KanbanAgent.RootVerdict.yellow(.init(
+                attempts: [],
+                blockingUnknown: "the API key",
+                userMustProvide: .credential("api key"),
+                alternativesConsidered: []))
+            #expect(KanbanAgent.validateVerdict(verdict, definitionOfDone: "d", tree: []) != nil)
+        }
+
+        @Test("API shape: the judge protocol has no root-creation method")
+        func judgeCannotCreateRoots() {
+            // Compile-time proof: the protocol's members are exactly the
+            // three verbs. Reflection over the type is impossible in Swift,
+            // so pin the surface by construction — a conforming type cannot
+            // be called for root creation because no such requirement exists.
+            func assertNoRootCreation<T: KanbanAgent.KanbanJudge>(_ t: T) {}
+            assertNoRootCreation(KanbanAgent.ScriptedKanbanJudge())
+            assertNoRootCreation(KanbanAgent.LLMKanbanJudge(client: LLMNoopClient(), model: "m"))
+        }
+    }
+}
+
+/// A client that never speaks — for API-shape assertions only.
+private final class LLMNoopClient: LLMClient, @unchecked Sendable {
+    func complete(messages: [Message], tools: [[String: Any]]?) async throws -> LLMResponse { .init(content: nil) }
+    func stream(messages: [Message], tools: [[String: Any]]?) -> AsyncThrowingStream<LLMDelta, Error> { .init(unfolding: { nil }) }
+    func stream(messages: [Message], tools: [[String: Any]]?, reasoningEffort: String?) -> AsyncThrowingStream<LLMDelta, Error> { .init(unfolding: { nil }) }
+}

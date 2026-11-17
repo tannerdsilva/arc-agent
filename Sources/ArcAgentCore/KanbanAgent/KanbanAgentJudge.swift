@@ -280,11 +280,15 @@ extension KanbanAgent {
             }
             return nil
         case .yellow(let report):
-            guard !report.attempts.isEmpty || !report.blockingUnknown.isEmpty else {
-                return .yellowWithoutReport
-            }
+            // A yellow without attempts is "giving up" (spec 06 §2).
+            guard !report.attempts.isEmpty else { return .yellowWithoutReport }
             if report.blockingUnknown.trimmingCharacters(in: .whitespaces).isEmpty {
                 return .reportIncomplete("blockingUnknown is empty")
+            }
+            // A concrete provision is required — "unspecified" is not one.
+            if case .information(let detail) = report.userMustProvide,
+               detail == "unspecified" {
+                return .reportIncomplete("userMustProvide is not concrete")
             }
             return nil
         }

@@ -200,13 +200,19 @@ extension KanbanAgent {
                 // Triage re-arm (answer 10): a repeat result in the triage
                 // column stays parked — re-arm the cooldown, skip transition.
                 if running.columnID == graph.triageColumn()?.id,
-                   let previousResult, previousResult == result {
+                   let previousResult, previousResult.isSameContent(as: result) {
                     var parked = running
                     parked.triageRetryAt = now.addingTimeInterval(board.settings.triageCooldownSeconds)
                     try await store.saveCard(parked, boardID: board.id)
                     executed = parked.id
                     try await persist(board)
                     return TickReport(boardID: boardID, executedCardID: executed, notices: notices)
+                }
+                // Genuine progress (spec 07 §1): a changed result resets
+                // the traversal counts; an identical result does not — the
+                // amnesia that keeps loops bounded.
+                if let previousResult, !previousResult.isSameContent(as: result) {
+                    running.traversalCounts = [:]
                 }
                 running.result = result
                 try await store.saveCard(running, boardID: board.id)
@@ -514,10 +520,16 @@ extension KanbanAgent {
                 if let defect2 = KanbanAgent.validateVerdict(retry, definitionOfDone: root.definitionOfDone, tree: tree) {
                     // Force yellow (spec 05 §4 last line): no viable move IS
                     // an evaluation, and a stuck judge cannot wedge the root.
+                    // A repeat exhaustion references the prior report (spec 06 §4).
+                    var prior: [String] = []
+                    if let previous = root.missingReport {
+                        prior = ["prior report at \(previous.reportedAt): \(previous.blockingUnknown)"]
+                    }
                     verdict = .yellow(MissingReport(
                         attempts: [],
                         blockingUnknown: "engine forced yellow: judge verdict invalid twice (\(defect), \(defect2))",
-                        userMustProvide: .decision("review the root's definition of done and resume")))
+                        userMustProvide: .decision("review the root's definition of done and resume"),
+                        alternativesConsidered: prior))
                 } else {
                     verdict = retry
                 }

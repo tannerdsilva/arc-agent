@@ -244,10 +244,13 @@ extension ArcCoreTestRoot {
             try await seed(doc, store: store)
             // The child has already visited work once (budget 1 spent) and
             // sits in work with an unmapped outcome; the counter self-edge
-            // e5 would re-enter work — over budget → triage.
+            // e5 would re-enter work — over budget → triage. The previous
+            // result is identical to the new one, so no genuine-progress
+            // reset applies (spec 07 §1) and the spent budget still bites.
             var child = EngineScenario.cards()[1]
             child.columnID = "work"
             child.traversalCounts = ["work": 1]
+            child.result = .init(outcome: "x", summary: "did c-child")
             try await store.saveCard(child, boardID: doc.id)
             executor.outcomes = ["c-child": "x"]
 
