@@ -757,22 +757,36 @@ public actor TesseraConnection {
         kind: UInt32, dTagValue: String, content: String,
         timeout: TimeInterval = 5
     ) async throws -> NOSTR_id {
-        let eventID = try await signAndSend(kind: kind, dTagValue: dTagValue, content: content)
-        let deadline = ContinuousClock.now + .seconds(timeout)
-        while ContinuousClock.now < deadline {
-            if let model, model.modelStorage[eventID] != nil { return eventID }
-            try await Task.sleep(nanoseconds: 50_000_000)
+        // One blind re-send on a fresh tunnel. A short-lived client (a one-shot
+        // CLI turn) loses its earliest data packets right after the handshake —
+        // the relay logs "could not find matching traffic for inbound data peer
+        // index" while its KCP control blocks are still being recreated — and
+        // then closes, so the first send can vanish with no chance to
+        // retransmit. The daemon's long-lived tunnel never sees this. Retry the
+        // identical signed event (same d-tag: idempotent replace) once from a
+        // clean connection before giving up.
+        for attempt in 0..<2 {
+            let eventID = try await signAndSend(kind: kind, dTagValue: dTagValue, content: content)
+            let deadline = ContinuousClock.now + .seconds(timeout)
+            while ContinuousClock.now < deadline {
+                if let model, model.modelStorage[eventID] != nil { return eventID }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            // The echo arrives via the live subscription — a timeout means the
+            // receive path is dead (or the frame was lost). Escalate NOW: the
+            // next operation reconnects from scratch instead of serving a
+            // frozen model for days (the observed 3-day wedge).
+            Logger(label: "arc-agent.tessera").error(
+                "Tessera write echo never landed after \(Int(timeout))s (kind \(kind)) — forcing reconnect")
+            await hardShutdown()
+            guard attempt == 0 else {
+                throw TesseraStoreError.echoTimeout(
+                    "write not acknowledged by relay within \(Int(timeout))s (kind \(kind))"
+                )
+            }
+            try await ensureStarted()
         }
-        // The echo arrives via the live subscription — a timeout means the
-        // receive path is dead (or the frame was lost). Escalate NOW: the
-        // next operation reconnects from scratch instead of serving a
-        // frozen model for days (the observed 3-day wedge).
-        Logger(label: "arc-agent.tessera").error(
-            "Tessera write echo never landed after \(Int(timeout))s (kind \(kind)) — forcing reconnect")
-        await hardShutdown()
-        throw TesseraStoreError.echoTimeout(
-            "write not acknowledged by relay within \(Int(timeout))s (kind \(kind))"
-        )
+        throw TesseraStoreError.echoTimeout("unreachable")
     }
 
     /// Sign, index locally, enqueue as pending, and frame out to the relay.
