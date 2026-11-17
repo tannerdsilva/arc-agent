@@ -1341,6 +1341,26 @@ actor AppState {
     /// mystery of 2026-11-13. ``bindJobHarness``-style harnesses must bind
     /// a temp ``FileCronStore``.
     var cronStore: any CronStore = RuntimeCronStore()
+
+    // MARK: Kanban agent page (BoardDocument-backed, spec 08)
+    /// The resolved kanban-agent store (tessera when the relay is up, file
+    /// otherwise) — the same runtime-resolution rule as ``cronStore``.
+    var kanbanAgentStore: any KanbanAgentStore = RuntimeKanbanAgentStore()
+    /// The cached board document the page renders; loaded by the controller
+    /// before the fragment renders and kept in sync by actions and the tick.
+    var kanbanAgentDoc: KanbanAgent.BoardDocument?
+    /// Load failure text for the page's error strip.
+    var kanbanAgentError: String?
+    /// The open card sheet (card id) — nil = closed.
+    var kanbanAgentSheetCard: String?
+    /// The open popover: "settings", "root-new", or "col-\(id)".
+    var kanbanAgentPopover: String?
+    /// Board switcher selection (doc id).
+    var kanbanAgentSelectedBoard: String?
+    /// The cached card set for the selected board (loaded with the doc).
+    var kanbanAgentCards: [KanbanAgent.Card] = []
+    /// All boards (summaries for the sidebar switcher).
+    var kanbanAgentBoards: [KanbanAgent.BoardDocument] = []
     /// Per-attempt run history (new cron §2) — the detail card's "Recent runs".
     let cronHistory = RuntimeCronRunHistory()
 
@@ -1358,6 +1378,10 @@ actor AppState {
         /// Injected cron store: scheduled-task mutation tests need a store
         /// they can make fail (the default RuntimeCronStore owns real paths).
         var cronStore: (any CronStore)? = nil
+        var kanbanAgentDoc: KanbanAgent.BoardDocument? = nil
+        var kanbanAgentCards: [KanbanAgent.Card]? = nil
+        var kanbanAgentBoards: [KanbanAgent.BoardDocument]? = nil
+        var kanbanAgentStore: (any KanbanAgentStore)? = nil
         var sessions: [Session] = []
         var messages: [Message] = []
         var arcConfig = ArcConfig()
@@ -1504,6 +1528,10 @@ actor AppState {
          configurationStore: ConfigurationStore? = nil) {
         self.settings = fixture.settings
         if let injected = fixture.cronStore { self.cronStore = injected }
+        if let injected = fixture.kanbanAgentDoc { self.kanbanAgentDoc = injected }
+        if let injected = fixture.kanbanAgentCards { self.kanbanAgentCards = injected }
+        if let injected = fixture.kanbanAgentBoards { self.kanbanAgentBoards = injected }
+        if let injected = fixture.kanbanAgentStore { self.kanbanAgentStore = injected }
         self.sessions = fixture.sessions
         self.arcConfig = fixture.arcConfig
         self.runtimeBackend = fixture.runtimeBackend

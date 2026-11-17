@@ -356,6 +356,31 @@ public enum ArcDaemon {
                 )
             ))
         }
+        // Kanban-agent engine (spec 04): polls the BoardDocument store and
+        // advances boards through the judge/executor verbs. Only boots when
+        // at least one agent board exists — an empty store means no work.
+        if let host = sessionHost {
+            do {
+                let agentStore = RuntimeKanbanAgentStore()
+                let boards = try await agentStore.listBoards()
+                if !boards.isEmpty {
+                    let runner = host.kanbanCardRunner
+                    services.append(KanbanAgent.KanbanEngineService(
+                        store: agentStore,
+                        judge: KanbanAgent.LLMKanbanJudge(
+                            client: KanbanAgent.SessionJudgeClient(runner: runner),
+                            model: "session"
+                        ),
+                        executor: KanbanAgent.SessionCardExecutor(runner: runner),
+                        ownerID: "daemon",
+                        logger: logger
+                    ))
+                    logger.info("kanban-agent engine started (\(boards.count) board\(boards.count == 1 ? "" : "s"))")
+                }
+            } catch {
+                logger.warning("kanban-agent engine not started: \(error.localizedDescription)")
+            }
+        }
         if let kanban = plan.kanban {
             // CAVEAT: a stub executor that fabricates completion, polling the
             // CORE board (~/.arc/kanban), not the web UI's panel. Default off;

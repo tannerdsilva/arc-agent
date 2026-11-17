@@ -2107,6 +2107,30 @@ extension Controller {
         case "ws-delete":
             await self.app.cancelConfirm()
             await self.app.deleteWorkspaceEntry(req.id)
+        case "kba-lane":
+            await self.app.cancelConfirm()
+            await self.app.kbApply { doc in doc.lanes.removeAll { $0.id == req.id } }
+        case "kba-col":
+            await self.app.cancelConfirm()
+            await self.app.kbApply { doc in
+                doc.columns.removeAll { $0.id == req.id }
+                doc.edges.removeAll { $0.fromColumnID == req.id || $0.toColumnID == req.id }
+            }
+        case "kba-edge":
+            await self.app.cancelConfirm()
+            await self.app.kbApply { doc in doc.edges.removeAll { $0.id == req.id } }
+        case "kba-root":
+            await self.app.cancelConfirm()
+            await self.app.kbDeleteRootCards(rootID: req.id)
+            await self.app.kbApply { doc in doc.roots.removeAll { $0.id == req.id } }
+        case "kba-resume":
+            await self.app.cancelConfirm()
+            await self.app.kbApply { doc in
+                if let i = doc.roots.firstIndex(where: { $0.id == req.id }) {
+                    doc.roots[i].state = .running
+                    doc.roots[i].missingReport = nil
+                }
+            }
         case "kb-board":
             await self.app.cancelConfirm()
             await self.app.deleteKanbanBoard(req.id)
@@ -3887,5 +3911,139 @@ extension Controller {
 
     private func wireToasts(_ router: EventRouter) {
         wireGroup_toasts(router)
+        wireGroup_kanban_agent(router)
+    }
+}
+
+
+@WireGroup("kanban_agent")
+extension Controller {
+
+    @Wired("kanban", events: [.click])
+    func handleKbaClick(_ event: EventData) async -> [FragmentUpdate] {
+        let tid = event.string("targetId") ?? ""
+        switch tid {
+        case "kba-addcol", "kba-addrow", "kba-addroot", "kba-settings":
+            await self.app.kbTogglePopover(tid)
+            return await self.changed()
+        case "kba-pop-close":
+            await self.app.kbSetPopover(nil)
+            await self.app.kbSetSheet(nil)
+            return await self.changed()
+        case "kba-sheet-close":
+            await self.app.kbSetSheet(nil)
+            return await self.changed()
+        default: break
+        }
+        if tid.hasPrefix("kba-selboard-") {
+            guard let id = dec(String(tid.dropFirst("kba-selboard-".count))) else { return [] }
+            await self.app.kbSelect(boardID: id)
+            return await self.changed()
+        }
+        if tid.hasPrefix("kba-card-") {
+            await self.app.kbSetSheet(dec(String(tid.dropFirst("kba-card-".count))))
+            return await self.changed()
+        }
+        if tid.hasPrefix("kba-colpop-") {
+            guard let cid = dec(String(tid.dropFirst("kba-colpop-".count))) else { return [] }
+            await self.app.kbTogglePopover("kba-col-\(cid)")
+            return await self.changed()
+        }
+        // Destructive actions arm the shared middle-of-screen confirm first.
+        if tid.hasPrefix("kba-dellane-") {
+            await self.app.kbArmConfirm(ConfirmRequest(kind: "kba-lane", id: (dec(String(tid.dropFirst("kba-dellane-".count))) ?? ""),
+                title: "Delete row?", body: "The row and its lane assignment will be removed. Cards in it are kept and must be re-homed."))
+            return await self.changed()
+        }
+        if tid.hasPrefix("kba-delcol-") {
+            await self.app.kbArmConfirm(ConfirmRequest(kind: "kba-col", id: (dec(String(tid.dropFirst("kba-delcol-".count))) ?? ""),
+                title: "Delete column?", body: "The column and its outgoing edges will be permanently deleted."))
+            return await self.changed()
+        }
+        if tid.hasPrefix("kba-deledge-") {
+            await self.app.kbArmConfirm(ConfirmRequest(kind: "kba-edge", id: (dec(String(tid.dropFirst("kba-deledge-".count))) ?? ""),
+                title: "Delete edge?", body: "Cards can no longer move along this edge."))
+            return await self.changed()
+        }
+        if tid.hasPrefix("kba-delroot-") {
+            await self.app.kbArmConfirm(ConfirmRequest(kind: "kba-root", id: (dec(String(tid.dropFirst("kba-delroot-".count))) ?? ""),
+                title: "Delete root?", body: "The root and its whole card tree will be permanently deleted."))
+            return await self.changed()
+        }
+        if tid.hasPrefix("kba-resume-") {
+            await self.app.kbArmConfirm(ConfirmRequest(kind: "kba-resume", id: (dec(String(tid.dropFirst("kba-resume-".count))) ?? ""),
+                title: "Resume root?", body: "The root returns to running; the next evaluation receives your resume context."))
+            return await self.changed()
+        }
+        return []
+    }
+
+    @Wired("kba-col-form", events: [.submit])
+    func handleKbaColForm(_ event: EventData) async -> [FragmentUpdate] {
+        let name = event.string("kba-col-name") ?? ""
+        guard !name.isEmpty else { return [] }
+        let kind = event.string("kba-col-kind") ?? "agentWork"
+        await self.app.kbSetPopover(nil)
+        await self.app.kbApply { doc in
+            var col = KanbanAgent.Column(name: name, kind: .agentWork)
+            if let parsed = KanbanAgent.ColumnKind(rawValue: kind) { col.kind = parsed }
+            doc.columns.append(col)
+            // Rule 4: seed the mandatory ask-the-user edge to the board's
+            // humanWait column, so a new column is legal immediately.
+            if col.kind != .terminal, let human = doc.columns.first(where: { $0.kind == .humanWait }) {
+                doc.edges.append(KanbanAgent.Edge(fromColumnID: col.id, toColumnID: human.id,
+                    decision: .policy, policy: .agent, isAskTheUser: true))
+            }
+        }
+        return await self.changed()
+    }
+
+    @Wired("kba-lane-form", events: [.submit])
+    func handleKbaLaneForm(_ event: EventData) async -> [FragmentUpdate] {
+        let name = event.string("kba-lane-name") ?? ""
+        guard !name.isEmpty else { return [] }
+        await self.app.kbSetPopover(nil)
+        await self.app.kbApply { doc in
+            doc.lanes.append(KanbanAgent.Lane(name: name))
+        }
+        return await self.changed()
+    }
+
+    @Wired("kba-root-form", events: [.submit])
+    func handleKbaRootForm(_ event: EventData) async -> [FragmentUpdate] {
+        let title = event.string("kba-root-title") ?? ""
+        let dod = event.string("kba-root-dod") ?? ""
+        guard !title.isEmpty, !dod.isEmpty else { return [] }
+        await self.app.kbSetPopover(nil)
+        let newRoot = KanbanAgent.Root(title: title, definitionOfDone: dod, firstCardID: "")
+        let firstCard = KanbanAgent.Card(laneID: "", columnID: "",
+            readiness: .runnable, goal: title, doneCondition: dod, parentID: nil, rootID: newRoot.id)
+        // Lane/column placement is fixed inside the mutation; the card is
+        // persisted after the doc save by the state helper.
+        await self.app.kbCreateRoot(newRoot, firstCard: firstCard)
+        return await self.changed()
+    }
+
+    @Wired("kba-settings-form", events: [.submit])
+    func handleKbaSettings(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.kbSetPopover(nil)
+        await self.app.kbApply { doc in
+            func int(_ key: String, _ def: Int) -> Int { Int(event.string(key) ?? "") ?? def }
+            doc.settings.cycleBudget = int("kba-set-cycle", doc.settings.cycleBudget)
+            doc.settings.maxDepth = int("kba-set-depth", doc.settings.maxDepth)
+            doc.settings.mintAllowance = int("kba-set-mint", doc.settings.mintAllowance)
+            doc.settings.staleMotionTimeoutSeconds = Double(int("kba-set-stale", Int(doc.settings.staleMotionTimeoutSeconds)))
+            doc.settings.triageCooldownSeconds = Double(int("kba-set-cool", Int(doc.settings.triageCooldownSeconds)))
+        }
+        return await self.changed()
+    }
+
+    @Wired("kba-sheet", events: [.click])
+    func handleKbaSheet(_ event: EventData) async -> [FragmentUpdate] {
+        if event.string("targetId") == "kba-sheet-close" {
+            await self.app.kbSetSheet(nil)
+            return await self.changed()
+        }
+        return []
     }
 }

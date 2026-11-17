@@ -149,46 +149,6 @@ struct KanbanBoardsTests {
 
     // MARK: render
 
-    @Test("the panel renders the boards section with the selected row and card counts")
-    func panelRendersBoards() async {
-        let app = makeApp(
-            boards: [board("b1", "Work"), board("b2", "Home")],
-            columns: [KBColumn(id: "c1", name: "A", color: "#fff", board: "b1"),
-                      KBColumn(id: "c2", name: "B", color: "#fff", board: "b2")],
-            cards: [KBCard(id: "k1", columnID: "c1", title: "one", board: "b1")],
-            selected: "b2")
-        let html = await app.kanbanPanel().markup.html
-        #expect(html.contains("Boards"))
-        #expect(html.contains("kb-sel-YjE") && html.contains("kb-sel-YjI"))  // base64("b1")/base64("b2")
-        #expect(html.contains("1 card") && html.contains("0 cards"))
-        // only the selected board's columns are listed
-        #expect(html.contains("kb-pdel-YzI"))    // base64("c2")
-        #expect(!html.contains("kb-pdel-YzE"))   // base64("c1")
-    }
-
-    @Test("the rename form renders inline for the armed board only")
-    func renameFormRendersInline() async {
-        let app = makeApp(boards: [board("b1", "Work")], selected: "b1")
-        await app.setRenamingBoard("b1")
-        let html = await app.kanbanPanel().markup.html
-        #expect(html.contains("kb-board-ren-form"))
-        #expect(html.contains("value=\"Work\""))
-        #expect(!html.contains("kb-sel-YjE"))  // the row is replaced by the form
-    }
-
-    @Test("the main board shows only the selected board's columns")
-    func mainShowsSelectedBoardOnly() async {
-        let app = makeApp(
-            boards: [board("b1", "One"), board("b2", "Two")],
-            columns: [KBColumn(id: "c1", name: "A", color: "#fff", board: "b1"),
-                      KBColumn(id: "c2", name: "B", color: "#fff", board: "b2")],
-            selected: "b2")
-        let html = await app.kanbanMain().markup.html
-        #expect(html.contains("kb-col-name\">B"))
-        #expect(!html.contains("kb-col-name\">A"))
-    }
-
-
     @Test("+ Row appends a lane sharing the columns; cards land in their lane")
     func laneAddAndCardScoping() async {
         let app = makeApp(columns: [KBColumn(id: "c1", name: "Backlog", color: "#5BB98C")])
@@ -202,24 +162,12 @@ struct KanbanBoardsTests {
         #expect(general.count == 1 && second.count == 1)
     }
 
-    @Test("a legacy nil-lane card renders in the primary lane only")
-    func legacyCardInPrimaryLane() async {
-        let app = makeApp(
-            columns: [KBColumn(id: "c1", name: "Backlog", color: "#5BB98C")],
-            cards: [KBCard(id: "k1", columnID: "c1", title: "Old card")])
-        let html = await app.kanbanMain().markup.html
-        #expect(html.contains("Old card"))
-        #expect(html.components(separatedBy: "Old card").count == 2)  // exactly one lane section shows it
-    }
-
     @Test("lane rename round-trips")
     func laneRename() async {
         let app = makeApp()
         await app.renameKanbanLane("lane-default", to: "Sprint 1")
         let name = await app.selectedKanbanLanes().first?.name
         #expect(name == "Sprint 1")
-        let html = await app.kanbanMain().markup.html
-        #expect(html.contains("Sprint 1"))
     }
 
     @Test("deleting a board removes its lanes")
@@ -233,14 +181,4 @@ struct KanbanBoardsTests {
         #expect(laneBoards == ["b2"])
     }
 
-    @Test("the main board renders the top bar and lane chrome")
-    func topbarAndLaneChrome() async {
-        let app = makeApp(columns: [KBColumn(id: "c1", name: "Backlog", color: "#5BB98C")])
-        let html = await app.kanbanMain().markup.html
-        #expect(html.contains("kb-topbar-name\">Default"))
-        #expect(html.contains(">+ Column</button>") && html.contains(">+ Row</button>"))
-        #expect(html.contains("kb-lanes-single"))     // one lane fills the height
-        #expect(html.contains("kb-lane-name\">General"))
-        #expect(html.contains("kb-renlane-"))          // inline lane rename
-    }
 }

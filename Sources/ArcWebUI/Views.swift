@@ -5012,117 +5012,34 @@ extension AppState {
         Group {
             PanelHead {
                 PanelTitle { Text("Kanban") }
-                PanelActions {
-                    ArcButton(id: "kb-addcol", component: "kb-addcol", class: .plusBtn) {
-                        if addingColumn {
-                            WebUIIcon(.x, size: .small)
-                        } else {
-                            WebUIIcon(.plus, size: .small)
-                        }
-                    }
-                    .title(addingColumn ? "Cancel" : "Add column")
-                }
+                PanelActions {}
             }
             PanelBody {
-                // ── Boards (Hermes parity): select, create, rename, delete ──
-                Div(class: .kbBoardsHead) {
-                    Span(class: .kbBoardsLabel) { Text("Boards") }
-                    ArcButton(id: "kb-addboard", component: "kb-addboard", class: .plusBtn) {
-                        if addingBoard {
-                            WebUIIcon(.x, size: .small)
-                        } else {
-                            WebUIIcon(.plus, size: .small)
+                // Boards: select among the loaded BoardDocuments.
+                for doc in kanbanAgentBoards {
+                    let selected = kanbanAgentDoc?.id == doc.id
+                    ErasedViews([Div(class: selected ? ClassName(.listRow, .sel) : ClassName(.listRow)) {
+                        ArcButton(id: "kba-selboard-\(enc(doc.id))", component: nil, class: .kbPcol) {
+                            LrName { Text(doc.name) }
+                            LrSub { Text("\(doc.roots.count) root\(doc.roots.count == 1 ? "" : "s")") }
                         }
-                    }
-                    .title(addingBoard ? "Cancel" : "New board")
+                    }])
                 }
-                if addingBoard {
-                    Form(action: "", method: nil, id: "kb-board-form", class: .catAddForm) {
-                        Input(field: "kb-board-name",
-                              placeholder: "Board name", type: .text,
-                              attributes: [
-                                ("data-component-id", "kb-board-name"),
-                                ("autofocus", ""),
-                              ])
-                        CatAddActions {
-                            ArcButton("Add", class: .primaryBtn, type: .submit)
-                            ArcButton("Cancel", id: "kb-board-cancel", component: nil, class: .ghostBtn)
-                        }
-                    }
-                    .data("component-id", "kb-board-form")
+                if kanbanAgentBoards.isEmpty {
+                    EmptyHint { Text("No boards loaded yet.") }
                 }
-                for board in settings.kanbanBoards {
-                    let bid = enc(board.id)
-                    let selected = AppState.boardID(settings.kanbanSelectedBoard) == board.id
-                    if renamingBoardID == board.id {
-                        ErasedViews([Form(action: "", method: nil, id: "kb-board-ren-form", class: .catAddForm) {
-                            Input(field: "kb-board-ren-name",
-                                  placeholder: board.name, type: .text,
-                                  attributes: [
-                                    ("data-component-id", "kb-board-ren-name"),
-                                    ("value", board.name),
-                                    ("autofocus", ""),
-                                  ])
-                            Input(name: "kb-board-ren-id", type: .hidden,
-                                  attributes: [("id", "kb-board-ren-id"), ("value", board.id)])
-                            CatAddActions {
-                                ArcButton("Save", class: .primaryBtn, type: .submit)
-                                ArcButton("Cancel", id: "kb-board-ren-cancel", component: nil, class: .ghostBtn)
-                            }
-                        }
-                        .data("component-id", "kb-board-ren-form")])
-                    } else {
-                        let rowClass: ClassName = selected ? ClassName(.listRow, .sel) : ClassName(.listRow)
-                        ErasedViews([Div(class: rowClass) {
-                            ArcButton(id: "kb-sel-\(bid)", component: nil, class: .kbPcol) {
-                                LrName { Text(board.name) }
-                                LrSub { Text(boardCardCount(board.id)) }
-                            }
-                            .attribute("style", "flex:1")
-                            RowActions {
-                                ArcButton(id: "kb-renboard-\(bid)", component: nil, class: .iconMini) {
-                                    WebUIIcon(.edit, size: .small)
-                                }
-                                .title("Rename board")
-                                ArcButton(id: "kb-dboard-\(bid)", component: nil, class: .iconMiniDanger) {
-                                    WebUIIcon(.x, size: .small)
-                                }
-                                .title("Delete board")
+                if let doc = kanbanAgentDoc {
+                    for root in doc.roots {
+                        ErasedViews([Div(class: .listRow) {
+                            ArcButton(id: "kba-rootopen-\(enc(root.id))", component: nil, class: .kbPcol) {
+                                LrName { Text(root.title) }
+                                LrSub { Text(root.state.rawValue) }
                             }
                         }])
                     }
                 }
-                if settings.kanbanBoards.isEmpty {
-                    EmptyHint { Text("No boards — press + to add one.") }
-                }
-                for col in selectedKanbanColumns() {
-                    let cid = enc(col.id)
-                    let count = settings.kanbanCards.filter { $0.columnID == col.id }.count
-                    Div(class: .listRow) {
-                        Div(class: .kbPcol) {
-                            CatDot {}
-                                .attribute("style", "background:\(col.color)")
-                            LrName { Text(col.name) }
-                            LrSub { Text("\(count) card\(count == 1 ? "" : "s")") }
-                        }
-                        .attribute("style", "flex:1")
-                        RowActions {
-                            // a column delete arms first (matching the board's
-                            // column header), so one stray click never drops a
-                            // column and its cards.
-                            ArcButton(id: "kb-pdel-\(cid)", component: nil, class: .iconMiniDanger) {
-                                WebUIIcon(.x, size: .small)
-                            }
-                            .title("Delete column")
-                        }
-                    }
-                }
-                if selectedKanbanColumns().isEmpty {
-                    EmptyHint { Text("No columns — press + to add one.") }
-                }
             }
             .data("component-id", "kanban")
-            .data("event", "click")
         }
     }
 
@@ -5243,36 +5160,7 @@ extension AppState {
     }
 
     func kanbanMain() -> some WebUI.View {
-        let cols = selectedKanbanColumns()
-        let lanes = selectedKanbanLanes()
-        // The top bar renders unconditionally: an emptied board keeps its
-        // name and its + Column / + Row menus so it can be rebuilt in place.
-        return MainView {
-            Div(class: ClassName(.kanbanMain, .mainView)) {
-                kanbanTopbarHTML()
-                if cols.isEmpty {
-                    Blank {
-                        Big { WebUIIcon(.columns, size: .extraLarge) }
-                        Div { Text("No columns yet — open + Column to add one.") }
-                    }
-                } else if lanes.isEmpty {
-                    Blank {
-                        Big { WebUIIcon(.columns, size: .extraLarge) }
-                        Div { Text("No lanes yet — open + Row to add one.") }
-                    }
-                } else {
-                    Div(class: ClassName(.kbLanes, lanes.count <= 1 ? .kbLanesSingle : .kbLanes)) {
-                        let firstID = lanes.first?.id
-                        for lane in lanes {
-                            ErasedViews([kanbanLaneHTML(lane, cols, firstLaneID: firstID, single: lanes.count <= 1)])
-                        }
-                    }
-                    .data("component-id", "kanban")
-                    .data("event", "click")
-                }
-            }
-            .attribute("style", "padding:0")
-        }
+        kanbanAgentPage()
     }
 
     /// One column inside a lane. The lane matters twice: which cards render,

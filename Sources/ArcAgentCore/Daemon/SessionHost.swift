@@ -64,6 +64,12 @@ public struct SessionHost: Service {
     /// (`ArcDaemon`) and picks this runner when the web UI is not hosted.
     public let cronRunner: @Sendable (CronJob) async throws -> CronRunResult
 
+    /// Kanban-agent card execution: one prompt in, the first response out,
+    /// as a one-shot session (fresh context each card — the standing context
+    /// the card turn still gets is the same as any cron run's). Used by the
+    /// kanban-agent engine's executor and judge (spec 04).
+    public let kanbanCardRunner: @Sendable (String) async throws -> String
+
     /// The messaging service this host owns.
     ///
     /// Exposed so a sibling surface in the same process — the daemon's MCP
@@ -226,6 +232,30 @@ public struct SessionHost: Service {
         // owns — this closure is its runner when the web UI is not hosted).
         let hostLogger = self.logger
         let delivery = self.deliveryManager
+        let hostRegistry = reg
+        self.kanbanCardRunner = { prompt in
+            let sessionID = "kanban-agent-\(UUID().uuidString)"
+            let handle = await hostRegistry.getOrCreate(
+                sessionID: sessionID,
+                profile: "default",
+                isCron: true
+            )
+            let incoming = IncomingMessage(
+                id: UUID().uuidString,
+                chat: ChatTarget(platform: "kanban-agent", chatID: sessionID),
+                text: prompt,
+                senderID: "kanban-agent"
+            )
+            handle.inputContinuation.yield(incoming)
+            var output = ""
+            for await response in handle.responses {
+                output = response
+                break
+            }
+            await hostRegistry.remove(sessionID: sessionID)
+            if output.isEmpty { throw LLMError.emptyResponse }
+            return output
+        }
         self.cronRunner = { job in
             // Script jobs bypass the LLM entirely (plan §6.2): the shell
             // line IS the job. Silence stays silent; failure alerts.

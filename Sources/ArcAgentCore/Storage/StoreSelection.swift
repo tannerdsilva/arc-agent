@@ -222,3 +222,63 @@ public actor RuntimeCronRunHistory: CronRunHistory {
         try await resolve().prune(jobID: jobID, keep: keep)
     }
 }
+
+
+/// A ``KanbanAgentStore`` resolving to ``TesseraKanbanAgentStore`` when
+/// Tessera is active and to ``FileKanbanAgentStore`` otherwise — the same
+/// lazy gate as ``RuntimeCronStore``, so the agent engine and the web UI can
+/// never disagree about medium.
+public actor RuntimeKanbanAgentStore: KanbanAgentStore {
+
+    private var store: (any KanbanAgentStore)?
+
+    public init() {}
+
+    private func resolve() async -> any KanbanAgentStore {
+        if let store { return store }
+        let tessera = await TesseraAvailability.shared.isTesseraActive()
+        let chosen: any KanbanAgentStore = tessera ? TesseraKanbanAgentStore() : FileKanbanAgentStore()
+        store = chosen
+        return chosen
+    }
+
+    public func saveBoard(_ board: KanbanAgent.BoardDocument) async throws {
+        try await resolve().saveBoard(board)
+    }
+
+    public func getBoard(id: String) async throws -> KanbanAgent.BoardDocument? {
+        try await resolve().getBoard(id: id)
+    }
+
+    public func listBoards() async throws -> [KanbanAgent.BoardDocument] {
+        try await resolve().listBoards()
+    }
+
+    public func deleteBoard(id: String) async throws {
+        try await resolve().deleteBoard(id: id)
+    }
+
+    public func cards(boardID: String) async throws -> [KanbanAgent.Card] {
+        try await resolve().cards(boardID: boardID)
+    }
+
+    public func getCard(id: String, boardID: String) async throws -> KanbanAgent.Card? {
+        try await resolve().getCard(id: id, boardID: boardID)
+    }
+
+    public func saveCard(_ card: KanbanAgent.Card, boardID: String) async throws {
+        try await resolve().saveCard(card, boardID: boardID)
+    }
+
+    public func deleteCard(id: String, boardID: String) async throws {
+        try await resolve().deleteCard(id: id, boardID: boardID)
+    }
+
+    public func appendEvent(_ event: KanbanAgent.BoardEvent, boardID: String) async throws {
+        try await resolve().appendEvent(event, boardID: boardID)
+    }
+
+    public func events(boardID: String, after seq: Int, limit: Int) async throws -> [KanbanAgent.BoardEvent] {
+        try await resolve().events(boardID: boardID, after: seq, limit: limit)
+    }
+}

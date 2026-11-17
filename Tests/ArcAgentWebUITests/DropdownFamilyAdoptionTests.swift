@@ -288,12 +288,13 @@ extension ArcWebUITestRoot {
 		@Test("the routing contract in Views.swift is unchanged")
 		func boundaryCensusIsUnchanged() throws {
 			// the recorded pre-count of the card: 38 inline `data-component-id`
-			// spellings. `wire(...)` boundaries are not part of the count and are
+			// spellings (40 after the kanban agent page replaced the legacy
+			// board). `wire(...)` boundaries are not part of the count and are
 			// pinned by `the trigger is the boundary` above. a change here is a
 			// routing change and needs the card that owns it.
 			let source = try Self.viewsSource()
 			let count = Self.occurrences(of: "data-component-id", in: source)
-			#expect(count == 42, "Views.swift carries \(count) `data-component-id` spellings, not the recorded 42")
+			#expect(count == 40, "Views.swift carries \(count) `data-component-id` spellings, not the recorded 40")
 		}
 
 		@Test("the rows are not boundaries")
