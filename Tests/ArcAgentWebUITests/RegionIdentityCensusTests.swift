@@ -47,6 +47,7 @@ extension ArcWebUITestRoot {
 		/// patch targets: with no id the differ does not track them, so their bytes
 		/// roll into the nearest tracked ancestor and a change there still ships.
 		static let sanctionedUnaddressable: Set<String> = [
+			"kanban|kanban-main main-view",
 			"activity-display|bubble-opts",
 			"aux-edit|aux-right",
 			"cat-pick|cat-bar",

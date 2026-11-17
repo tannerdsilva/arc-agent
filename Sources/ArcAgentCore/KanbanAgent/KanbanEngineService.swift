@@ -160,7 +160,17 @@ extension KanbanAgent {
                 // Root queue (spec 04 §3): first running root, creation order.
                 guard let root = KanbanTraversal.nextRoot(in: board) else {
                     if !board.roots.isEmpty { notices.append(.idling) }
-                    try await persist(board)
+                    // Nothing changed this tick — only write when the lease
+                    // heartbeat is due. Persisting unconditionally bumps the
+                    // revision every tick and races every other writer
+                    // (including web UI edits) into revision conflicts.
+                    let heartbeatDue: Bool
+                    if let lease = board.engineLease, lease.ownerID == ownerID {
+                        heartbeatDue = now.timeIntervalSince(lease.heartbeatAt) >= leaseTimeout / 2
+                    } else {
+                        heartbeatDue = true
+                    }
+                    if heartbeatDue { try await persist(board) }
                     return TickReport(boardID: boardID, executedCardID: nil, notices: notices)
                 }
 

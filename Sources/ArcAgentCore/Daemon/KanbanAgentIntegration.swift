@@ -24,17 +24,17 @@ extension KanbanAgent {
 
         public func run(_ prompt: CardPrompt, card: Card, settings: BoardSettings) async throws -> CardResult {
             var text = "You are executing one card of a kanban board.\n\n"
-            text += "Goal: \\(prompt.goal)\n"
+            text += "Goal: \(prompt.goal)\n"
             if let input = prompt.inputText, !input.isEmpty {
-                text += "\nInput (\\(prompt.inputMode.rawValue)): \\(input)\n"
+                text += "\nInput (\(prompt.inputMode?.rawValue ?? "inline")): \(input)\n"
             }
             if let artifact = prompt.inputArtifactID, !artifact.isEmpty {
-                text += "\nInput artifact: \\(artifact)\n"
+                text += "\nInput artifact: \(artifact)\n"
             }
-            text += "\nDone condition (verbatim, you are not done until this holds): \\(prompt.doneCondition)\n"
+            text += "\nDone condition (verbatim, you are not done until this holds): \(prompt.doneCondition)\n"
             if !prompt.expectedOutcomes.isEmpty {
                 text += "\nExpected outcomes (use one verbatim as your outcome):\n"
-                for o in prompt.expectedOutcomes { text += "- \\(o)\n" }
+                for o in prompt.expectedOutcomes { text += "- \(o)\n" }
             }
             text += "\nEnd your reply with two lines:\nOUTCOME: <outcome label>\nSUMMARY: <one paragraph>"
 

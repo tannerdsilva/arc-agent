@@ -42,6 +42,17 @@ public actor TesseraKanbanAgentStore: KanbanAgentStore {
     // MARK: - Snapshot decoding (pure helpers, unit-testable)
 
     /// Collapse board snapshots into the newest document per board id.
+    /// Unwrap the `TesseraKanbanRecord` envelope persisted as event content —
+    /// `publishRecord` writes `{"seq":N,"payload":<base64>}`, so the payload
+    /// must be unwrapped before decoding (same rule as `TesseraCronRecord`).
+    static func payload(from record: TesseraRecord) -> Data? {
+        if let envelope = try? JSONDecoder().decode(TesseraKanbanRecord.self, from: Data(record.content.utf8)) {
+            return envelope.payload
+        }
+        // Legacy/fallback: content stored as the bare record JSON.
+        return Data(record.content.utf8)
+    }
+
     public static func latestBoards(from records: [TesseraRecord]) -> [String: KanbanAgent.BoardDocument] {
         var latest: [String: (seq: Int, doc: KanbanAgent.BoardDocument)] = [:]
         for record in records {
@@ -49,7 +60,8 @@ public actor TesseraKanbanAgentStore: KanbanAgentStore {
                   dTag.hasPrefix("arc/kb/board/"),
                   !dTag.contains("/card/"), !dTag.contains("/evt/"),
                   let seq = TesseraConnection.sequenceNumber(fromTagKey: dTag),
-                  let doc = try? JSONDecoder().decode(KanbanAgent.BoardDocument.self, from: Data(record.content.utf8))
+                  let payload = Self.payload(from: record),
+                  let doc = try? JSONDecoder().decode(KanbanAgent.BoardDocument.self, from: payload)
             else { continue }
             if let existing = latest[doc.id], existing.seq >= seq { continue }
             latest[doc.id] = (seq, doc)
@@ -67,7 +79,8 @@ public actor TesseraKanbanAgentStore: KanbanAgentStore {
             guard let dTag = record.dTag,
                   dTag.hasPrefix("arc/kb/board/"), dTag.contains("/card/"),
                   let seq = TesseraConnection.sequenceNumber(fromTagKey: dTag),
-                  let card = try? JSONDecoder().decode(KanbanAgent.Card.self, from: Data(record.content.utf8))
+                  let payload = Self.payload(from: record),
+                  let card = try? JSONDecoder().decode(KanbanAgent.Card.self, from: payload)
             else { continue }
             // "arc/kb/board/<b>/card/<c>/<seq>" → "arc/kb/board/<b>/card/<c>"
             let prefix = String(dTag.split(separator: "/", omittingEmptySubsequences: false).dropLast().joined(separator: "/"))
@@ -237,7 +250,8 @@ public actor TesseraKanbanAgentStore: KanbanAgentStore {
         var events: [(seq: Int, event: KanbanAgent.BoardEvent)] = []
         for record in records {
             guard let dTag = record.dTag, dTag.hasPrefix("arc/kb/board/\(boardID)/evt/"),
-                  let event = try? JSONDecoder().decode(KanbanAgent.BoardEvent.self, from: Data(record.content.utf8))
+                  let payload = Self.payload(from: record),
+                  let event = try? JSONDecoder().decode(KanbanAgent.BoardEvent.self, from: payload)
             else { continue }
             events.append((Self.sequence(fromEventDTag: dTag) ?? 0, event))
         }

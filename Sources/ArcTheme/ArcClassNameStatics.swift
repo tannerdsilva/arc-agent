@@ -503,6 +503,7 @@ extension ClassName {
 	public static var sessConfirm: ClassName { ClassName(ArcClass.sessConfirm.token) }
 	public static var iconMiniDanger: ClassName { ClassName(ArcClass.iconMiniDanger.token) }
 	public static var kbPopAnchor: ClassName { ClassName(ArcClass.kbPopAnchor.token) }
+	public static var kbErrorBanner: ClassName { ClassName(ArcClass.kbErrorBanner.token) }
 	public static var kbPop: ClassName { ClassName(ArcClass.kbPop.token) }
 	public static var sessGroup: ClassName { ClassName(ArcClass.sessGroup.token) }
 	public static var sessGroupHead: ClassName { ClassName(ArcClass.sessGroupHead.token) }

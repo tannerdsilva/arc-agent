@@ -243,6 +243,31 @@ extension ArcCoreTestRoot {
             #expect(boards["b2"] != nil)
         }
 
+        /// The publish path persists `{"seq":N,"payload":base64}` envelopes as
+        /// event content (mirrors TesseraCronRecord). Reads must unwrap it —
+        /// decoding the envelope as the payload silently dropped every record.
+        @Test("envelope records decode on read")
+        func envelopeRecords() {
+            let board = fixtureBoard(id: "b1")
+            let card = fixtureCard(rootID: "r1")
+            let evt = KanbanAgent.BoardEvent(seq: 3, kind: .transition, payload: "{}")
+
+            func envRecord(_ dTag: String, _ payload: some Codable) -> TesseraRecord {
+                let bytes = try! JSONEncoder().encode(payload)
+                let rec = TesseraKanbanRecord(seq: 1, payload: bytes)
+                return TesseraRecord(id: nil, dTag: dTag, content: String(decoding: try! JSONEncoder().encode(rec), as: UTF8.self))
+            }
+            let records = [
+                envRecord("arc/kb/board/b1/4", board),
+                envRecord("arc/kb/board/b1/card/\(card.id)/5", card),
+                envRecord("arc/kb/board/b1/evt/3", evt),
+            ]
+            let boards = TesseraKanbanAgentStore.latestBoards(from: records)
+            #expect(boards["b1"] != nil, "envelope-wrapped board must decode")
+            let cards = TesseraKanbanAgentStore.latestCards(from: records)
+            #expect(cards["b1"]?[card.id] != nil, "envelope-wrapped card must decode")
+        }
+
         @Test("latestCards: highest seq per card prefix wins across boards")
         func latestCards() {
             let card = fixtureCard(rootID: "r1")
@@ -287,3 +312,5 @@ extension KanbanAgent.BoardDocument {
         return copy
     }
 }
+
+

@@ -3950,6 +3950,10 @@ extension Controller {
             return await self.changed()
         }
         // Destructive actions arm the shared middle-of-screen confirm first.
+        if tid.hasPrefix("kba-addcard-") {
+            await self.app.kbSetPopover(tid)
+            return await self.changed()
+        }
         if tid.hasPrefix("kba-dellane-") {
             await self.app.kbArmConfirm(ConfirmRequest(kind: "kba-lane", id: (dec(String(tid.dropFirst("kba-dellane-".count))) ?? ""),
                 title: "Delete row?", body: "The row and its lane assignment will be removed. Cards in it are kept and must be re-homed."))
@@ -3976,6 +3980,19 @@ extension Controller {
             return await self.changed()
         }
         return []
+    }
+
+    @Wired("kba-pop-close", events: [.click])
+    func handleKbaPopClose(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.kbSetPopover(nil)
+        await self.app.kbSetSheet(nil)
+        return await self.changed()
+    }
+
+    @Wired("kba-sheet-close", events: [.click])
+    func handleKbaSheetClose(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.kbSetSheet(nil)
+        return await self.changed()
     }
 
     @Wired("kba-col-form", events: [.submit])
@@ -4018,15 +4035,33 @@ extension Controller {
         return await self.changed()
     }
 
+    @Wired("kba-card-form", events: [.submit])
+    func handleKbaCardForm(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.kbSetPopover(nil)
+        guard let goal = event.string("kba-card-goal"), !goal.trimmingCharacters(in: .whitespaces).isEmpty,
+              let colID = event.string("kba-card-col"), !colID.isEmpty,
+              let laneID = event.string("kba-card-lane"), !laneID.isEmpty,
+              let rootID = event.string("kba-card-root"), !rootID.isEmpty else {
+            if event.string("kba-card-root")?.isEmpty == true {
+                await self.app.kbSetError("No roots on this board — add a root first (+ Root).")
+            }
+            return await self.changed()
+        }
+        let done = event.string("kba-card-done") ?? ""
+        await self.app.kbAddCard(goal: goal, doneCondition: done, columnID: colID, laneID: laneID, rootID: rootID)
+        return await self.changed()
+    }
+
     @Wired("kba-root-form", events: [.submit])
     func handleKbaRootForm(_ event: EventData) async -> [FragmentUpdate] {
         let title = event.string("kba-root-title") ?? ""
         let dod = event.string("kba-root-dod") ?? ""
-        guard !title.isEmpty, !dod.isEmpty else { return [] }
+        let dodOrTitle = dod.isEmpty ? title : dod
+        guard !title.isEmpty else { return [] }
         await self.app.kbSetPopover(nil)
-        let newRoot = KanbanAgent.Root(title: title, definitionOfDone: dod, firstCardID: "")
+        let newRoot = KanbanAgent.Root(title: title, definitionOfDone: dodOrTitle, firstCardID: "")
         let firstCard = KanbanAgent.Card(laneID: "", columnID: "",
-            readiness: .runnable, goal: title, doneCondition: dod, parentID: nil, rootID: newRoot.id)
+            readiness: .runnable, goal: title, doneCondition: dodOrTitle, parentID: nil, rootID: newRoot.id)
         // Lane/column placement is fixed inside the mutation; the card is
         // persisted after the doc save by the state helper.
         await self.app.kbCreateRoot(newRoot, firstCard: firstCard)

@@ -527,6 +527,7 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case iconMiniDanger = "kb-danger-icon"
 	case kbPopAnchor = "kb-pop-anchor"
 	case kbPop = "kb-pop"
+	case kbErrorBanner = "kb-error-banner"
 	case sessGroup = "sess-group"
 	case sessGroupHead = "sess-group-head"
 	case sessGroupRows = "sess-group-rows"

@@ -63,6 +63,7 @@ extension AppState {
                         }
                     }
                     .attribute("style", "padding:0")
+                    .data("component-id", "kanban")
                 }
             } else {
                 MainView {
@@ -74,6 +75,7 @@ extension AppState {
                         }
                     }
                     .attribute("style", "padding:0")
+                    .data("component-id", "kanban")
                 }
             }
         }
@@ -93,6 +95,10 @@ extension AppState {
         if kanbanAgentPopover == "kba-settings" { popovers.append(kbSettingsForm()) }
         for col in kanbanAgentDoc?.columns ?? [] where kanbanAgentPopover == "kba-col-\(enc(col.id))" {
             popovers.append(kbColumnEditor(col))
+        }
+        if kanbanAgentPopover?.hasPrefix("kba-addcard-") == true,
+           let (colID, laneID) = kbAddCardTarget() {
+            popovers.append(kbAddCardForm(colID: colID, laneID: laneID))
         }
         return Div(class: .kbTopbar) {
             ErasedViews([
@@ -119,6 +125,9 @@ extension AppState {
         return MainView {
             Div(class: ClassName(.kanbanMain, .mainView)) {
                 kanbanAgentTopbar(name: doc.name)
+                if let err = kanbanAgentError {
+                    Div(class: .kbErrorBanner) { Text(err) }
+                }
                 if cols.isEmpty {
                     Blank {
                         Big { WebUIIcon(.columns, size: .extraLarge) }
@@ -147,6 +156,7 @@ extension AppState {
                 }
             }
             .attribute("style", "padding:0")
+            .data("component-id", "kanban")
         }
     }
 
@@ -185,7 +195,9 @@ extension AppState {
             for card in cards {
                 ErasedViews([kbCardChip(card)])
             }
-            ArcButton(id: "kba-addcard-\(cid)-\(lid)", component: nil, class: .ghostBtn) { Text("+ Card") }
+            if !doc.roots.isEmpty {
+                ArcButton(id: "kba-addcard-\(cid)-\(lid)", component: nil, class: .ghostBtn) { Text("+ Card") }
+            }
         }
     }
 
@@ -210,10 +222,61 @@ extension AppState {
                   attributes: [("data-component-id", "kba-col-kind")])
             CatAddActions {
                 ArcButton("Add", class: .primaryBtn, type: .submit)
-                ArcButton("Cancel", id: "kba-pop-close", component: nil, class: .ghostBtn)
+                ArcButton("Cancel", id: "kba-pop-close", component: "kba-pop-close", class: .ghostBtn)
             }
         }
         .data("component-id", "kba-col-form")
+    }
+
+    /// Create a card in the given lane/column of the selected board.
+    func kbAddCard(goal: String, doneCondition: String, columnID: String, laneID: String, rootID: String) async {
+        guard let board = kanbanAgentDoc else { return }
+        let card = KanbanAgent.Card(
+            laneID: laneID, columnID: columnID,
+            goal: goal,
+            input: nil,
+            doneCondition: doneCondition.isEmpty ? goal : doneCondition,
+            parentID: nil,
+            rootID: rootID)
+        do {
+            try await kanbanAgentStore.saveCard(card, boardID: board.id)
+            kanbanAgentError = nil
+            kanbanAgentCards = try await kanbanAgentStore.cards(boardID: board.id)
+        } catch {
+            kanbanAgentError = error.localizedDescription
+        }
+    }
+
+    /// Parse "kba-addcard-<colEnc>-<laneEnc>" back into ids.
+    func kbAddCardTarget() -> (String, String)? {
+        guard let pop = kanbanAgentPopover, pop.hasPrefix("kba-addcard-") else { return nil }
+        let rest = String(pop.dropFirst("kba-addcard-".count))
+        guard let dash = rest.range(of: "-") else { return nil }
+        guard let colID = dec(String(rest[..<dash.lowerBound])),
+              let laneID = dec(String(rest[dash.upperBound...])) else { return nil }
+        return (colID, laneID)
+    }
+
+    /// "+ Card" popover: goal (title), optional done-condition, and the root
+    /// the card joins — every card belongs to exactly one root.
+    func kbAddCardForm(colID: String, laneID: String) -> some WebUI.View {
+        let roots = kanbanAgentDoc?.roots ?? []
+        return Form(action: "", method: nil, id: "kba-card-form", class: .catAddForm) {
+            Input(field: "kba-card-goal", placeholder: "Card goal", type: .text,
+                  attributes: [("data-component-id", "kba-card-goal"), ("autofocus", "")])
+            Input(field: "kba-card-done", placeholder: "Done condition (optional)", type: .text,
+                  attributes: [("data-component-id", "kba-card-done")])
+            Select(field: "kba-card-root", options: roots.map { root in
+                SelectOption(value: root.id, label: root.title)
+            })
+            Input(field: "kba-card-col", type: .hidden).value(colID)
+            Input(field: "kba-card-lane", type: .hidden).value(laneID)
+            CatAddActions {
+                ArcButton("Add", class: .primaryBtn, type: .submit)
+                ArcButton("Cancel", id: "kba-pop-close", component: "kba-pop-close", class: .ghostBtn)
+            }
+        }
+        .data("component-id", "kba-card-form")
     }
 
     /// New-board form: lives in the left sidebar panel under the boards
@@ -224,7 +287,7 @@ extension AppState {
                   attributes: [("data-component-id", "kba-newboard-name"), ("autofocus", "")])
             CatAddActions {
                 ArcButton("Create", class: .primaryBtn, type: .submit)
-                ArcButton("Cancel", id: "kba-pop-close", component: nil, class: .ghostBtn)
+                ArcButton("Cancel", id: "kba-pop-close", component: "kba-pop-close", class: .ghostBtn)
             }
         }
         .data("component-id", "kba-newboard-form")
@@ -236,7 +299,7 @@ extension AppState {
                   attributes: [("data-component-id", "kba-lane-name"), ("autofocus", "")])
             CatAddActions {
                 ArcButton("Add", class: .primaryBtn, type: .submit)
-                ArcButton("Cancel", id: "kba-pop-close", component: nil, class: .ghostBtn)
+                ArcButton("Cancel", id: "kba-pop-close", component: "kba-pop-close", class: .ghostBtn)
             }
         }
         .data("component-id", "kba-lane-form")
@@ -250,7 +313,7 @@ extension AppState {
                   attributes: [("data-component-id", "kba-root-dod")])
             CatAddActions {
                 ArcButton("Create", class: .primaryBtn, type: .submit)
-                ArcButton("Cancel", id: "kba-pop-close", component: nil, class: .ghostBtn)
+                ArcButton("Cancel", id: "kba-pop-close", component: "kba-pop-close", class: .ghostBtn)
             }
         }
         .data("component-id", "kba-root-form")
@@ -272,7 +335,7 @@ extension AppState {
             field("kba-set-cool", "Triage cooldown (s)", "\(Int(s?.triageCooldownSeconds ?? 300))")
             CatAddActions {
                 ArcButton("Save", class: .primaryBtn, type: .submit)
-                ArcButton("Cancel", id: "kba-pop-close", component: nil, class: .ghostBtn)
+                ArcButton("Cancel", id: "kba-pop-close", component: "kba-pop-close", class: .ghostBtn)
             }
         }
         .data("component-id", "kba-settings-form")
@@ -346,7 +409,7 @@ extension AppState {
                 }
                 .data("component-id", "kba-move-form-\(cid)")
                 Div(class: .modalActions) {
-                    ArcButton("Close", id: "kba-sheet-close", component: nil, class: .ghostBtn)
+                    ArcButton("Close", id: "kba-sheet-close", component: "kba-sheet-close", class: .ghostBtn)
                 }
                 .wire("kba-sheet")
             }
@@ -409,6 +472,20 @@ extension KanbanAgent.UserProvision {
 extension AppState {
 
     /// Load (or reload) the board list and the selected document.
+    /// Load boards/cards, then — if nothing is persisted yet — poll briefly:
+    /// right after a daemon restart the tessera connection may still be
+    /// reconciling when the pane first renders, and a single load would pin
+    /// the empty state until the next user action.
+    func kbLoadWithBootRetry() async {
+        await kbLoad()
+        guard kanbanAgentBoards.isEmpty, kanbanAgentDoc == nil else { return }
+        for _ in 0..<10 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            await kbLoad()
+            if !kanbanAgentBoards.isEmpty || kanbanAgentDoc != nil { return }
+        }
+    }
+
     func kbLoad() async {
         do {
             kanbanAgentBoards = try await kanbanAgentStore.listBoards()
@@ -477,20 +554,31 @@ extension AppState {
     /// Apply a document mutation with server-side hard-rule validation; the
     /// UI never self-approves a graph edit (spec 08 §2).
     func kbApply(_ mutate: (inout KanbanAgent.BoardDocument) -> Void) async {
-        guard var doc = kanbanAgentDoc else { return }
-        mutate(&doc)
-        doc.revision += 1
-        let violations = KanbanAgent.BoardGraph(board: doc).hardViolations()
-        guard violations.isEmpty else {
-            kanbanAgentError = violations.map { $0.description }.joined(separator: "; ")
-            return
+        // Optimistic concurrency: the engine heartbeats its lease through
+        // revision bumps, so a save can lose a race with the tick loop.
+        // Re-fetch, re-apply, retry a few times before surfacing the error.
+        for _ in 0..<5 {
+            guard var doc = kanbanAgentDoc else { return }
+            mutate(&doc)
+            doc.revision += 1
+            let violations = KanbanAgent.BoardGraph(board: doc).hardViolations()
+            guard violations.isEmpty else {
+                kanbanAgentError = violations.map { $0.description }.joined(separator: "; ")
+                return
+            }
+            do {
+                try await kanbanAgentStore.saveBoard(doc)
+                kanbanAgentError = nil
+                await kbLoad()
+                return
+            } catch KanbanAgentStoreError.revisionConflict {
+                await kbLoad()
+            } catch {
+                kanbanAgentError = error.localizedDescription
+                return
+            }
         }
-        do {
-            try await kanbanAgentStore.saveBoard(doc)
-            await kbLoad()
-        } catch {
-            kanbanAgentError = error.localizedDescription
-        }
+        kanbanAgentError = "The board was being updated by the agent; try again."
     }
 
     func kbSetPopover(_ popover: String?) { kanbanAgentPopover = popover }
@@ -569,7 +657,7 @@ extension AppState {
                 Heading("Card", level: .h3)
                 ErasedViews(rows)
                 Div(class: .modalActions) {
-                    ArcButton("Close", id: "kba-sheet-close", component: nil, class: .ghostBtn)
+                    ArcButton("Close", id: "kba-sheet-close", component: "kba-sheet-close", class: .ghostBtn)
                 }
             }
             .attribute("role", "dialog")

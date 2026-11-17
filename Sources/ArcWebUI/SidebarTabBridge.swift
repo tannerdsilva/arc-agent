@@ -202,6 +202,13 @@ extension AppState {
         if let tab = sidebarTab(id) {
             await tab.onActivate(AppSidebarTabHost(state: self))
         }
+        if id == "kanban" {
+            // The kanban agent pane reads tessera; right after a daemon
+            // restart the connection may still be reconciling when the pane
+            // first renders — retry the load briefly instead of pinning an
+            // empty board list until the next click.
+            await kbLoadWithBootRetry()
+        }
     }
 
     /// Hide/show a plugin tab on the rail (persisted with the other

@@ -548,6 +548,12 @@ public static let css: String = """
       padding: 10px; z-index: 60; flex-direction: column; gap: 8px;
     }
     .kb-pop.open { display: flex; }
+    .kb-error-banner {
+      margin: 0 0 10px; padding: 8px 12px; border-radius: 8px;
+      border: 1px solid var(--danger, #c0392b); color: var(--danger, #c0392b);
+      background: color-mix(in srgb, var(--danger, #c0392b) 8%, transparent);
+      font-size: 12.5px; white-space: pre-wrap; word-break: break-word;
+    }
     .icon-mini {
       width: 24px; height: 24px;
       display: flex; align-items: center; justify-content: center;
