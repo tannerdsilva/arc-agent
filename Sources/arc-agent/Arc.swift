@@ -319,6 +319,11 @@ struct Chat: AsyncParsableCommand {
             agentPowers: arcConfig.agentPowers,
             mcpServers: arcConfig.mcpServers,
             disabledToolsets: disabledToolsets,
+            // Per-tool overrides ride the same `tools` block. They narrow what
+            // the toolset switch left on; a toolset in the merged `disabled`
+            // set above still wins (ToolEnablement's precedence).
+            disabledTools: arcConfig.tools.disabledToolSet,
+            enabledTools: arcConfig.tools.enabledToolSet,
             delegation: arcConfig.delegation,
             // The prompt's "Active ARC profile" line and `profile_edit`'s SOUL
             // default both read this; it had no caller before slice 4.

@@ -253,6 +253,84 @@ extension ArcWebUITestRoot {
             #expect(!text.contains("disabledToolsets"))
         }
 
+        @Test("the per-tool toggle writes config.tools.disabledTools, sorted")
+        func perToolToggleWritesConfig() async throws {
+            let app = state(ArcConfig(), skills: [])
+
+            await app.setTool("write_file", enabled: false)
+            var arc = await app.arcConfig
+            #expect(arc.tools.disabledTools == ["write_file"],
+                    "the switch writes the per-tool deny list")
+            #expect(arc.tools.disabledToolsets.isEmpty,
+                    "and never the toolset switch: the coarse list is untouched")
+
+            await app.setTool("apply_patch", enabled: false)
+            arc = await app.arcConfig
+            #expect(arc.tools.disabledTools == ["apply_patch", "write_file"],
+                    "the array is kept sorted, so the file diff is stable")
+
+            await app.setTool("write_file", enabled: true)
+            arc = await app.arcConfig
+            #expect(arc.tools.disabledTools == ["apply_patch"])
+
+            await app.setTool("apply_patch", enabled: true)
+            arc = await app.arcConfig
+            #expect(arc.tools.disabledTools == nil,
+                    "an empty list is written as absent, so an off/on round trip is a no-op")
+
+            // and the settings document carries no second copy of the toggle.
+            let settings = await app.settings
+            let text = String(decoding: try JSONEncoder().encode(settings), as: UTF8.self)
+            #expect(!text.contains("disabledTools"))
+        }
+
+        @Test("a per-tool disable renders off but stays listed and switchable")
+        func toolsPanelKeepsDisabledToolVisible() async {
+            var arc = ArcConfig()
+            arc.tools.disabledTools = ["write_file"]
+            var f = AppState.RenderFixture()
+            f.arcConfig = arc
+            f.toolsets = [("file", [
+                StubTool(name: "read_file", toolset: "file"),
+                StubTool(name: "write_file", toolset: "file"),
+            ])]
+            let html = await AppState(renderFixture: f).toolsPanel().markup.html
+
+            // the row is still there, greyed and labelled.
+            #expect(html.contains("list-row tool-off"))
+            #expect(html.contains(" (disabled)"))
+            #expect(html.contains("aria-disabled=\"true\""))
+            // both rows keep a live switch: the toolset is on, so the
+            // operator can switch the tool back on from this row.
+            #expect(Self.count(of: "id=\"tl-toggle-", in: html) == 2)
+            #expect(Self.count(of: " disabled=\"\"", in: html) == 0,
+                    "a per-tool disable must not disable the control that undoes it")
+        }
+
+        @Test("an unknown name in the per-tool lists renders a warning row")
+        func toolsPanelWarnsOnUnknownNames() async {
+            var arc = ArcConfig()
+            arc.tools.disabledTools = ["raed_file"]
+            arc.tools.enabledTools = ["wrtie_file"]
+            var f = AppState.RenderFixture()
+            f.arcConfig = arc
+            f.toolsets = [("file", [StubTool(name: "read_file", toolset: "file")])]
+            let html = await AppState(renderFixture: f).toolsPanel().markup.html
+
+            #expect(html.contains("Ignored:"), "F18: a no-op name is never silent")
+            #expect(html.contains("raed_file") && html.contains("wrtie_file"))
+
+            // a clean config renders no warning row at all.
+            var clean = AppState.RenderFixture()
+            clean.toolsets = [("file", [StubTool(name: "read_file", toolset: "file")])]
+            let cleanHTML = await AppState(renderFixture: clean).toolsPanel().markup.html
+            #expect(!cleanHTML.contains("Ignored:"))
+        }
+
+        private static func count(of needle: String, in html: String) -> Int {
+            html.components(separatedBy: needle).count - 1
+        }
+
         @Test("the skill toggle writes config.tools for the global context")
         func skillToggleWritesConfig() async throws {
             let app = state(ArcConfig(), skills: [])

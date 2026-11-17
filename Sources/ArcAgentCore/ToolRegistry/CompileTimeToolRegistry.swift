@@ -24,7 +24,7 @@ import ArcToolKit
 /// try registry.register(writeFileEntry)
 ///
 /// let schemas = ToolSchemaRenderer.eagerSchemas(
-///     registry: registry, disabled: [], enabled: ["file"])
+///     registry: registry, enablement: ToolEnablementConfig(), enabled: ["file"])
 /// ```
 public struct CompileTimeToolRegistry: ToolRegistry {
 

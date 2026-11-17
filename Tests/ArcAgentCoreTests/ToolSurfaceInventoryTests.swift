@@ -54,7 +54,7 @@ extension ArcCoreTestRoot {
             // `toolSurfaceDigest` is a free function so the pin crosses files.
             let registry = try ArcAgentCore.testRegistry()
             let builtin = ToolSchemaRenderer.promptSchemas(
-                registry: registry, disabled: [], config: ToolSearchConfig(), contextLength: 200_000)
+                registry: registry, enablement: ToolEnablementConfig(), config: ToolSearchConfig(), contextLength: 200_000)
             let builtinDigest = try toolSurfaceDigest(builtin)
             print("TOOL-SURFACE-BASELINE variant=builtin tools=\(registry.allTools.count) bytes=\(builtinDigest.bytes) sha=\(builtinDigest.sha)")
             #expect(builtinDigest.bytes == 29072)
@@ -62,7 +62,7 @@ extension ArcCoreTestRoot {
 
             let (mutable, _) = try Self.fixtureRegistry()
             let withPlugin = ToolSchemaRenderer.promptSchemas(
-                registry: mutable, disabled: [], config: ToolSearchConfig(), contextLength: 200_000)
+                registry: mutable, enablement: ToolEnablementConfig(), config: ToolSearchConfig(), contextLength: 200_000)
             let pluginDigest = try toolSurfaceDigest(withPlugin)
             print("TOOL-SURFACE-BASELINE variant=plugin tools=\(mutable.allTools.count) bytes=\(pluginDigest.bytes) sha=\(pluginDigest.sha)")
             #expect(pluginDigest.bytes == 30098)

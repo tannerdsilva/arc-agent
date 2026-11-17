@@ -115,6 +115,11 @@ public enum ArcDaemon {
             // Tool and skill enablement, from the same `tools` block the other
             // surfaces read.
             disabledToolsets: toolSurface.disabledToolsetSet,
+            // The per-tool lists ride the same block: they narrow what the
+            // toolset floor above left on, and a profile that disables the
+            // toolset still wins (the resolver's precedence).
+            disabledTools: toolSurface.disabledToolSet,
+            enabledTools: toolSurface.enabledToolSet,
             skills: toolSurface.allowedSkills(from: discoverSkills()),
             maxIterations: arc.effectiveMaxTurns(),
             toolLoopCap: arc.toolCallLimit(),

@@ -666,6 +666,7 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case toolBtn = "tool-btn"
 	case toolCard = "tool-card"
 	case toolGroup = "tool-group"
+	case toolOff = "tool-off"
 	case toolPills = "tool-pills"
 	case topbarBolt = "topbar-bolt"
 	case topbarCenter = "topbar-center"

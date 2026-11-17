@@ -135,6 +135,14 @@ public actor SessionAgent: Service {
                 }
                 return disabled
             }(),
+            // Per-tool overrides are process policy, not profile policy: the
+            // profile vocabulary has only toolset allow/deny lists, so these
+            // ride through unchanged. The resolver's precedence still holds —
+            // a toolset disabled by the floor above (global or profile) beats
+            // a per-tool enable, so a profile can never re-enable a tool this
+            // process turned off.
+            disabledTools: agentConfig.disabledTools,
+            enabledTools: agentConfig.enabledTools,
             contextRecipe: resolvedRecipe,
             // The prompt's "Active ARC profile" line and `profile_edit`'s
             // SOUL default both read this; it had no caller before slice 4.

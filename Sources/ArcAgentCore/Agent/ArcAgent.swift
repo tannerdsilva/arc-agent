@@ -273,6 +273,8 @@ public actor ArcAgent: Service {
             agentPowers: AgentPowersConfig = AgentPowersConfig(),
             mcpServers: [String: MCPServerConfig] = [:],
             disabledToolsets: Set<String> = [],
+            disabledTools: Set<String> = [],
+            enabledTools: Set<String> = [],
             delegation: DelegationConfig = DelegationConfig(),
             llmClient: (any LLMClient)? = nil,
             contextRecipe: ResolvedContextRecipe? = nil,
@@ -331,6 +333,8 @@ public actor ArcAgent: Service {
             self.autoCompression = autoCompression
             self.mcpServers = mcpServers
             self.disabledToolsets = disabledToolsets
+            self.disabledTools = disabledTools
+            self.enabledTools = enabledTools
             self.delegation = delegation
             self.llmClient = llmClient
             self.contextRecipe = contextRecipe
@@ -342,6 +346,25 @@ public actor ArcAgent: Service {
 
         /// Toolsets to disable for this agent run (reference `--toolsets`).
         public var disabledToolsets: Set<String>
+
+        /// Individual tools removed from this run, on top of the toolset
+        /// switch (`tools.disabledTools`).
+        public var disabledTools: Set<String>
+
+        /// Individual tools pinned on (`tools.enabledTools`). Beats
+        /// ``disabledTools`` for the same name — never a disabled toolset.
+        public var enabledTools: Set<String>
+
+        /// The three lists as the one value the schema renderer and dispatch
+        /// both read. Built on demand from the fields above so there is no
+        /// second copy of the enablement policy to keep in step.
+        public var toolEnablement: ToolEnablementConfig {
+            ToolEnablementConfig(
+                disabledToolsets: disabledToolsets,
+                disabledTools: disabledTools,
+                enabledTools: enabledTools
+            )
+        }
 
         /// Delegation settings (child concurrency, turn budget, timeout).
         public var delegation: DelegationConfig
@@ -1346,7 +1369,7 @@ public actor ArcAgent: Service {
     /// Tool index text for the ShareGPT trajectory system preamble.
     public func toolsIndexText() async -> String {
         config.registry.allTools
-            .filter { !config.disabledToolsets.contains($0.toolsetName) }
+            .filter { ToolEnablement.isEnabled(tool: $0.name, toolset: $0.toolset, config: config.toolEnablement) }
             .map { "\($0.name): \($0.description)" }
             .joined(separator: "\n")
     }
@@ -1742,7 +1765,7 @@ public actor ArcAgent: Service {
         if let cached = toolSchemaTokenEstimate { return cached }
         let schemas = ToolSchemaRenderer.promptSchemas(
             registry: config.registry,
-            disabled: config.disabledToolsets,
+            enablement: config.toolEnablement,
             config: config.toolSearch,
             contextLength: config.maxContextTokens
         )
@@ -1772,7 +1795,7 @@ public actor ArcAgent: Service {
         }
 
         let candidates = config.registry.allTools
-            .filter { !config.disabledToolsets.contains($0.toolsetName) }
+            .filter { ToolEnablement.isEnabled(tool: $0.name, toolset: $0.toolset, config: config.toolEnablement) }
             .map { $0.tool }
         let (visible, deferred) = DeferredToolPolicy.plan(entries: candidates, config: config.toolSearch)
 
@@ -2514,7 +2537,7 @@ public actor ArcAgent: Service {
             // appear as tool_search/tool_describe/tool_call + manifest).
             let toolSchemas = ToolSchemaRenderer.promptSchemas(
                 registry: config.registry,
-                disabled: config.disabledToolsets,
+                enablement: config.toolEnablement,
                 config: config.toolSearch,
                 contextLength: config.maxContextTokens
             )
@@ -2829,7 +2852,7 @@ public actor ArcAgent: Service {
 
             let toolSchemas = ToolSchemaRenderer.promptSchemas(
                 registry: config.registry,
-                disabled: config.disabledToolsets,
+                enablement: config.toolEnablement,
                 config: config.toolSearch,
                 contextLength: config.maxContextTokens
             )
@@ -3781,12 +3804,13 @@ public actor ArcAgent: Service {
         // Disabled-toolset enforcement for the bridge: tool_describe/tool_call
         // accept ANY registry tool by name (never the enabled/deferred manifest),
         // so a model can address a disabled tool and burn a turn on the rejection.
-        // Reject disabled targets here, before routing into full dispatch.
+        // Reject disabled targets here, before routing into full dispatch — with
+        // the same verdict and text dispatch uses.
         guard let entry = config.registry.lookup(name: tool) else {
             return "Error: Unknown tool '\(tool)'."
         }
-        guard !config.disabledToolsets.contains(entry.toolsetName) else {
-            return "Error: Tool '\(tool)' is disabled (toolset '\(entry.toolsetName)' is disabled by configuration)."
+        if let refusal = disabledToolRefusal(tool: tool, entry: entry) {
+            return refusal
         }
         if name == "tool_describe" {
             let schema = ToolSchemaRenderer.schema(for: entry.tool)
@@ -3818,7 +3842,26 @@ public actor ArcAgent: Service {
     }
 
     // MARK: Tool invocation
-    //
+
+    /// The refusal text for a tool the enablement policy removed, or nil when
+    /// the tool is on.
+    ///
+    /// ``dispatchToolCall`` and the `tool_describe`/`tool_call` bridge both
+    /// route through this, so the two paths cannot disagree about either the
+    /// verdict (``ToolEnablement/isEnabled(tool:toolset:config:)``) or the
+    /// wording — and the wording names the rule that actually fired: the
+    /// toolset switch, or the per-tool entry.
+    private func disabledToolRefusal(tool: String, entry: RegisteredTool) -> String? {
+        let enablement = config.toolEnablement
+        guard !ToolEnablement.isEnabled(tool: tool, toolset: entry.toolset, config: enablement) else {
+            return nil
+        }
+        if enablement.disabledToolsets.contains(entry.toolsetName) {
+            return "Error: Tool '\(tool)' is disabled (toolset '\(entry.toolsetName)' is disabled by configuration)."
+        }
+        return "Error: Tool '\(tool)' is disabled (the tool itself is disabled by configuration)."
+    }
+
     // Workspace anchoring (arc parity): every handler runs with
     // `WorkspacePath.root` bound to the CLI's launch directory (the CLI has
     // no per-conversation workspace registry — reference' CLI equivalent is
@@ -3837,12 +3880,14 @@ public actor ArcAgent: Service {
         guard let entry = config.registry.lookup(name: toolCall.function.name) else {
             return "Error: Unknown tool '\(toolCall.function.name)'."
         }
-        // Disabled-toolset enforcement (reference `--toolsets`: disabled
-        // toolsets are removed from the registry). Schemas are filtered by
-        // ProgressiveToolDisclosure; dispatch must enforce the same set so a
-        // disabled tool can never execute even when the model names it.
-        guard !config.disabledToolsets.contains(entry.toolsetName) else {
-            return "Error: Tool '\(toolCall.function.name)' is disabled (toolset '\(entry.toolsetName)' is disabled by configuration)."
+        // Disabled-tool enforcement (reference `--toolsets`: disabled toolsets
+        // are removed from the registry, and `tools.disabledTools` narrows one
+        // tool further). Schemas are filtered by ToolSchemaRenderer through the
+        // same `ToolEnablement` verdict; dispatch must enforce it so a disabled
+        // tool can never execute even when the model names it. The refusal
+        // names which of the two rules fired.
+        if let refusal = disabledToolRefusal(tool: toolCall.function.name, entry: entry) {
+            return refusal
         }
 
         // ── Tool policy (reference managed tool scope): policy is
@@ -4388,7 +4433,9 @@ public actor ArcAgent: Service {
         // Parity with the schema disclosure: disabled toolsets are not
         // advertised in the tool index either (ProgressiveToolDisclosure
         // filters the same set for schemas).
-        let tools = config.registry.allTools.filter { !config.disabledToolsets.contains($0.toolsetName) }
+        let tools = config.registry.allTools.filter {
+            ToolEnablement.isEnabled(tool: $0.name, toolset: $0.toolset, config: config.toolEnablement)
+        }
         return tools.map { tool in
             let emoji = tool.emoji ?? "🔧"
             return "\(emoji) `\(tool.name)` [\(tool.toolsetName)] — \(tool.description)"

@@ -143,7 +143,7 @@ extension ArcCoreTestRoot {
                 entry("kanban_show", toolset: "kanban"),
             ])
             let schemas = ToolSchemaRenderer.promptSchemas(
-                registry: registry, disabled: [], config: ToolSearchConfig(), contextLength: 200_000)
+                registry: registry, enablement: ToolEnablementConfig(), config: ToolSearchConfig(), contextLength: 200_000)
             let names = schemas.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
             #expect(names.contains("read_file"))
             #expect(names.contains("tool_search"))
@@ -165,7 +165,7 @@ extension ArcCoreTestRoot {
                 entry("kanban_show", toolset: "kanban"),
             ])
             let schemas = ToolSchemaRenderer.promptSchemas(
-                registry: registry, disabled: [], config: ToolSearchConfig(enabled: "off"), contextLength: 200_000)
+                registry: registry, enablement: ToolEnablementConfig(), config: ToolSearchConfig(enabled: "off"), contextLength: 200_000)
             let names = schemas.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
             #expect(names.contains("kanban_show"))
             #expect(!names.contains("tool_describe"))
@@ -182,7 +182,7 @@ extension ArcCoreTestRoot {
                 entry("kanban_show", toolset: "kanban"),
             ])
             let schemas = ToolSchemaRenderer.promptSchemas(
-                registry: registry, disabled: ["terminal"], config: ToolSearchConfig(), contextLength: 200_000)
+                registry: registry, enablement: ToolEnablementConfig(disabledToolsets: ["terminal"]), config: ToolSearchConfig(), contextLength: 200_000)
             let names = schemas.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
             #expect(!names.contains("terminal"))   // disabled tool not advertised
             #expect(!names.contains("kanban_show")) // deferred tool deferred
@@ -216,9 +216,9 @@ extension ArcCoreTestRoot {
             }
             let all = (0..<15).map { rich("deferred_\($0)", toolset: "kanban") } + (0..<15).map { slim("core_\($0)") }
             let registry = StubRegistry(allTools: all)
-            let eager = ToolSchemaRenderer.eagerSchemas(registry: registry, disabled: [])
+            let eager = ToolSchemaRenderer.eagerSchemas(registry: registry, enablement: ToolEnablementConfig())
             let deferred = ToolSchemaRenderer.promptSchemas(
-                registry: registry, disabled: [], config: ToolSearchConfig(), contextLength: 200_000)
+                registry: registry, enablement: ToolEnablementConfig(), config: ToolSearchConfig(), contextLength: 200_000)
             let eagerTokens = ProgressiveToolDisclosure.estimateTokens(schemas: eager)
             let deferredTokens = ProgressiveToolDisclosure.estimateTokens(schemas: deferred)
             #expect(deferredTokens < eagerTokens)

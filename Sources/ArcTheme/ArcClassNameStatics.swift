@@ -643,6 +643,7 @@ extension ClassName {
 	public static var toolBtn: ClassName { ClassName(ArcClass.toolBtn.token) }
 	public static var toolCard: ClassName { ClassName(ArcClass.toolCard.token) }
 	public static var toolGroup: ClassName { ClassName(ArcClass.toolGroup.token) }
+	public static var toolOff: ClassName { ClassName(ArcClass.toolOff.token) }
 	public static var toolPills: ClassName { ClassName(ArcClass.toolPills.token) }
 	public static var topbarBolt: ClassName { ClassName(ArcClass.topbarBolt.token) }
 	public static var topbarCenter: ClassName { ClassName(ArcClass.topbarCenter.token) }

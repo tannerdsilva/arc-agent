@@ -33,7 +33,7 @@ extension ArcCoreTestRoot {
         ) -> [String] {
             ToolSchemaRenderer.promptSchemas(
                 registry: registry,
-                disabled: [],
+                enablement: ToolEnablementConfig(),
                 config: ToolSearchConfig(),
                 contextLength: 200_000
             ).compactMap { ($0["function"] as? [String: Any])?["name"] as? String }

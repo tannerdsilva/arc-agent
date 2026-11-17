@@ -1696,6 +1696,33 @@ extension AppState {
         await updateConfig { $0.tools.disabledToolsets = next }
     }
 
+    /// Switch one tool on top of the toolset switch — the exception, where
+    /// ``setToolset(_:enabled:)`` is the norm.
+    ///
+    /// Writes `tools.disabledTools` (and drops the name from `enabledTools`:
+    /// an explicit enable beats a disable, so a stale entry there would make
+    /// the switch appear to do nothing when turned off). Both arrays are kept
+    /// sorted and written as `nil` when empty, so a toggle off and back on
+    /// leaves the file exactly as it was.
+    func setTool(_ name: String, enabled: Bool) async {
+        var disabled = arcConfig.tools.disabledTools ?? []
+        var enabledList = arcConfig.tools.enabledTools ?? []
+        // the default is enabled, and the later list wins: a name must never
+        // be in both after an explicit switch.
+        enabledList.removeAll { $0 == name }
+        if enabled {
+            disabled.removeAll { $0 == name }
+        } else if !disabled.contains(name) {
+            disabled.append(name)
+        }
+        let nextDisabled = disabled.sorted()
+        let nextEnabled = enabledList.sorted()
+        await updateConfig { config in
+            config.tools.disabledTools = nextDisabled.isEmpty ? nil : nextDisabled
+            config.tools.enabledTools = nextEnabled.isEmpty ? nil : nextEnabled
+        }
+    }
+
     // MARK: Workspaces
 
     func workspaceEntry(named name: String) -> WorkspaceEntry? {

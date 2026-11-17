@@ -31,21 +31,27 @@ public enum ToolSchemaRenderer {
     ///
     /// - Parameters:
     ///   - registry: The surface to render.
-    ///   - disabled: Toolsets to exclude. Takes precedence over `enabled`.
-    ///   - enabled: Toolsets to admit. Empty admits every non-disabled toolset.
+    ///   - enablement: The one enablement decision (``ToolEnablement``) — a
+    ///     disabled toolset, the per-tool overrides, or neither.
+    ///   - enabled: A toolset allow-list projection. Empty admits every
+    ///     non-disabled toolset. This is a *narrowing on top of* `enablement`,
+    ///     not a second enablement decision: it cannot re-enable a tool the
+    ///     resolver refused.
     /// - Returns: One OpenAI function-calling schema per surviving tool, in
     ///   `allTools` order.
     public static func eagerSchemas(
         registry: any ToolRegistry,
-        disabled: Set<String>,
+        enablement: ToolEnablementConfig,
         enabled: Set<String> = []
     ) -> [[String: Any]] {
         // one environment read per render, not one per tool.
         let env = ProcessInfo.processInfo.environment
         return registry.allTools
             .filter { entry in
-                // If disabled, exclude.
-                guard !disabled.contains(entry.toolsetName) else { return false }
+                // the shared verdict: the same call dispatch enforces.
+                guard ToolEnablement.isEnabled(
+                    tool: entry.name, toolset: entry.toolset, config: enablement
+                ) else { return false }
 
                 // If enabled is non-empty, toolset must be in it.
                 if !enabled.isEmpty {
@@ -69,7 +75,7 @@ public enum ToolSchemaRenderer {
     ///
     /// - Parameters:
     ///   - registry: The surface to render.
-    ///   - disabled: Toolsets to exclude.
+    ///   - enablement: The one enablement decision (``ToolEnablement``).
     ///   - config: The disclosure policy — which toolsets defer, how the
     ///     manifest degrades.
     ///   - contextLength: The model's window, for the manifest budget. `nil`
@@ -78,12 +84,12 @@ public enum ToolSchemaRenderer {
     ///   `tool_search`/`tool_describe`/`tool_call` when anything deferred.
     public static func promptSchemas(
         registry: any ToolRegistry,
-        disabled: Set<String>,
+        enablement: ToolEnablementConfig,
         config: ToolSearchConfig,
         contextLength: Int?
     ) -> [[String: Any]] {
         let candidates = registry.allTools
-            .filter { !disabled.contains($0.toolsetName) }
+            .filter { ToolEnablement.isEnabled(tool: $0.name, toolset: $0.toolset, config: enablement) }
             .map { $0.tool }
         // one environment read per render; the policy evaluates it per tool.
         let (visible, deferred) = DeferredToolPolicy.plan(

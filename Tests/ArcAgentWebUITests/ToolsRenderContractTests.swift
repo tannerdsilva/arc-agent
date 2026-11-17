@@ -44,16 +44,24 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let html = await Self.renderPanel(router: router)
 
-            // the router keys by id: one toggle body and one row body, however
-            // many controls carry them in the emitted page.
-            #expect(router.handlerCount(in: .default) == 2,
-                    "the render pass must register the toolset toggle and the tool row")
+            // the router keys by id: one toolset toggle body, one tool-row
+            // boundary body, and one per-tool switch body (T6) — however many
+            // controls carry them in the emitted page.
+            #expect(router.handlerCount(in: .default) == 3,
+                    "the render pass must register the toolset toggle, the tool row and the per-tool switch")
             #expect(Self.count(of: "data-component-id=\"tools-toggle\"", in: html) == 2,
                     "each toolset must carry the toggle's routing id")
             #expect(Self.count(of: "data-component-id=\"tool-list\"", in: html) == 3,
                     "each rendered tool row must carry the boundary id")
-            #expect(Self.count(of: "data-event=\"change\"", in: html) == 2)
+            // 2 toolset toggles + 2 live per-tool switches. the third tool row
+            // belongs to the disabled toolset, so its switch is inert: it
+            // carries `disabled` instead of a routing pair, and says why.
+            #expect(Self.count(of: "data-event=\"change\"", in: html) == 4)
             #expect(Self.count(of: "data-event=\"click\"", in: html) == 3)
+            #expect(Self.count(of: " disabled=\"\"", in: html) == 1,
+                    "the row whose toolset is off must render one inert switch, not a live one")
+            #expect(Self.count(of: "aria-disabled=\"true\"", in: html) == 2,
+                    "that row greys itself (row + switch) rather than disappearing")
         }
 
         @Test("a tool row click selects the tool and answers .refresh exactly once")
@@ -90,6 +98,41 @@ extension ArcWebUITestRoot {
                     "enabling a disabled toolset must remove it from the disabled list")
             #expect(after == before.filter { $0 != "terminal" },
                     "the toggle must leave every other toolset policy untouched")
+            #expect(outcome.isRefresh,
+                    "one change is one structural signal — not zero and not two")
+        }
+
+        @Test("a per-tool switch writes the per-tool list and leaves the toolset list alone")
+        func toolToggleWritesOnlyThePerToolList() async {
+            let router = EventRouter()
+            // a fixture of its own: this test writes a list the shared fixture
+            // does not start from, so it cannot depend on what ran before it.
+            var fixture = AppState.RenderFixture()
+            fixture.toolsets = [("file", [
+                StubTool(name: "read_file", toolset: "file", emoji: "📄"),
+                StubTool(name: "write_file", toolset: "file", emoji: "✍️"),
+            ])]
+            let app = AppState(renderFixture: fixture)
+            let html = await RenderContext.$current.withValue(
+                RenderContext(router: router, session: .default)
+            ) {
+                await app.toolsPanel().markup.html
+            }
+            #expect(html.contains("data-component-id=\"tool-toggle\""),
+                    "the row switch must carry its routing pair")
+
+            let before = await app.arcConfig.tools.disabledToolsets
+            let outcome = await router.dispatch(EventData(
+                component: ComponentID("tool-toggle"), event: "change",
+                data: ["targetId": .string("tl-toggle-\(enc("write_file"))"),
+                       "checked": .bool(false)]))
+
+            let after = await app.arcConfig.tools.disabledTools
+            #expect(outcome.fragments.isEmpty)
+            #expect(after == ["write_file"],
+                    "the switch writes the per-tool deny list")
+            #expect(await app.arcConfig.tools.disabledToolsets == before,
+                    "one tool switched off must not touch the toolset switch")
             #expect(outcome.isRefresh,
                     "one change is one structural signal — not zero and not two")
         }

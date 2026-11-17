@@ -34,9 +34,9 @@ struct PromptSizeCmd: AsyncParsableCommand {
             memory: FileMemoryProvider(),
             sessions: FileSessionStore()
         )
-        let full = ToolSchemaRenderer.eagerSchemas(registry: registry, disabled: [])
+        let full = ToolSchemaRenderer.eagerSchemas(registry: registry, enablement: ToolEnablementConfig())
         let deferredSchemas = ToolSchemaRenderer.promptSchemas(
-            registry: registry, disabled: [], config: config.toolSearch,
+            registry: registry, enablement: ToolEnablementConfig(), config: config.toolSearch,
             contextLength: contextLength)
         let deferredPlan = DeferredToolPolicy.plan(
             entries: registry.allTools.map { $0.tool },

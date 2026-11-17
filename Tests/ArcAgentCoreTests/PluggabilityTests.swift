@@ -128,7 +128,7 @@ extension ArcCoreTestRoot {
             // No plugins dir → make() falls through cleanly and the full
             // built-in surface remains, with no plugin tools layered on.
             let made = try await ArcAgentCore.testMutableRegistry(pluginRegistry: PluginRegistry(pluginsDir: FileManager.default.temporaryDirectory.appendingPathComponent("none-\(UUID().uuidString)")))
-            let schemas = ToolSchemaRenderer.eagerSchemas(registry: made, disabled: [])
+            let schemas = ToolSchemaRenderer.eagerSchemas(registry: made, enablement: ToolEnablementConfig())
             #expect(schemas.count == 54)
         }
 
@@ -165,7 +165,7 @@ extension ArcCoreTestRoot {
             var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.testRegistry())
             let installed = mutable.install(pluginTool: tools[0])
             #expect(installed)
-            let schemas = ToolSchemaRenderer.eagerSchemas(registry: mutable, disabled: [])
+            let schemas = ToolSchemaRenderer.eagerSchemas(registry: mutable, enablement: ToolEnablementConfig())
             let fn = schemas.first { (($0["function"] as? [String: Any])?["name"] as? String) == "schemad_tool" }
             let params = (fn?["function"] as? [String: Any])?["parameters"] as? [String: Any]
             #expect((params?["properties"] as? [String: Any])?["city"] != nil)
@@ -337,7 +337,7 @@ extension ArcCoreTestRoot {
             #expect(mutable.lookup(name: "read_file")?.tool is ToolEntry)
             #expect(mutable.lookup(name: "read_file")?.origin == .builtin)
             // Exactly one read_file function reaches the model.
-            let schemas = ToolSchemaRenderer.eagerSchemas(registry: mutable, disabled: [])
+            let schemas = ToolSchemaRenderer.eagerSchemas(registry: mutable, enablement: ToolEnablementConfig())
             let readFileFunctions = schemas.filter {
                 (($0["function"] as? [String: Any])?["name"] as? String) == "read_file"
             }

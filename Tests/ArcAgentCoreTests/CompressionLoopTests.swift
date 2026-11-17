@@ -81,7 +81,7 @@ extension ArcCoreTestRoot {
 
         private func schemaTokens(_ registry: CompileTimeToolRegistry, budget: Int) throws -> Int {
             let schemas = ToolSchemaRenderer.promptSchemas(
-                registry: registry, disabled: [], config: ToolSearchConfig(), contextLength: budget
+                registry: registry, enablement: ToolEnablementConfig(), config: ToolSearchConfig(), contextLength: budget
             )
             let data = try JSONSerialization.data(withJSONObject: schemas)
             return TokenCounter().count(String(data: data, encoding: .utf8) ?? "")

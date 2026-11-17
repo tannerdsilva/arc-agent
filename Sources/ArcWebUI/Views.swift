@@ -1302,6 +1302,19 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
         // evaluated for every tool in the list below.
         let env = ProcessInfo.processInfo.environment
 
+        // the per-tool deny list this panel both reads and writes
+        // (`tools.disabledTools`); the toolset switch above it is the norm.
+        let disabledTools = arcConfig.tools.disabledToolSet
+
+        // F18: a name in `tools.disabledTools`/`enabledTools` that no tool
+        // matches disables nothing — before this it also said nothing, so the
+        // operator's edit looked applied and did not exist. Validate on read,
+        // against the same catalog this panel lists.
+        let unknownTools = ToolEnablement.unknownNames(
+            in: arcConfig.tools.toolEnablement,
+            knownToolNames: Set(toolsets.flatMap { $0.tools.map(\.name) })
+        )
+
         return Group {
             PanelHead {
                 PanelTitle { Text("Tools") }
@@ -1315,6 +1328,15 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
             // UX-41 panel scroll memory: the id + scroll-key preserve the
             // list's scroll position when a tool click refreshes fragments.
             PanelBody {
+                // a warning row, not an empty state: the list under it is the
+                // real surface; this names the config entries that do nothing.
+                if !unknownTools.isEmpty {
+                    Div(class: ClassName(.listRow, .setHint)) {
+                        Span(class: .setWarn) {
+                            Text("Ignored: \(unknownTools.joined(separator: ", ")) — no tool by that name. Check tools.disabledTools / tools.enabledTools in config.json.")
+                        }
+                    }
+                }
                 if noMatch {
                     EmptyHint { Text("No tools match “\(toolFilter)”.") }
                 } else {
@@ -1364,16 +1386,48 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                                 let encT = enc(t.name)
                                 let active = t.name == selectedTool
                                 let avail = t.availability.unavailableReason(env: env) == nil
-                                ErasedViews([Div(class: ClassName("list-row\(active ? " active" : "")")) {
+                                // per-tool override — the exception; the
+                                // toolset switch above is the norm. when the
+                                // toolset is what removed the tool the row's
+                                // switch is inert and says so, so the control
+                                // never claims an effect it cannot have.
+                                let toolOff = disabledTools.contains(t.name)
+                                let rowOff = disabled || toolOff
+                                let switchHint = disabled
+                                    ? "Off with toolset \(toolset) — enable the toolset first"
+                                    : (toolOff ? "Tool disabled" : "Tool enabled")
+                                ErasedViews([Div(class: ClassName("list-row\(active ? " active" : "")\(rowOff ? " tool-off" : "")")) {
                                     ArcButton(id: "tl-open-\(encT)", class: ClassName(.sessOpen, .sessOpenFlush), type: .button) {
                                         LrName {
                                             toolIcon(t.emoji)
                                             Text(t.name)
-                                            if !avail {
+                                            if disabled {
+                                                LrSub { Text(" (toolset off)") }
+                                            } else if toolOff {
+                                                LrSub { Text(" (disabled)") }
+                                            } else if !avail {
                                                 LrSub { Text(" (needs env)") }
                                             }
                                         }
                                     }
+                                    // a switched-off tool stays listed: removing
+                                    // it would strand the operator with no way
+                                    // back on.
+                                    ArcSwitch(id: "tl-toggle-\(encT)", on: !rowOff,
+                                              value: "tl-toggle-\(encT)",
+                                              ariaLabel: disabled
+                                                  ? "\(t.name) is off with its toolset"
+                                                  : "Enable \(t.name)",
+                                              extraAttributes: disabled
+                                                  ? " disabled=\"\" aria-disabled=\"true\""
+                                                  : controlAttributes(id: "tool-toggle", event: .change, outcome: { event in
+                                                      let tid = event.string("targetId") ?? event.string("value") ?? ""
+                                                      guard tid.hasPrefix("tl-toggle-") else { return .fragments([]) }
+                                                      let name = dec(String(tid.dropFirst("tl-toggle-".count))) ?? ""
+                                                      await self.setTool(name, enabled: event.checked == true)
+                                                      return .refresh
+                                                  }))
+                                        .title(switchHint)
                                 }
                                 // the row boundary registers in this render pass;
                                 // the button inside carries only its id so the
@@ -1384,6 +1438,7 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                                     await self.selectTool(name)
                                     return .refresh
                                 })
+                                .aria([.disabled(true)], when: rowOff)
                                 .aria([.current(.yes)], when: active)])
                             }
                         }

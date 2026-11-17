@@ -3067,6 +3067,11 @@ actor AppState {
             maxOutputTokens: effectivePreset.maxOutputTokens,
             agentPowers: arcConfig.agentPowers,
             disabledToolsets: effectiveDisabled,
+            // per-tool overrides from the same `tools` block — the panel's
+            // switches write these, and a profile's toolset narrowing above
+            // still wins over a per-tool enable.
+            disabledTools: toolPolicy.disabledToolSet,
+            enabledTools: toolPolicy.enabledToolSet,
             // the scripted-client seam (nil in production) — see
             // `turnClientOverride`.
             llmClient: turnClientOverride,

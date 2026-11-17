@@ -77,7 +77,7 @@ extension ArcCoreTestRoot {
         func allToolsetsDisabled() throws {
             let registry = try ArcAgentCore.testRegistry()
             let allToolsets = Set(registry.allTools.map(\.toolsetName))
-            let schemas = ToolSchemaRenderer.eagerSchemas(registry: registry, disabled: allToolsets)
+            let schemas = ToolSchemaRenderer.eagerSchemas(registry: registry, enablement: ToolEnablementConfig(disabledToolsets: allToolsets))
             #expect(schemas.isEmpty)
         }
 
@@ -185,18 +185,18 @@ extension ArcCoreTestRoot {
         func schemaFiltering() throws {
             let registry = try ArcAgentCore.testRegistry()
 
-            let fileSchemas = ToolSchemaRenderer.eagerSchemas(registry: registry, disabled: [], enabled: ["file"])
+            let fileSchemas = ToolSchemaRenderer.eagerSchemas(registry: registry, enablement: ToolEnablementConfig(), enabled: ["file"])
             #expect(fileSchemas.count == 4)
             #expect(fileSchemas[0]["type"] as? String == "function")
 
-            let terminalSchemas = ToolSchemaRenderer.eagerSchemas(registry: registry, disabled: [], enabled: ["terminal"])
+            let terminalSchemas = ToolSchemaRenderer.eagerSchemas(registry: registry, enablement: ToolEnablementConfig(), enabled: ["terminal"])
             #expect(terminalSchemas.count == 3)
 
             // the web family is on the full surface: two registered providers
-            let webSchemas = ToolSchemaRenderer.eagerSchemas(registry: registry, disabled: [], enabled: ["web"])
+            let webSchemas = ToolSchemaRenderer.eagerSchemas(registry: registry, enablement: ToolEnablementConfig(), enabled: ["web"])
             #expect(webSchemas.count == 2)
 
-            let disabled = ToolSchemaRenderer.eagerSchemas(registry: registry, disabled: ["file"])
+            let disabled = ToolSchemaRenderer.eagerSchemas(registry: registry, enablement: ToolEnablementConfig(disabledToolsets: ["file"]))
             #expect(disabled.count == 50)
         }
 

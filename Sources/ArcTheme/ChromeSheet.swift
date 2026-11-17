@@ -717,6 +717,10 @@ public static let css: String = """
     .list-row:has(> .panel-nav-link[aria-current]) { background: var(--accent-soft); }
     .list-row .lr-name { flex: 1; min-width: 0; font-size: 0.93em; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .list-row .lr-sub { font-size: 0.84em; color: var(--muted); }
+    /* a tool switched off stays listed — the operator must be able to switch
+       it back on — but reads as unavailable rather than present-and-working. */
+    .list-row.tool-off .lr-name { color: var(--muted); }
+    .list-row.tool-off .switch { opacity: 0.5; }
     .tool-group { font-size: 0.84em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 12px 10px 4px; }
 
     /* ─── Main content ────────────────────────────────────────── */
