@@ -472,7 +472,6 @@ private struct StubToolsetRegistry: ToolRegistry {
 
     func lookup(name: String) -> RegisteredTool? { allTools.first { $0.name == name } }
     mutating func register(_ tool: any AgentTool, origin: ToolOrigin) throws {}
-    func buildToolSchemas(enabled: Set<String>, disabled: Set<String>) -> [[String: Any]] { [] }
 
     private struct Tool: AgentTool {
         let name: String

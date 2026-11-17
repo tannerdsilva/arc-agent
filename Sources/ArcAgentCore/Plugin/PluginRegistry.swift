@@ -560,12 +560,13 @@ public struct MutableToolRegistry: ToolRegistry {
         return true
     }
 
-    // `buildToolSchemas` is deliberately NOT overridden here. `ToolRegistry`'s
-    // default runs the same enabled/disabled/checkFn filter over `allTools`,
-    // which now carries the runtime tier in the same name order. The override
-    // that used to live here re-implemented the filter without `checkFn` and
-    // appended `pluginEntries` in dictionary order — two divergences (F3, F2)
-    // that existed only because the default could not see the plugin tier.
+    // Schema rendering is deliberately NOT overridden or extended here. The one
+    // path is `ToolSchemaRenderer`, which filters `allTools` — now carrying the
+    // runtime tier in the same name order — and applies `checkFn` uniformly. The
+    // override that used to live here re-implemented the filter without `checkFn`
+    // and appended `pluginEntries` in dictionary order: two divergences (F3, F2)
+    // that existed only because a per-registry renderer could not see the plugin
+    // tier. With the renderer outside the protocol there is no seam left to drift.
 
     /// Build the full registry used by the agent: built-ins + discovered
     /// plugins (reference agent_init plugin toolset bundling). When

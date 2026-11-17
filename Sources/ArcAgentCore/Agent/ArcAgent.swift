@@ -1740,7 +1740,7 @@ public actor ArcAgent: Service {
     /// Token estimate for the tool schemas, cached (schema set is static).
     private func toolSchemaTokens() -> Int {
         if let cached = toolSchemaTokenEstimate { return cached }
-        let schemas = ProgressiveToolDisclosure.buildPromptSchemas(
+        let schemas = ToolSchemaRenderer.promptSchemas(
             registry: config.registry,
             disabled: config.disabledToolsets,
             config: config.toolSearch,
@@ -1768,7 +1768,7 @@ public actor ArcAgent: Service {
             ProgressiveToolDisclosure.estimateTokens(schemas: schemas)
         }
         func schemaTokens(_ tool: any AgentTool) -> Int {
-            est([ProgressiveToolDisclosure.schema(for: tool)])
+            est([ToolSchemaRenderer.schema(for: tool)])
         }
 
         let candidates = config.registry.allTools
@@ -1786,9 +1786,9 @@ public actor ArcAgent: Service {
             // Bridge trio envelope (tool_search without its manifest rides in
             // builtin; the manifest is split by diff below).
             builtin += est([
-                ProgressiveToolDisclosure.toolSearchSchema(manifest: nil),
-                ProgressiveToolDisclosure.toolDescribeSchema(),
-                ProgressiveToolDisclosure.toolCallSchema(),
+                ToolSchemaRenderer.toolSearchSchema(manifest: nil),
+                ToolSchemaRenderer.toolDescribeSchema(),
+                ToolSchemaRenderer.toolCallSchema(),
             ])
             let nonMCP = deferred.filter { $0.toolset != "mcp" }
             if let full = ProgressiveToolDisclosure.manifest(
@@ -2512,7 +2512,7 @@ public actor ArcAgent: Service {
 
             // 3. Build tool schemas (progressive disclosure: deferred tools
             // appear as tool_search/tool_describe/tool_call + manifest).
-            let toolSchemas = ProgressiveToolDisclosure.buildPromptSchemas(
+            let toolSchemas = ToolSchemaRenderer.promptSchemas(
                 registry: config.registry,
                 disabled: config.disabledToolsets,
                 config: config.toolSearch,
@@ -2827,7 +2827,7 @@ public actor ArcAgent: Service {
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
             messages.append(contentsOf: Self.sanitizeMessages(messageHistory).map { $0.replayAPI() })
 
-            let toolSchemas = ProgressiveToolDisclosure.buildPromptSchemas(
+            let toolSchemas = ToolSchemaRenderer.promptSchemas(
                 registry: config.registry,
                 disabled: config.disabledToolsets,
                 config: config.toolSearch,
@@ -3796,7 +3796,7 @@ public actor ArcAgent: Service {
             return "Error: Tool '\(tool)' is disabled (toolset '\(entry.toolset)' is disabled by configuration)."
         }
         if name == "tool_describe" {
-            let schema = ProgressiveToolDisclosure.schema(for: entry.tool)
+            let schema = ToolSchemaRenderer.schema(for: entry.tool)
             guard let pretty = try? JSONSerialization.data(withJSONObject: schema, options: [.prettyPrinted, .sortedKeys]),
                   let text = String(data: pretty, encoding: .utf8) else {
                 return "Error: could not serialize schema for '\(tool)'."

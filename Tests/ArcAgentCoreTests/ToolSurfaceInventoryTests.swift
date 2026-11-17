@@ -43,25 +43,30 @@ extension ArcCoreTestRoot {
             #expect(names == names.sorted())
         }
 
-        @Test("the schema baseline is recorded, not remembered")
-        func surfaceBaseline() throws {
+        @Test("the schema baseline is pinned, not just recorded")
+        func surfaceIsPinned() throws {
             // prints the two TOOL-SURFACE-BASELINE lines the shell script greps out
             // of three consecutive `swift test` runs: byte size and sha256 of the
-            // per-turn prompt array — the exact object T1 must stabilise and T2 must
-            // memoise. Nothing is asserted against the numbers; at T0 they are a
-            // record, not a pin. `toolSurfaceDigest` is a free function so T2's
-            // equivalence test (same test-target module) reuses it.
+            // per-turn prompt array. At T0 these were a record; as of T2 they are a
+            // **pin** — the one renderer must reproduce the array byte for byte, and
+            // any future change to these numbers is a declared delta (a schema, a
+            // description, a tool, or the renderer drifting), never a re-baseline.
+            // `toolSurfaceDigest` is a free function so the pin crosses files.
             let registry = try ArcAgentCore.testRegistry()
-            let builtin = ProgressiveToolDisclosure.buildPromptSchemas(
+            let builtin = ToolSchemaRenderer.promptSchemas(
                 registry: registry, disabled: [], config: ToolSearchConfig(), contextLength: 200_000)
             let builtinDigest = try toolSurfaceDigest(builtin)
             print("TOOL-SURFACE-BASELINE variant=builtin tools=\(registry.allTools.count) bytes=\(builtinDigest.bytes) sha=\(builtinDigest.sha)")
+            #expect(builtinDigest.bytes == 29072)
+            #expect(builtinDigest.sha == "c035d2233e4d6b9dd14494ae277b7b5ff1bb2bdd216e71f1bdd5d668a4935a2a")
 
             let (mutable, _) = try Self.fixtureRegistry()
-            let withPlugin = ProgressiveToolDisclosure.buildPromptSchemas(
+            let withPlugin = ToolSchemaRenderer.promptSchemas(
                 registry: mutable, disabled: [], config: ToolSearchConfig(), contextLength: 200_000)
             let pluginDigest = try toolSurfaceDigest(withPlugin)
             print("TOOL-SURFACE-BASELINE variant=plugin tools=\(mutable.allTools.count) bytes=\(pluginDigest.bytes) sha=\(pluginDigest.sha)")
+            #expect(pluginDigest.bytes == 30098)
+            #expect(pluginDigest.sha == "d57245df4216a0d01c7e86f545da288c5c6949d8fd4dc8a044162b45a6bc9ab7")
         }
 
         /// the composite the defect lives in: the sorted built-in registry with six

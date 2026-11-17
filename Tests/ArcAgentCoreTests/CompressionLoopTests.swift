@@ -80,7 +80,7 @@ extension ArcCoreTestRoot {
         }
 
         private func schemaTokens(_ registry: CompileTimeToolRegistry, budget: Int) throws -> Int {
-            let schemas = ProgressiveToolDisclosure.buildPromptSchemas(
+            let schemas = ToolSchemaRenderer.promptSchemas(
                 registry: registry, disabled: [], config: ToolSearchConfig(), contextLength: budget
             )
             let data = try JSONSerialization.data(withJSONObject: schemas)

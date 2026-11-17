@@ -23,7 +23,8 @@ import ArcToolKit
 /// try registry.register(readFileEntry)
 /// try registry.register(writeFileEntry)
 ///
-/// let schemas = registry.buildToolSchemas(enabled: ["file"], disabled: [])
+/// let schemas = ToolSchemaRenderer.eagerSchemas(
+///     registry: registry, disabled: [], enabled: ["file"])
 /// ```
 public struct CompileTimeToolRegistry: ToolRegistry {
 

@@ -153,7 +153,13 @@ public enum DeferredToolPolicy {
     }
 }
 
-/// Manifest rendering + prompt-schema assembly (reference tiered disclosure).
+/// Manifest policy and rendering for tiered disclosure (reference
+/// `tools/tool_search.py`): which tools defer, how the listing degrades
+/// under a token budget, and the text embedded in `tool_search`.
+///
+/// Schema rendering is deliberately **not** here — ``ToolSchemaRenderer``
+/// owns the one schema path. This type decides what the manifest says;
+/// that type decides how a tool becomes a wire dict.
 public enum ProgressiveToolDisclosure {
 
     /// Cheap chars/4 token estimate (reference `CHARS_PER_TOKEN = 4.0`).
@@ -165,6 +171,16 @@ public enum ProgressiveToolDisclosure {
             return partial + data.count
         }
         return Int(ceil(Double(count) / 4.0))
+    }
+
+    /// Chars/4 over the text itself, without a JSON round-trip.
+    ///
+    /// The estimate exists to compare against a token budget; the old call site
+    /// serialised a one-key dictionary every turn to measure a string already in
+    /// hand. Internal on purpose: ``estimateTokens(schemas:)`` stays the public
+    /// measure of a schema array, and this one is used only by ``manifest``.
+    static func estimateTokens(text: String) -> Int {
+        Int(ceil(Double(text.utf8.count) / 4.0))
     }
 
     /// Effective manifest budget: min(listingMaxTokens, thresholdPct% of
@@ -226,105 +242,13 @@ public enum ProgressiveToolDisclosure {
         guard config.listing != "off" else { return nil }
         let budget = manifestBudget(config: config, contextLength: contextLength)
         let listing = renderListing(deferred)
-        if estimateTokens(schemas: [["listing": listing]]) <= budget || config.listing == "on" {
+        if estimateTokens(text: listing) <= budget || config.listing == "on" {
             return listing
         }
         let names = renderNames(deferred)
-        if estimateTokens(schemas: [["names": names]]) <= budget {
+        if estimateTokens(text: names) <= budget {
             return names
         }
         return nil
-    }
-
-    /// Build the full model-visible tools array with deferral applied.
-    ///
-    /// mirrors the reference client: core tools stay, deferrable tools are replaced by the
-    /// bridge trio, and the manifest rides in the `tool_search` description.
-    /// When nothing is deferrable (or the feature is off) the result is
-    /// byte-identical to the eager layout.
-    public static func buildPromptSchemas(
-        registry: any ToolRegistry,
-        disabled: Set<String>,
-        config: ToolSearchConfig,
-        contextLength: Int?
-    ) -> [[String: Any]] {
-        let candidates = registry.allTools
-            .filter { !disabled.contains($0.toolset) }
-            .map { $0.tool }
-        let (visible, deferred) = DeferredToolPolicy.plan(entries: candidates, config: config)
-        guard deferred.isEmpty == false, config.enabled != "off" else {
-            // Eager path — identical output to the plain registry rendering.
-            return visible.map { Self.schema(for: $0) }
-        }
-        var schemas = visible.map { Self.schema(for: $0) }
-        schemas.append(Self.toolSearchSchema(manifest: manifest(deferred: deferred, config: config, contextLength: contextLength)))
-        schemas.append(Self.toolDescribeSchema())
-        schemas.append(Self.toolCallSchema())
-        return schemas
-    }
-
-    /// OpenAI function-schema dict for a tool (shared by the core agent
-    /// and the webui `tool_describe` bridge translation).
-    public static func schema(for entry: any AgentTool) -> [String: Any] {
-        [
-            "type": "function",
-            "function": [
-                "name": entry.name,
-                "description": entry.description,
-                "parameters": entry.schema.asDictionary(),
-            ] as [String: Any],
-        ] as [String: Any]
-    }
-
-    static func toolSearchSchema(manifest: String?) -> [String: Any] {
-        let base = ToolSearchTool.entry().description
-        let description = manifest.map { "\(base)\n\n\($0)" } ?? base
-        return [
-            "type": "function",
-            "function": [
-                "name": ToolSearchTool.entry().name,
-                "description": description,
-                "parameters": ToolSearchTool.entry().schema.asDictionary(),
-            ] as [String: Any],
-        ] as [String: Any]
-    }
-
-    static func toolDescribeSchema() -> [String: Any] {
-        [
-            "type": "function",
-            "function": [
-                "name": "tool_describe",
-                "description": "Load the full JSON schema (name + parameters) for a deferred tool by name. "
-                    + "Use `tool_search` to find deferred tools; use `tool_describe` before `tool_call` "
-                    + "when you do not know a tool's parameters.",
-                "parameters": [
-                    "type": "object",
-                    "properties": [
-                        "tool": ["type": "string", "description": "Exact tool name, e.g. 'kanban_show'."]
-                    ] as [String: Any],
-                    "required": ["tool"],
-                ] as [String: Any],
-            ] as [String: Any],
-        ] as [String: Any]
-    }
-
-    static func toolCallSchema() -> [String: Any] {
-        [
-            "type": "function",
-            "function": [
-                "name": "tool_call",
-                "description": "Call a deferred tool by name with its parameters. Equivalent to calling the "
-                    + "tool directly: guardrails, approvals, and tool policy rules all apply. "
-                    + "Pass parameters as an object; results are returned exactly as if the tool were called directly.",
-                "parameters": [
-                    "type": "object",
-                    "properties": [
-                        "tool": ["type": "string", "description": "Exact deferred tool name."],
-                        "arguments": ["type": "object", "description": "The tool's parameters (see tool_describe)."],
-                    ] as [String: Any],
-                    "required": ["tool"],
-                ] as [String: Any],
-            ] as [String: Any],
-        ] as [String: Any]
     }
 }

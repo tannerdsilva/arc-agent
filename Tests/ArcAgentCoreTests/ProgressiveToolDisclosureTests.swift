@@ -135,7 +135,7 @@ extension ArcCoreTestRoot {
                 entry("read_file", toolset: "file"),
                 entry("kanban_show", toolset: "kanban"),
             ])
-            let schemas = ProgressiveToolDisclosure.buildPromptSchemas(
+            let schemas = ToolSchemaRenderer.promptSchemas(
                 registry: registry, disabled: [], config: ToolSearchConfig(), contextLength: 200_000)
             let names = schemas.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
             #expect(names.contains("read_file"))
@@ -157,7 +157,7 @@ extension ArcCoreTestRoot {
                 entry("read_file", toolset: "file"),
                 entry("kanban_show", toolset: "kanban"),
             ])
-            let schemas = ProgressiveToolDisclosure.buildPromptSchemas(
+            let schemas = ToolSchemaRenderer.promptSchemas(
                 registry: registry, disabled: [], config: ToolSearchConfig(enabled: "off"), contextLength: 200_000)
             let names = schemas.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
             #expect(names.contains("kanban_show"))
@@ -174,7 +174,7 @@ extension ArcCoreTestRoot {
                 entry("terminal", toolset: "terminal"),
                 entry("kanban_show", toolset: "kanban"),
             ])
-            let schemas = ProgressiveToolDisclosure.buildPromptSchemas(
+            let schemas = ToolSchemaRenderer.promptSchemas(
                 registry: registry, disabled: ["terminal"], config: ToolSearchConfig(), contextLength: 200_000)
             let names = schemas.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
             #expect(!names.contains("terminal"))   // disabled tool not advertised
@@ -209,8 +209,8 @@ extension ArcCoreTestRoot {
             }
             let all = (0..<15).map { rich("deferred_\($0)", toolset: "kanban") } + (0..<15).map { slim("core_\($0)") }
             let registry = StubRegistry(allTools: all)
-            let eager = registry.buildToolSchemas(enabled: [], disabled: [])
-            let deferred = ProgressiveToolDisclosure.buildPromptSchemas(
+            let eager = ToolSchemaRenderer.eagerSchemas(registry: registry, disabled: [])
+            let deferred = ToolSchemaRenderer.promptSchemas(
                 registry: registry, disabled: [], config: ToolSearchConfig(), contextLength: 200_000)
             let eagerTokens = ProgressiveToolDisclosure.estimateTokens(schemas: eager)
             let deferredTokens = ProgressiveToolDisclosure.estimateTokens(schemas: deferred)
@@ -218,12 +218,12 @@ extension ArcCoreTestRoot {
         }
 
         @Test func bridgeSchemasHaveExpectedShape() {
-            let describe = ProgressiveToolDisclosure.toolDescribeSchema()
+            let describe = ToolSchemaRenderer.toolDescribeSchema()
             let fn = describe["function"] as? [String: Any]
             #expect(fn?["name"] as? String == "tool_describe")
             let desc = fn?["description"] as? String
             #expect(desc?.contains("tool_call") == true)
-            let call = ProgressiveToolDisclosure.toolCallSchema()
+            let call = ToolSchemaRenderer.toolCallSchema()
             let callFn = call["function"] as? [String: Any]
             #expect(callFn?["name"] as? String == "tool_call")
         }
@@ -243,18 +243,4 @@ private struct StubRegistry: ToolRegistry {
 
     func lookup(name: String) -> RegisteredTool? { allTools.first { $0.name == name } }
     mutating func register(_ tool: any AgentTool, origin: ToolOrigin) throws {}
-    func buildToolSchemas(enabled: Set<String>, disabled: Set<String>) -> [[String: Any]] {
-        allTools
-            .filter { !disabled.contains($0.toolset) }
-            .map { entry in
-                [
-                    "type": "function",
-                    "function": [
-                        "name": entry.name,
-                        "description": entry.description,
-                        "parameters": entry.schema.asDictionary(),
-                    ] as [String: Any],
-                ] as [String: Any]
-            }
-    }
 }
