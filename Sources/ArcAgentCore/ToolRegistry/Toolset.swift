@@ -34,12 +34,29 @@ public struct Toolset: Sendable, Hashable {
 
         /// deliberately unused today.
         case network
+
+        /// The operator-facing spelling. `Reach` decides access, so a surface
+        /// that shows it must not invent a second vocabulary for it.
+        public var displayName: String {
+            switch self {
+            case .inProcessOnly: return "in-process only"
+            case .loopback: return "loopback"
+            case .network: return "network"
+            }
+        }
     }
 
     /// Whether a toolset's tools render eagerly or behind the `tool_search` bridge.
     public enum Disclosure: Sendable, Hashable {
         case eager
         case deferred
+
+        public var displayName: String {
+            switch self {
+            case .eager: return "eager"
+            case .deferred: return "deferred"
+            }
+        }
     }
 
     /// The wire / config / display spelling (e.g. `"file"`).

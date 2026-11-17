@@ -46,4 +46,17 @@ public enum ToolOrigin: Sendable, Hashable {
         if case .builtin = self { return true }
         return false
     }
+
+    /// The operator-facing spelling of this provenance.
+    ///
+    /// Lives on the type rather than in a view: a surface that names a tool's
+    /// origin should not have to re-derive the vocabulary, and T7 is the first
+    /// consumer that made the distinction visible.
+    public var displayName: String {
+        switch self {
+        case .builtin: return "built-in"
+        case .plugin(let name): return "plugin: \(name)"
+        case .source(let name): return "source: \(name)"
+        }
+    }
 }

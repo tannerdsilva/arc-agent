@@ -39,6 +39,28 @@ extension ArcWebUITestRoot {
             html.components(separatedBy: needle).count - 1
         }
 
+        @Test("a non-builtin row names its provenance without opening the pane")
+        func provenanceBadgeNamesTheSource() async {
+            // the panel renders rows from `toolsets`, but provenance lives on
+            // the ADMITTED tool — so the row resolves it through the registry.
+            // a fixture that only sets `toolsets` has an empty registry and
+            // proves nothing here; this one admits read_file as a source.
+            var fixture = AppState.RenderFixture()
+            let read = StubTool(name: "read_file", toolset: "file", emoji: "📄")
+            let write = StubTool(name: "write_file", toolset: "file", emoji: "✍️")
+            fixture.toolsets = [("file", [read, write])]
+            fixture.registryTools = [read]
+            let app = AppState(renderFixture: fixture)
+            let html = await RenderContext.$current.withValue(
+                RenderContext(router: EventRouter(), session: .default)
+            ) {
+                await app.toolsPanel().markup.html
+            }
+            // exactly one row is admitted, so exactly one badge: the unadmitted
+            // row must not invent a provenance it does not have.
+            #expect(Self.count(of: "source: fixture", in: html) == 1)
+        }
+
         @Test("the row boundary and the toolset toggle register at render time")
         func controlsRegisterAtRenderTime() async {
             let router = EventRouter()

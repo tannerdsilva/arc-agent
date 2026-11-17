@@ -1408,6 +1408,16 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                                             } else if !avail {
                                                 LrSub { Text(" (needs env)") }
                                             }
+                                            // provenance without opening the pane:
+                                            // the operator's main trust signal, and
+                                            // the reader `origin` was kept for. the
+                                            // loop holds `any AgentTool`; provenance
+                                            // lives on the admitted `RegisteredTool`,
+                                            // so it is resolved through the registry.
+                                            if let origin = registry.lookup(name: t.name)?.origin,
+                                               !origin.isCompiledIn {
+                                                LrSub { Text(" \(origin.displayName)") }
+                                            }
                                         }
                                     }
                                     // a switched-off tool stays listed: removing
@@ -3979,6 +3989,15 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                             DetailSub { Text(tool.toolsetName) }
                             AkvRow(key: "Description", value: tool.description)
                             AkvRow(key: "Toolset", value: tool.toolsetName)
+                            // provenance and reach were computed and stored but
+                            // never shown (F6/F16). `origin` finally has a
+                            // production reader: the operator's trust signal.
+                            AkvRow(key: "Origin", value: tool.origin.displayName)
+                            AkvRow(key: "Reach", value: tool.toolset.reach.displayName)
+                            AkvRow(key: "Disclosure", value: tool.toolset.disclosure.displayName)
+                            AkvRow(key: "Availability",
+                                   value: tool.availability.unavailableReason(
+                                       env: ProcessInfo.processInfo.environment) ?? "always")
                             AkvRow(key: "Requires env",
                                    value: tool.availability.requiredEnvNames.isEmpty
                                        ? "none"
