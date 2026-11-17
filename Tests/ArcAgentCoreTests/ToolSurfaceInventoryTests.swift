@@ -10,17 +10,11 @@ extension ArcCoreTestRoot {
     @Suite("tool surface inventory")
     struct ToolSurfaceInventoryTests {
 
-        @Test("the toolset universe is the declared one")
-        func toolsetUniverse() throws {
-            let actual = Set(try ArcAgentCore.testRegistry().allTools.map(\.toolsetName))
-            // a tripwire, not a policy: adding a toolset is a decision, so it must
-            // edit this line. T3 deletes this test once the type carries the decision.
-            #expect(actual == [
-                "browser", "code_execution", "computer_use", "core", "delegation", "file",
-                "kanban", "mcp", "messaging", "profile", "project", "skills", "terminal",
-                "todo", "tools", "web",
-            ])
-        }
+        // `theToolsetUniverse` lived here: a 16-name tripwire that forced a
+        // human edit whenever a toolset appeared. T3 replaced it with the type —
+        // `ToolsetCatalogTests` pins all 19 catalog rows and `Toolset` has no
+        // initializer that omits reach or disclosure, so the decision is the
+        // compiler's now, not a test's.
 
         @Test("every built-in is compiled in")
         func origins() throws {
@@ -30,13 +24,14 @@ extension ArcCoreTestRoot {
 
         @Test("the tool array is name-sorted")
         func orderIsStable() throws {
-            // FAILS TODAY — and only with a fixture plugin present. `testRegistry()`
-            // alone is a `CompileTimeToolRegistry`, whose `allTools` sorts by name
-            // (`CompileTimeToolRegistry.swift:83-87`), so without a plugin this test
-            // passes green and proves nothing. The defect lives in the composite:
-            // `MutableToolRegistry.allTools` appends the plugin tier in dictionary
-            // order (`PluginRegistry.swift:497-499`), so `aaa_fixture` — which sorts
-            // before every built-in — lands after them. T1 makes this pass.
+            // The regression guard for F2/T1. It is red only with a fixture
+            // plugin present: `testRegistry()` alone is a
+            // `CompileTimeToolRegistry`, whose `allTools` already sorts
+            // (`CompileTimeToolRegistry.swift:83-87`), so without a plugin this
+            // would pass and prove nothing. The defect lived in the composite —
+            // `MutableToolRegistry.allTools` used to append `pluginEntries.values`
+            // in dictionary order, so `aaa_fixture`, which sorts before every
+            // built-in, landed after them.
             let (mutable, allInstalled) = try Self.fixtureRegistry()
             #expect(allInstalled)
             let names = mutable.allTools.map(\.name)
