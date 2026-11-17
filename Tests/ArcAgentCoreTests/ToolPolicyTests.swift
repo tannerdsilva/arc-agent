@@ -106,3 +106,50 @@ extension ArcCoreTestRoot {
         }
     }
 }
+
+// MARK: - Tool policy action honesty (T5a)
+
+extension ArcCoreTestRoot {
+    /// `requireApproval` promised a prompt no surface could make. The case is
+    /// now `denyWithHint`; these pin that the old spelling still loads, that the
+    /// new one is what gets written, and that the old one cannot be written.
+    @Suite("Tool policy honesty", .serialized)
+    struct ToolPolicyHonestyTests {
+
+        @Test("the legacy spelling decodes to a refusal, not a prompt")
+        func legacySpellingDecodesToRefusal() throws {
+            let json = """
+            {"enabled": true, "rules": [{"match": "terminal", "action": "requireApproval", "reason": "shell"}]}
+            """
+            let config = try JSONDecoder().decode(ToolPolicyConfig.self, from: Data(json.utf8))
+            #expect(config.rules.first?.action == .denyWithHint)
+
+            let decision = ToolPolicy.decide(
+                toolName: "terminal", toolset: "terminal", config: config)
+            #expect(decision.action == .denyWithHint)
+            #expect(decision.reason == "shell")
+        }
+
+        @Test("the honest spelling round-trips and is what gets written")
+        func honestSpellingRoundTrips() throws {
+            let config = ToolPolicyConfig(enabled: true, rules: [
+                ToolPolicyRule(match: "terminal", action: .denyWithHint),
+            ])
+            let data = try JSONEncoder().encode(config)
+            let text = String(decoding: data, as: UTF8.self)
+            #expect(text.contains("\"denyWithHint\""))
+            #expect(!text.contains("requireApproval"))
+
+            let back = try JSONDecoder().decode(ToolPolicyConfig.self, from: data)
+            #expect(back == config)
+        }
+
+        @Test("the legacy name cannot be constructed")
+        func legacyNameIsNotAWritableCase() {
+            // decode-only: the old spelling is accepted on the way in and can
+            // never be produced by the type again.
+            #expect(ToolPolicyAction(rawValue: "requireApproval") == nil)
+            #expect(ToolPolicyAction(rawValue: "denyWithHint") == .denyWithHint)
+        }
+    }
+}

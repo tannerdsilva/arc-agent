@@ -3,10 +3,37 @@ import Foundation
 // MARK: - Tool policy / managed scope (reference managed tool scope)
 
 /// The policy verdict for a tool invocation.
+///
+/// `denyWithHint` was called `requireApproval`, which was a promise no surface
+/// here can keep: the only approval seam (`ApprovalManager.requestApproval`)
+/// is shaped for shell COMMANDS — it prompts only when its danger detectors
+/// flag the input, so a tool name arrives unflagged and resolves `.approved`
+/// without a human ever seeing it. Wiring that seam would have turned this
+/// case into a silent allow. The case is therefore named for what it does, and
+/// the legacy spelling is accepted **on decode only**, so a stored config still
+/// loads and starts refusing.
 public enum ToolPolicyAction: String, Codable, Sendable {
     case allow
     case deny
-    case requireApproval
+    case denyWithHint
+
+    /// Decode the legacy spelling. `rawValue` stays the honest one, so
+    /// `ToolPolicyAction(rawValue: "requireApproval")` is `nil`: the old name
+    /// cannot be written anew, only read.
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        switch raw {
+        case "allow", "deny", "denyWithHint":
+            self = ToolPolicyAction(rawValue: raw) ?? .deny
+        case "requireApproval":
+            // the rule always meant "refuse, and say why" — see the type doc.
+            self = .denyWithHint
+        default:
+            throw DecodingError.dataCorruptedError(
+                in: try decoder.singleValueContainer(),
+                debugDescription: "unknown tool policy action '\(raw)'")
+        }
+    }
 }
 
 /// A rule: glob match on tool name (+ optional exact toolset).

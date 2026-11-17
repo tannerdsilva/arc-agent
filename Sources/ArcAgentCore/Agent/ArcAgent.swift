@@ -3855,8 +3855,11 @@ public actor ArcAgent: Service {
         switch gate.action {
         case .deny:
             return "[BLOCKED by tool policy: \(toolCall.function.name) is not permitted\(gate.reason.map { " — \($0)" } ?? "")]"
-        case .requireApproval:
-            return "[REQUIRES APPROVAL (tool policy): \(toolCall.function.name)\(gate.reason.map { " — \($0)" } ?? "") — enable the rule's scope or switch the rule to deny/allow]"
+        case .denyWithHint:
+            // no approval prompt exists for a tool invocation: the seam is
+            // command-shaped and resolves an unflagged tool name `.approved`
+            // without asking anyone. Refuse, and say what the rule wanted.
+            return "[BLOCKED by tool policy: \(toolCall.function.name) matches a rule that requires human approval, which this runtime cannot request\(gate.reason.map { " — \($0)" } ?? "") — switch the rule to allow, or deny it explicitly]"
         case .allow:
             break
         }
