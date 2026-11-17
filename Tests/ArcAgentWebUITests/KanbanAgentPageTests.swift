@@ -185,4 +185,47 @@ struct KanbanAgentPageTests {
         #expect(doc?.revision == d.revision + 1)
         #expect(doc?.lanes.count == 2)
     }
+
+    // MARK: new board creation (left sidebar)
+
+    private func freshStoreApp() async -> AppState {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("kba-test-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var f = AppState.RenderFixture()
+        f.kanbanAgentStore = FileKanbanAgentStore(root: dir)
+        let app = AppState(renderFixture: f)
+        await app.kbLoad()
+        return app
+    }
+
+    @Test("kbCreateBoard seeds a legal graph, selects and persists it")
+    func createBoard() async {
+        let app = await freshStoreApp()
+        await app.kbCreateBoard(named: "  Relay Ops  ")
+        let doc = await app.kanbanAgentDoc
+        #expect(doc?.name == "Relay Ops")
+        #expect(doc?.id == "relay-ops")
+        #expect(doc?.columns.map(\.name) == ["Intake", "Ask the user", "Done"])
+        let violations = doc.map { KanbanAgent.BoardGraph(board: $0).hardViolations() } ?? []
+        #expect(violations.isEmpty, "seed graph must be legal: \(violations)")
+        // persisted + listed
+        let boards = await app.kanbanAgentBoards
+        #expect(boards.map(\.id) == ["relay-ops"])
+        // a second board with the same name uniquifies the slug
+        await app.kbCreateBoard(named: "Relay Ops")
+        let boards2 = await app.kanbanAgentBoards
+        #expect(boards2.map(\.id).sorted() == ["relay-ops", "relay-ops-2"])
+        let selected = await app.kanbanAgentDoc?.id
+        #expect(selected == "relay-ops-2")
+    }
+
+    @Test("the sidebar panel offers + New Board with a name form")
+    func newBoardUI() async {
+        let (d, cards) = doc()
+        let app = await makeApp(doc: d, cards: cards, boards: [d])
+        let html = await app.kanbanPanel().markup.html
+        #expect(html.contains("kba-newboard-menu"))
+        #expect(html.contains("kba-newboard-form"))
+        #expect(html.contains("kba-newboard-name"))
+    }
 }

@@ -3998,6 +3998,15 @@ extension Controller {
         return await self.changed()
     }
 
+    @Wired("kba-newboard-form", events: [.submit])
+    func handleKbaNewBoardForm(_ event: EventData) async -> [FragmentUpdate] {
+        let name = event.string("kba-newboard-name") ?? ""
+        guard !name.isEmpty else { return [] }
+        await self.app.kbSetPopover(nil)
+        await self.app.kbCreateBoard(named: name)
+        return await self.changed()
+    }
+
     @Wired("kba-lane-form", events: [.submit])
     func handleKbaLaneForm(_ event: EventData) async -> [FragmentUpdate] {
         let name = event.string("kba-lane-name") ?? ""

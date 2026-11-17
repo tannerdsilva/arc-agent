@@ -195,8 +195,8 @@ extension ArcWebUITestRoot {
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 200,
-                "wireAll must register exactly 200 handlers: 167 @Wired-generated (incl. ctxpane) + 12 nav-(id) + sidebar-plugin-toggle + cat-pick + 10 cron schedule/search/deliver wires + 5 kanban-agent wires (kanban reuses the legacy handler id), got \(count)")
+                count == 201,
+                "wireAll must register exactly 201 handlers: 167 @Wired-generated (incl. ctxpane) + 12 nav-(id) + sidebar-plugin-toggle + cat-pick + 10 cron schedule/search/deliver wires + 6 kanban-agent wires (incl. the new-board form; kanban reuses the legacy handler id), got \(count)")
         }
 
         /// A non-listed id has no handler: the router answers empty fragments.

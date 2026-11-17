@@ -5028,6 +5028,10 @@ extension AppState {
                 if kanbanAgentBoards.isEmpty {
                     EmptyHint { Text("No boards loaded yet.") }
                 }
+                Div(class: .kbPopAnchor) {
+                    ArcButton("+ New Board", id: "kba-newboard-menu", component: nil, class: .ghostBtn)
+                    Div(class: .kbPop) { ErasedViews([kanbanNewBoardForm()]) }
+                }
                 if let doc = kanbanAgentDoc {
                     for root in doc.roots {
                         ErasedViews([Div(class: .listRow) {

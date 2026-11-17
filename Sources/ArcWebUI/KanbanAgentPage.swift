@@ -216,6 +216,20 @@ extension AppState {
         .data("component-id", "kba-col-form")
     }
 
+    /// New-board form: lives in the left sidebar panel under the boards
+    /// list (chat-row popover pattern — naming never shifts the panel).
+    func kanbanNewBoardForm() -> some WebUI.View {
+        Form(action: "", method: nil, id: "kba-newboard-form", class: .catAddForm) {
+            Input(field: "kba-newboard-name", placeholder: "Board name", type: .text,
+                  attributes: [("data-component-id", "kba-newboard-name"), ("autofocus", "")])
+            CatAddActions {
+                ArcButton("Create", class: .primaryBtn, type: .submit)
+                ArcButton("Cancel", id: "kba-pop-close", component: nil, class: .ghostBtn)
+            }
+        }
+        .data("component-id", "kba-newboard-form")
+    }
+
     func kbLaneForm() -> some WebUI.View {
         Form(action: "", method: nil, id: "kba-lane-form", class: .catAddForm) {
             Input(field: "kba-lane-name", placeholder: "Row name", type: .text,
@@ -407,6 +421,48 @@ extension AppState {
                 kanbanAgentDoc = nil
                 kanbanAgentCards = []
             }
+        } catch {
+            kanbanAgentError = error.localizedDescription
+        }
+    }
+
+    /// Create a new board with the minimal legal seed graph — a triage
+    /// intake column (entry), the mandatory ask-the-user column, and a Done
+    /// terminal — then select it. The id is a slug made unique against the
+    /// loaded boards.
+    func kbCreateBoard(named name: String) async {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let slug = trimmed.lowercased()
+            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+            .reduce(into: "") { acc, ch in
+                if ch == "-" { if acc.last != "-" { acc.append(ch) } } else { acc.append(ch) }
+            }
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        var id = slug.isEmpty ? "board" : slug
+        var n = 2
+        while kanbanAgentBoards.contains(where: { $0.id == id }) {
+            id = "\(slug.isEmpty ? "board" : slug)-\(n)"
+            n += 1
+        }
+        let intake = KanbanAgent.Column(name: "Intake", kind: .agentWork, isEntry: true, isTriage: true)
+        let ask = KanbanAgent.Column(name: "Ask the user", kind: .humanWait)
+        let done = KanbanAgent.Column(name: "Done", kind: .terminal)
+        let doc = KanbanAgent.BoardDocument(
+            id: id,
+            name: trimmed,
+            columns: [intake, ask, done],
+            edges: [
+                KanbanAgent.Edge(fromColumnID: intake.id, toColumnID: ask.id,
+                    decision: .policy, policy: .agent, isAskTheUser: true),
+                KanbanAgent.Edge(fromColumnID: ask.id, toColumnID: done.id, decision: .policy),
+            ]
+        )
+        do {
+            try await kanbanAgentStore.saveBoard(doc)
+            kanbanAgentError = nil
+            kanbanAgentSelectedBoard = doc.id
+            await kbLoad()
         } catch {
             kanbanAgentError = error.localizedDescription
         }
