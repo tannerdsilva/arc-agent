@@ -82,7 +82,7 @@ struct Chat: AsyncParsableCommand {
         abstract: "Start an interactive conversation."
     )
 
-    @Option(name: .shortAndLong, help: "Single query, non-interactive.")
+    @Option(name: .shortAndLong, help: "Single query, non-interactive. Runs isolated: a fresh session that never resumes prior context (still persisted when storage is active).")
     var query: String?
 
     @Option(name: .shortAndLong, help: "Model to use.")
@@ -115,8 +115,7 @@ struct Chat: AsyncParsableCommand {
     @Flag(name: .shortAndLong, help: "Enable YOLO mode (no approval prompts).")
     var yolo: Bool = false
 
-    @Flag(name: .long, help: "Session-less run: no store record, no transcript, nothing resumable.")
-    var ephemeral = false
+
 
     @Flag(name: .long, help: "Enable automatic checkpoints before file changes (reference --checkpoints).")
     var checkpoints: Bool = false
@@ -224,7 +223,11 @@ struct Chat: AsyncParsableCommand {
         // Resume resolution (reference `sessions.md` § CLI Session Resume):
         // `-c` continues the most recent CLI session; `--resume` matches by
         // ID, unique prefix, or title (lineage variants pick the newest).
-        let resolvedSession: String? = if session != nil || continueSession {
+        // A terminal one-shot (`-q`) is always an isolated event: it never
+        // resumes or attaches to prior session context, but it still
+        // persists as its own session record (Tessera when active, file
+        // storage otherwise). Resume flags only apply to interactive runs.
+        let resolvedSession: String? = if query == nil, session != nil || continueSession {
             await Self.resolveResume(needle: session, continueMode: continueSession,
                                      noRestoreCwd: noRestoreCwd, using: sessionStore)
         } else {
@@ -295,12 +298,7 @@ struct Chat: AsyncParsableCommand {
             maxIterations: arcConfig.effectiveMaxTurns(),
             toolLoopCap: arcConfig.toolCallLimit(),
             maxTurnDuration: arcConfig.effectiveMaxTurnDuration() ?? 0,
-            // `--ephemeral` (reference Hermes `_persist_disabled`): the turn
-            // runs with the full tool surface but never touches the session
-            // store — `persistConversationIfNeeded` (the only `create` site),
-            // compaction commits, and title generation all no-op, so no
-            // Tessera event or session file is ever written.
-            persistSessions: arcConfig.agent.persistSessions && !ephemeral,
+            persistSessions: arcConfig.agent.persistSessions,
             approvalMode: approvalMode,
             query: query,
             personalityPrompt: arcConfig.agent.systemPrompt,

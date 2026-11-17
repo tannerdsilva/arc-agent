@@ -448,7 +448,7 @@ public actor TesseraSessionStore: SessionStore {
             let n = await conn.takeWriterSequence()
             let stored = TesseraStoredMessage(seq: n, sessionID: sessionID, message: message)
             let content = String(decoding: try JSONEncoder().encode(stored), as: UTF8.self)
-            try await conn.publish(
+            _ = try await conn.publishAwaitingEcho(
                 kind: TesseraConnection.messageKind,
                 dTagValue: "arc/s/\(sessionID)/\(token)/\(n)",
                 content: content
@@ -456,7 +456,7 @@ public actor TesseraSessionStore: SessionStore {
         } else {
             let stored = TesseraStoredMessage(seq: await conn.takeSequence(), sessionID: sessionID, message: message)
             let content = String(decoding: try JSONEncoder().encode(stored), as: UTF8.self)
-            try await conn.publish(
+            _ = try await conn.publishAwaitingEcho(
                 kind: TesseraConnection.messageKind,
                 dTagValue: "arc/s/\(sessionID)/\(stored.seq)",
                 content: content
@@ -475,7 +475,7 @@ public actor TesseraSessionStore: SessionStore {
         )
         let content = String(decoding: try JSONEncoder().encode(notice), as: UTF8.self)
         let n = await conn.takeWriterSequence()
-        try await conn.publish(
+        _ = try await conn.publishAwaitingEcho(
             kind: TesseraConnection.leaveKind,
             dTagValue: "arc/left/\(sessionID)/\(token)/\(n)",
             content: content
@@ -527,7 +527,7 @@ public actor TesseraSessionStore: SessionStore {
 
     private func publish(meta: TesseraSessionMeta) async throws {
         let content = String(decoding: try JSONEncoder().encode(meta), as: UTF8.self)
-        try await connection.publish(
+        _ = try await connection.publishAwaitingEcho(
             kind: TesseraConnection.metadataKind,
             dTagValue: "arc/meta/\(meta.sessionID)/\(meta.seq)",
             content: content
@@ -537,7 +537,7 @@ public actor TesseraSessionStore: SessionStore {
     private func publishMessage(_ message: Message, sessionID: String) async throws {
         let stored = TesseraStoredMessage(seq: await connection.takeSequence(), sessionID: sessionID, message: message)
         let content = String(decoding: try JSONEncoder().encode(stored), as: UTF8.self)
-        try await connection.publish(
+        _ = try await connection.publishAwaitingEcho(
             kind: TesseraConnection.messageKind,
             dTagValue: "arc/s/\(sessionID)/\(stored.seq)",
             content: content
