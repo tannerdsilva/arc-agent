@@ -1,3 +1,5 @@
+import Foundation
+
 /// The one schema path: registry entries in, OpenAI function-schema dicts out.
 ///
 /// Three renderers used to exist — ``ToolRegistry``'s requirement plus its
@@ -24,7 +26,8 @@
 /// call, with no cache, no revision key, and no counters.
 public enum ToolSchemaRenderer {
 
-    /// The eager array: every tool, filtered by enabled/disabled, `checkFn` applied.
+    /// The eager array: every tool, filtered by enabled/disabled and by
+    /// ``ToolAvailability``.
     ///
     /// - Parameters:
     ///   - registry: The surface to render.
@@ -37,7 +40,9 @@ public enum ToolSchemaRenderer {
         disabled: Set<String>,
         enabled: Set<String> = []
     ) -> [[String: Any]] {
-        registry.allTools
+        // one environment read per render, not one per tool.
+        let env = ProcessInfo.processInfo.environment
+        return registry.allTools
             .filter { entry in
                 // If disabled, exclude.
                 guard !disabled.contains(entry.toolsetName) else { return false }
@@ -47,10 +52,8 @@ public enum ToolSchemaRenderer {
                     guard enabled.contains(entry.toolsetName) else { return false }
                 }
 
-                // Run availability check.
-                if let check = entry.checkFn {
-                    guard check() else { return false }
-                }
+                // a tool whose declared requirement is unmet is not advertised.
+                guard entry.availability.unavailableReason(env: env) == nil else { return false }
 
                 return true
             }
@@ -82,7 +85,9 @@ public enum ToolSchemaRenderer {
         let candidates = registry.allTools
             .filter { !disabled.contains($0.toolsetName) }
             .map { $0.tool }
-        let (visible, deferred) = DeferredToolPolicy.plan(entries: candidates, config: config)
+        // one environment read per render; the policy evaluates it per tool.
+        let (visible, deferred) = DeferredToolPolicy.plan(
+            entries: candidates, config: config, env: ProcessInfo.processInfo.environment)
         guard deferred.isEmpty == false, config.enabled != "off" else {
             // Eager path — identical output to the plain registry rendering.
             return visible.map { schema(for: $0) }

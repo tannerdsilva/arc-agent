@@ -218,31 +218,27 @@ extension ArcCoreTestRoot {
             #expect(entry.toolsetName == "test")
             #expect(entry.description == "A test tool")
             #expect(entry.emoji == "🧪")
-            #expect(entry.requiresEnv.isEmpty)
-            #expect(entry.checkFn == nil)
+            #expect(entry.availability == .always)
+            #expect(entry.availability.requiredEnvNames.isEmpty)
+            #expect(entry.parallelSafe == false)
         }
 
-        @Test("tool entry with requires env and check fn")
+        @Test("tool entry with availability and parallel safety")
         func toolEntryWithRequirements() {
-            let checked = LockedBool(false)
             let entry = ToolEntry(
                 name: "conditional_tool",
                 toolset: Toolset(claimed: "test"),
                 description: "Conditional tool",
                 schema: .string(description: "x"),
                 handler: { _ in "ok" },
-                checkFn: { checked.value },
-                requiresEnv: ["SECRET_KEY"],
+                availability: .requiresEnv(["SECRET_KEY"]),
+                parallelSafe: true,
                 emoji: "🔐"
             )
-            #expect(entry.requiresEnv == ["SECRET_KEY"])
-            #expect(entry.checkFn != nil)
-        }
-
-        /// A thread-safe boolean wrapper for testing Sendable closures.
-        final class LockedBool: @unchecked Sendable {
-            var value: Bool
-            init(_ value: Bool) { self.value = value }
+            #expect(entry.availability.requiredEnvNames == ["SECRET_KEY"])
+            #expect(entry.availability.unavailableReason(env: [:]) != nil)
+            #expect(entry.availability.unavailableReason(env: ["SECRET_KEY": "v"]) == nil)
+            #expect(entry.parallelSafe)
         }
 
         // =========================================================================

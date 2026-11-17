@@ -88,6 +88,7 @@ struct KanbanTools {
                 }
                 return result
             },
+            parallelSafe: true,
             emoji: "📋"
         )
     }
@@ -124,6 +125,7 @@ struct KanbanTools {
                 Body: \(task.body.prefix(500))
                 """
             },
+            parallelSafe: true,
             emoji: "📖"
         )
     }

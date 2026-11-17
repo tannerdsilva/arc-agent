@@ -21,6 +21,65 @@ public enum ToolPlacement: Sendable {
     case inProcessOnly
 }
 
+// MARK: - Availability (one value)
+
+/// What must be true for a tool to be advertised.
+///
+/// One value replaced two members. A synchronous availability closure was
+/// declared by the protocol and implemented by nobody, so it could not express
+/// the asynchronous checks its own doc comment promised; the environment list
+/// beside it was declared by six built-ins and consulted by nothing, which made
+/// every one of those declarations ceremony. Availability is now a decision a
+/// tool *declares*, and the schema renderer and the web UI's tool panel both
+/// evaluate it.
+public enum ToolAvailability: Sendable, Hashable {
+
+    /// Advertised whenever its toolset is enabled.
+    case always
+
+    /// Advertised only when every named variable is present and non-empty.
+    ///
+    /// Empty and unset are both unmet: an empty credential is not a
+    /// credential.
+    case requiresEnv([String])
+}
+
+extension ToolAvailability {
+
+    /// The variables this availability names, in declaration order.
+    ///
+    /// Empty for ``always``. The web UI's "Requires env" row renders this so
+    /// the listing stays one line rather than a `switch` in a view builder.
+    public var requiredEnvNames: [String] {
+        switch self {
+        case .always:
+            return []
+        case .requiresEnv(let names):
+            return names
+        }
+    }
+
+    /// `nil` when the tool may be advertised; otherwise a reason naming the
+    /// missing variables.
+    ///
+    /// - Parameter env: The environment to test against. A caller renders once
+    ///   and hands the same dictionary to every tool in that render, so one
+    ///   process-environment read serves the whole surface.
+    public func unavailableReason(env: [String: String]) -> String? {
+        switch self {
+        case .always:
+            return nil
+        case .requiresEnv(let names):
+            let missing = names.filter { name in
+                guard let value = env[name] else { return true }
+                return value.isEmpty
+            }
+            guard missing.isEmpty == false else { return nil }
+            return "missing required environment: \(missing.joined(separator: ", "))"
+        }
+    }
+}
+
 // MARK: - Tool Protocol (Protocols First)
 
 /// A tool executable by the agent.
@@ -87,20 +146,22 @@ public protocol AgentTool: Sendable {
     /// LLM as a tool response message.
     var handler: ToolHandler { get }
 
-    /// An optional closure that checks whether this tool's requirements are
-    /// met (e.g. a binary is installed, an environment variable is set).
+    /// What must be true for this tool to be advertised.
     ///
-    /// Return `true` if the tool is available, `false` otherwise. A `nil`
-    /// check means "always available (no runtime dependencies)". The default
-    /// is `nil`.
-    var checkFn: ToolRequirementCheck? { get }
+    /// The default is ``ToolAvailability/always``. This one value replaces the
+    /// two members that used to sit here: a synchronous closure with zero
+    /// implementations, which could not express the async work its own doc
+    /// comment described, and an environment list that was inert on every
+    /// built-in — no schema path ever consulted it.
+    var availability: ToolAvailability { get }
 
-    /// Environment variable names this tool requires at runtime.
+    /// Whether this tool may run concurrently with siblings in one batch.
     ///
-    /// The credential pool checks these when resolving credentials. Tools
-    /// with missing required env vars are filtered out of the schema array
-    /// sent to the LLM. The default is empty.
-    var requiresEnv: [String] { get }
+    /// Default `false` — the conservative polarity, and the one that keeps a
+    /// side-effecting tool serialised until someone says otherwise. The
+    /// planner in ``ArcAgent`` asks the tool through the live surface rather
+    /// than reading a name table that could drift from the declarations.
+    var parallelSafe: Bool { get }
 
     /// Where this tool's capability may be exercised.
     ///
@@ -123,11 +184,18 @@ extension AgentTool {
     /// keeps compiling; every site that **decides** something now needs the type.
     public var toolsetName: String { toolset.name }
 
-    /// Default: no availability check — the tool is always available.
-    public var checkFn: ToolRequirementCheck? { nil }
+    /// Default: advertised whenever its toolset is enabled.
+    public var availability: ToolAvailability { .always }
 
-    /// Default: no required environment variables.
-    public var requiresEnv: [String] { [] }
+    /// Convenience over ``ToolAvailability/unavailableReason(env:)`` — the
+    /// question a renderer asks each tool once per render.
+    public func unavailableReason(env: [String: String]) -> String? {
+        availability.unavailableReason(env: env)
+    }
+
+    /// Default: serialised. Side effects stay ordered until a tool says its
+    /// reads are independent of its siblings.
+    public var parallelSafe: Bool { false }
 
     /// Default: reachable wherever its toolset's tier admits it.
     public var placement: ToolPlacement { .anyCarrier }

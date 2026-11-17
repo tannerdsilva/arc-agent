@@ -75,7 +75,6 @@ private struct RecordingTool: AgentTool {
 
     var description: String { "A recording stub tool." }
     var schema: JSONSchema { .object(properties: [:]) }
-    var checkFn: ToolRequirementCheck? { nil }
 
     /// the fixture spells its toolset as text; a name outside the catalog
     /// normalises to the narrowest reach.

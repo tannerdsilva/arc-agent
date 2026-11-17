@@ -126,16 +126,21 @@ public enum DeferredToolPolicy {
     }
 
     /// Split entries into (visible, deferred), mirroring
-    /// `classify_tools` in reference. Availability checks are applied first so a
-    /// tool whose requirements are unmet never reaches either list.
+    /// `classify_tools` in reference. Availability is applied first so a tool
+    /// whose requirements are unmet never reaches either list.
+    ///
+    /// - Parameter env: The environment availability is evaluated against. A
+    ///   renderer hoists this once and passes it here so one process-environment
+    ///   read serves the whole surface; the default reads it per call.
     public static func plan(
         entries: [any AgentTool],
-        config: ToolSearchConfig
+        config: ToolSearchConfig,
+        env: [String: String] = ProcessInfo.processInfo.environment
     ) -> (visible: [any AgentTool], deferred: [any AgentTool]) {
         var visible: [any AgentTool] = []
         var deferred: [any AgentTool] = []
         for entry in entries {
-            if let check = entry.checkFn, !check() { continue }
+            if entry.unavailableReason(env: env) != nil { continue }
             if isDeferred(name: entry.name, toolset: entry.toolset, config: config) {
                 deferred.append(entry)
             } else {

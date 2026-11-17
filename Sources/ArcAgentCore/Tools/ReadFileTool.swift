@@ -41,6 +41,7 @@ public enum ReadFileTool {
             }
             return try await Self.readFile(path: path, offset: offset, limit: limit)
         },
+        parallelSafe: true,
         emoji: "📄"
     )
 

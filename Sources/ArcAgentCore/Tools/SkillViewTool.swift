@@ -53,6 +53,7 @@ struct SkillViewTool {
 
             return "Error: Skill '\(name)' not found. Available skills are listed in the Available Skills section."
         },
+        parallelSafe: true,
         emoji: "📚"
     )
 }

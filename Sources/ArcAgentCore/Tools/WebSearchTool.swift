@@ -28,6 +28,7 @@ public enum WebSearchTool {
             let limit: Int = (args["limit"] as? Int) ?? 5
             return try await Self.search(query: query, limit: limit)
         },
+        parallelSafe: true,
         emoji: "🔍"
     )
 

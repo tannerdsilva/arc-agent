@@ -49,12 +49,13 @@ public struct RegisteredTool: Sendable {
     /// The closure that executes the tool. See ``AgentTool/handler``.
     public var handler: ToolHandler { tool.handler }
 
-    /// The tool's optional availability check. See ``AgentTool/checkFn``.
-    public var checkFn: ToolRequirementCheck? { tool.checkFn }
+    /// What must be true for the tool to be advertised. See
+    /// ``AgentTool/availability``.
+    public var availability: ToolAvailability { tool.availability }
 
-    /// The environment variables the tool requires. See
-    /// ``AgentTool/requiresEnv``.
-    public var requiresEnv: [String] { tool.requiresEnv }
+    /// Whether the tool may run concurrently with siblings. See
+    /// ``AgentTool/parallelSafe``.
+    public var parallelSafe: Bool { tool.parallelSafe }
 
     /// Where the tool's capability may be exercised. See
     /// ``AgentTool/placement``.

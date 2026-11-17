@@ -37,8 +37,7 @@ public enum ListProfilesTool {
                 }, options: [.sortedKeys])
                 return String(decoding: data, as: UTF8.self)
             },
-            checkFn: nil,
-            requiresEnv: [],
+            parallelSafe: true,
             emoji: "📋"
         )
     }
@@ -83,8 +82,7 @@ public enum GetProfileTool {
                 ] as [String: Any], options: [.sortedKeys])
                 return String(decoding: data, as: UTF8.self)
             },
-            checkFn: nil,
-            requiresEnv: [],
+            parallelSafe: true,
             emoji: "🔍"
         )
     }
@@ -174,8 +172,6 @@ public enum SendBotMessageTool {
                     return "Error: Could not deliver to '\(target)': \(reason)"
                 }
             },
-            checkFn: nil,
-            requiresEnv: [],
             emoji: "💬"
         )
     }
@@ -312,8 +308,6 @@ public enum CreateProfileTool {
 
                 return "Profile '\(name)' created successfully."
             },
-            checkFn: nil,
-            requiresEnv: [],
             emoji: "➕"
         )
     }
@@ -358,8 +352,6 @@ public enum DeleteProfileTool {
                 try await profiles.delete(profileName)
                 return "Profile '\(name)' deleted."
             },
-            checkFn: nil,
-            requiresEnv: [],
             emoji: "🗑️"
         )
     }
@@ -413,8 +405,6 @@ public enum SendGroupChatTool {
                 let sender = context.profile.rawValue
                 return "Message from '@\(sender)' posted to group chat '\(group)' (\(count) member\(count == 1 ? "" : "s"))."
             },
-            checkFn: nil,
-            requiresEnv: [],
             emoji: "👥"
         )
     }

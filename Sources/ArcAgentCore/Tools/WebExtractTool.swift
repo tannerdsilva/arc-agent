@@ -39,6 +39,7 @@ public enum WebExtractTool {
             }
             return try await Self.extract(urls: urls, format: format, charLimit: charLimit)
         },
+        parallelSafe: true,
         emoji: "🌐"
     )
 

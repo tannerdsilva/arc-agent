@@ -1298,6 +1298,9 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
         // configured, so a bare "1 tool" misleads — the count is meaningless
         // without knowing whether anything is behind it.
         let mcpServers = arcConfig.mcpServers.count
+        // one environment read per render, not one per row: availability is
+        // evaluated for every tool in the list below.
+        let env = ProcessInfo.processInfo.environment
 
         return Group {
             PanelHead {
@@ -1360,7 +1363,7 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                             for t in filtered {
                                 let encT = enc(t.name)
                                 let active = t.name == selectedTool
-                                let avail = (t.checkFn?() ?? true)
+                                let avail = t.availability.unavailableReason(env: env) == nil
                                 ErasedViews([Div(class: ClassName("list-row\(active ? " active" : "")")) {
                                     ArcButton(id: "tl-open-\(encT)", class: ClassName(.sessOpen, .sessOpenFlush), type: .button) {
                                         LrName {
@@ -3922,9 +3925,9 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                             AkvRow(key: "Description", value: tool.description)
                             AkvRow(key: "Toolset", value: tool.toolsetName)
                             AkvRow(key: "Requires env",
-                                   value: tool.requiresEnv.isEmpty
+                                   value: tool.availability.requiredEnvNames.isEmpty
                                        ? "none"
-                                       : tool.requiresEnv.joined(separator: ", "))
+                                       : tool.availability.requiredEnvNames.joined(separator: ", "))
                             Heading("Parameters", level: .h3, class: .detailH3)
                             schemaHTML(tool.schema)
                         }

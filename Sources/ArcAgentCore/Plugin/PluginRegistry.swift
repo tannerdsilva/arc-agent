@@ -337,11 +337,15 @@ public struct PluginTool: Sendable {
 /// `{tool, args}` → `{result}` on stdin/stdout, cwd = plugin directory).
 extension PluginTool: AgentTool {
 
-    /// Plugin tools are available when the installation's `requires_env`
-    /// variables are set — enforced at install time by
-    /// ``MutableToolRegistry/install(pluginTool:)``, so the check closure is
-    /// always nil here.
-    public var checkFn: ToolRequirementCheck? { nil }
+    /// Plugin tools are advertised while their installation's `requires_env`
+    /// variables are present and non-empty.
+    ///
+    /// Admission is a *different* decision: `install(pluginTool:)` refuses to
+    /// admit a tool whose variables are missing, so the tool does not exist in
+    /// this process at all. Availability is what a renderer asks afterwards —
+    /// it decides whether an installed tool is advertised, and it is the shape
+    /// the schema path has always understood.
+    public var availability: ToolAvailability { .requiresEnv(requiresEnv) }
 
     public var emoji: String? { "🧩" }
 
@@ -551,8 +555,22 @@ public struct MutableToolRegistry: ToolRegistry {
     ///   a built-in or an already-installed plugin tool — a duplicate
     ///   function name in the schema array would make the model ambiguous
     ///   and dispatch unreachable.
+    ///
+    /// ## Two decisions, not one
+    ///
+    /// Admission (here) and *advertising* (``AgentTool/availability``) are
+    /// different questions. Admission decides whether the tool exists in this
+    /// process at all; availability decides whether an installed tool is
+    /// advertised to the model. A plugin tool declares
+    /// ``ToolAvailability/requiresEnv(_:)`` from the same manifest field, so a
+    /// renderer re-checks it; that check does not replace this one, because a
+    /// tool that was never installed has no entry to render.
     @discardableResult
     public mutating func install(pluginTool: PluginTool) -> Bool {
+        // admission, not availability. an unmet requirement here means the tool
+        // is never installed; the predicate stays `== nil` on purpose —
+        // widening it to "present and non-empty" would retire plugins that
+        // install today, which is a behaviour change nobody asked for.
         for key in pluginTool.requiresEnv where ProcessInfo.processInfo.environment[key] == nil {
             return false
         }
@@ -569,8 +587,8 @@ public struct MutableToolRegistry: ToolRegistry {
 
     // Schema rendering is deliberately NOT overridden or extended here. The one
     // path is `ToolSchemaRenderer`, which filters `allTools` — now carrying the
-    // runtime tier in the same name order — and applies `checkFn` uniformly. The
-    // override that used to live here re-implemented the filter without `checkFn`
+    // runtime tier in the same name order — and applies `availability` uniformly. The
+    // override that used to live here re-implemented the filter without `availability`
     // and appended `pluginEntries` in dictionary order: two divergences (F3, F2)
     // that existed only because a per-registry renderer could not see the plugin
     // tier. With the renderer outside the protocol there is no seam left to drift.

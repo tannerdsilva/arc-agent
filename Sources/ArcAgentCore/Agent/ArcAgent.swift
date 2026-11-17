@@ -3696,13 +3696,6 @@ public actor ArcAgent: Service {
         return value == action
     }
 
-    /// Tools that are safe to run concurrently within one batch: read-only,
-    /// no shared mutable state, no side effects observable by a sibling call.
-    static let parallelSafeTools: Set<String> = [
-        "read_file", "web_search", "web_extract", "skill_view",
-        "kanban_list", "kanban_show", "list_profiles", "get_profile",
-    ]
-
     /// Bounded recovery budgets. Each limits how many times a synthetic nudge
     /// is injected for a failure mode before the loop falls through to plain
     /// re-prompting (overall bounded by ``Configuration.maxIterations``).
@@ -3942,11 +3935,19 @@ public actor ArcAgent: Service {
     /// of parallel-safe calls, with every other call as its own single-call
     /// segment. Callers execute segments sequentially and the calls within a
     /// parallel segment concurrently, preserving emission order of results.
-    static func planToolBatch(_ toolCalls: [ToolCall]) -> [[ToolCall]] {
+    ///
+    /// - Parameter isParallelSafe: Whether a tool name may run concurrently
+    ///   with its siblings. The caller supplies the live surface's answer
+    ///   (``AgentTool/parallelSafe``) rather than this planner reading a name
+    ///   table that could drift from the declarations.
+    static func planToolBatch(
+        _ toolCalls: [ToolCall],
+        isParallelSafe: (String) -> Bool
+    ) -> [[ToolCall]] {
         var segments: [[ToolCall]] = []
         var run: [ToolCall] = []
         for call in toolCalls {
-            if parallelSafeTools.contains(call.function.name) {
+            if isParallelSafe(call.function.name) {
                 run.append(call)
             } else {
                 if !run.isEmpty {
@@ -3978,7 +3979,9 @@ public actor ArcAgent: Service {
     ) async -> [(ToolCall, String)] {
         var outcomes: [(ToolCall, String)] = []
         toolCallsThisTurn += toolCalls.count
-        for segment in Self.planToolBatch(toolCalls) {
+        for segment in Self.planToolBatch(toolCalls, isParallelSafe: { name in
+            toolDependencies.toolSearchRegistry.get()?.lookup(name: name)?.parallelSafe ?? false
+        }) {
             for call in segment {
                 emit(.toolCallStarted(
                     id: call.id, name: call.function.name, arguments: call.function.arguments

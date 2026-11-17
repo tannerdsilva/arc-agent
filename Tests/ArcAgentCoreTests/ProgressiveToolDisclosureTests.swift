@@ -13,7 +13,7 @@ extension ArcCoreTestRoot {
             _ name: String,
             toolset: String,
             description: String = "Does useful things with parameters and returns a result.",
-            check: (@Sendable () -> Bool)? = nil
+            availability: ToolAvailability = .always
         ) -> ToolEntry {
             ToolEntry(
                 name: name,
@@ -22,7 +22,7 @@ extension ArcCoreTestRoot {
                 description: description,
                 schema: .object(properties: [:], required: []),
                 handler: { _ in "ok" },
-                checkFn: check
+                availability: availability
             )
         }
 
@@ -61,11 +61,14 @@ extension ArcCoreTestRoot {
         }
 
         @Test func unavailableEntriesAreExcludedFromBothLists() {
-            let withCheck = entry("gated", toolset: "kanban", check: { false })
+            let withCheck = entry(
+                "gated", toolset: "kanban",
+                availability: .requiresEnv(["ARC_T4_DISCLOSURE_UNSET"]))
             let config = ToolSearchConfig()
             let (visible, deferred) = DeferredToolPolicy.plan(
                 entries: [entry("core_tool", toolset: "core"), withCheck],
-                config: config)
+                config: config,
+                env: [:])
             #expect(visible.map(\.name) == ["core_tool"])
             #expect(deferred.isEmpty)
         }

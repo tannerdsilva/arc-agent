@@ -3,8 +3,9 @@ import Foundation
 @testable import ArcWebUI
 import ArcAgentCore
 
-/// a tool that exists only to fill a toolset in a fixture. `checkFn` returning
-/// false is what makes the panel print its "needs env" badge.
+/// a tool that exists only to fill a toolset in a fixture. an unmet
+/// availability requirement is what makes the panel print its "needs env"
+/// badge.
 struct StubTool: AgentTool {
 	let name: String
 	let toolset: Toolset
@@ -13,8 +14,8 @@ struct StubTool: AgentTool {
 	var available: Bool = true
 	var schema: JSONSchema { .object(properties: [:]) }
 	var handler: ToolHandler = { _ in "ok" }
-	var checkFn: ToolRequirementCheck? {
-		available ? nil : { @Sendable in false }
+	var availability: ToolAvailability {
+		available ? .always : .requiresEnv(["STUB_REQUIRED_ENV"])
 	}
 
 	/// the fixture spells its toolset as text. a name outside the catalog
