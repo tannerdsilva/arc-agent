@@ -30,31 +30,34 @@ extension ArcCoreTestRoot {
 
         @Test func coreToolsetsNeverDefer() {
             let config = ToolSearchConfig()
-            for toolset in ["core", "browser", "file", "terminal", "tools", "web", "skills"] {
+            for toolset in [Toolset.core, .browser, .file, .terminal, .tools, .web, .skills] {
                 #expect(!DeferredToolPolicy.isDeferred(name: "read_file", toolset: toolset, config: config))
             }
         }
 
         @Test func nonCoreToolsetsDefer() {
             let config = ToolSearchConfig()
-            #expect(DeferredToolPolicy.isDeferred(name: "kanban_show", toolset: "kanban", config: config))
-            #expect(DeferredToolPolicy.isDeferred(name: "mcp_tool", toolset: "mcp", config: config))
-            #expect(DeferredToolPolicy.isDeferred(name: "image_generate", toolset: "media", config: config) == false)
-            #expect(DeferredToolPolicy.isDeferred(name: "text_to_speech", toolset: "media", config: config) == false)
-            #expect(DeferredToolPolicy.isDeferred(name: "transcription", toolset: "media", config: config))
+            #expect(DeferredToolPolicy.isDeferred(name: "kanban_show", toolset: .kanban, config: config))
+            #expect(DeferredToolPolicy.isDeferred(name: "mcp_tool", toolset: .mcp, config: config))
+            // the per-tool exceptions hold inside a deferred toolset. `media` was
+            // reference vocabulary no arc toolset declares — T3b drops the six
+            // phantom names, so the deferred cases use a toolset arc actually has.
+            #expect(DeferredToolPolicy.isDeferred(name: "image_generate", toolset: .kanban, config: config) == false)
+            #expect(DeferredToolPolicy.isDeferred(name: "text_to_speech", toolset: .kanban, config: config) == false)
+            #expect(DeferredToolPolicy.isDeferred(name: "transcription", toolset: .kanban, config: config))
         }
 
         @Test func bridgeNeverDefersAndOffDisables() {
-            #expect(!DeferredToolPolicy.isDeferred(name: "tool_call", toolset: "tools", config: ToolSearchConfig()))
-            #expect(!DeferredToolPolicy.isDeferred(name: "tool_search", toolset: "tools", config: ToolSearchConfig()))
+            #expect(!DeferredToolPolicy.isDeferred(name: "tool_call", toolset: .tools, config: ToolSearchConfig()))
+            #expect(!DeferredToolPolicy.isDeferred(name: "tool_search", toolset: .tools, config: ToolSearchConfig()))
             let off = ToolSearchConfig(enabled: "off")
-            #expect(!DeferredToolPolicy.isDeferred(name: "kanban_show", toolset: "kanban", config: off))
+            #expect(!DeferredToolPolicy.isDeferred(name: "kanban_show", toolset: .kanban, config: off))
         }
 
         @Test func customDeferredToolsetsWin() {
             let config = ToolSearchConfig(deferredToolsets: ["kanban"])
-            #expect(DeferredToolPolicy.isDeferred(name: "kanban_show", toolset: "kanban", config: config))
-            #expect(!DeferredToolPolicy.isDeferred(name: "mcp_tool", toolset: "mcp", config: config))
+            #expect(DeferredToolPolicy.isDeferred(name: "kanban_show", toolset: .kanban, config: config))
+            #expect(!DeferredToolPolicy.isDeferred(name: "mcp_tool", toolset: .mcp, config: config))
         }
 
         @Test func unavailableEntriesAreExcludedFromBothLists() {

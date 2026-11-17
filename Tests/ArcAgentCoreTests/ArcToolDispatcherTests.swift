@@ -122,19 +122,13 @@ extension ArcCoreTestRoot {
             #expect(dispatcher.toolCatalog(for: .admin).isEmpty)
         }
 
-        @Test("every built-in toolset has a declared access tier")
-        func everyToolsetIsDeclared() throws {
-            // The roster is only closed if something forces the decision when a
-            // toolset appears. This is that mechanism, not the table.
-            let declared = ArcToolDispatcher.inProcessOnlyToolsets
-                .union(ArcToolDispatcher.localMachineToolsets)
-            let actual = Set(try ArcAgentCore.testRegistry().allTools.map(\.toolsetName))
-
-            #expect(
-                actual.subtracting(declared).isEmpty,
-                "undeclared toolset(s): \(actual.subtracting(declared).sorted()) — declare deliberately"
-            )
-        }
+        // `everyToolsetIsDeclared` lived here: a test standing in for a type,
+        // asserting that every toolset a registry holds appears in one of the
+        // dispatcher's two rosters. T3b deleted both rosters, and the decision it
+        // forced is now a compile-time one — `Toolset` has no initializer that
+        // omits `reach`, and `ToolsetCatalogTests` pins the catalog at 19 entries,
+        // so a new toolset cannot be added without stating where it may be
+        // reached from.
 
         @Test("a plugin's claimed toolset can restrict reach but never expand it")
         func pluginToolsetClaimCannotExpandReach() {
@@ -252,16 +246,21 @@ extension ArcCoreTestRoot {
             await source.bridge.close()
         }
 
-        @Test("the roster admits every plugin namespace the machine actually has")
+        @Test("the catalog admits every plugin namespace the machine actually has")
         func admittedPluginNamespacesCoverInstalledPlugins() async throws {
             // The measured half of the decision: the installed plugin's 25 tools
-            // must stay reachable, because rung 2 was ratified on that basis.
+            // must stay reachable, because rung 2 was ratified on that basis. The
+            // claim is resolved through the catalog, so an unadmitted namespace
+            // narrows to `.inProcessOnly` and this test is what forces the
+            // deliberate decision instead of a silent drop.
             let tools = await PluginRegistry.shared.tools()
-            let installed = Set(tools.map(\.toolsetName))
+            let unreachable = Set(
+                tools.map(\.toolsetName).filter { Toolset(claimed: $0).reach != .loopback }
+            )
 
             #expect(
-                installed.subtracting(ArcToolDispatcher.localMachineToolsets).isEmpty,
-                "an installed plugin's toolset is unrostered: \(installed.subtracting(ArcToolDispatcher.localMachineToolsets).sorted())"
+                unreachable.isEmpty,
+                "an installed plugin's toolset is unadmitted: \(unreachable.sorted()) — declare it in Toolset.all"
             )
         }
 

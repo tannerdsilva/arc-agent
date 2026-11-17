@@ -87,24 +87,12 @@ public struct ToolSearchConfig: Codable, Sendable, Equatable {
 
 /// Classification policy: which tools defer and which never do.
 ///
-/// Faithful to reference: core tools are never deferred; project/kanban/media
-/// (non-core) surfaces defer. A tool defers iff its toolset is not a core
-/// toolset AND its name is not in `coreToolNames` (per-tool exceptions, e.g.
-/// image/video generation stay eager like reference) AND it is not a bridge tool.
+/// The default answer is the toolset's own ``Toolset/Disclosure`` — the single
+/// declaration the four hand-maintained tables collapsed into (T3b). Core
+/// toolsets are `.eager`; project/kanban/profile/messaging/mcp defer. Operator
+/// config still wins over the default, and a per-tool exception or a bridge tool
+/// never defers.
 public enum DeferredToolPolicy {
-
-    /// Toolsets that are always eager (the core-toolset grouping).
-    public static let defaultCoreToolsets: Set<String> = [
-        "core", "browser", "delegation", "file", "sandbox", "code_execution",
-        "skills", "terminal", "tools", "web",
-    ]
-
-    /// Toolsets that defer by default (non-core in reference: project, kanban,
-    /// media-adjacent, MCP/plugin surfaces).
-    public static let defaultDeferredToolsets: Set<String> = [
-        "kanban", "media", "mcp", "profile", "project", "webhooks", "weather",
-        "messaging", "messaging_bot", "swift-package-utilitykit", "swift-demo",
-    ]
 
     /// Per-tool exceptions that stay eager even inside a deferred toolset
     /// (reference keeps image/video/text-to-speech in the core list).
@@ -117,19 +105,24 @@ public enum DeferredToolPolicy {
     ]
 
     /// Whether a tool is eligible for deferral under the given configuration.
+    ///
+    /// A foreign claim (`Toolset(claimed:)`) is `.eager`, so an unadmitted
+    /// plugin namespace renders its tools inline instead of deferring them —
+    /// the six reference-vocabulary names the old `defaultDeferredToolsets`
+    /// carried (`media`, `webhooks`, `weather`, `messaging_bot`, `swift-demo`,
+    /// and `sandbox` in the core list) are gone by construction.
     public static func isDeferred(
         name: String,
-        toolset: String,
+        toolset: Toolset,
         config: ToolSearchConfig
     ) -> Bool {
         if bridgeNames.contains(name) { return false }
         if config.enabled == "off" { return false }
         if coreToolNames.contains(name) { return false }
         if !config.deferredToolsets.isEmpty {
-            return config.deferredToolsets.contains(toolset)
+            return config.deferredToolsets.contains(toolset.name)
         }
-        if defaultCoreToolsets.contains(toolset) { return false }
-        return defaultDeferredToolsets.contains(toolset)
+        return toolset.disclosure == .deferred
     }
 
     /// Split entries into (visible, deferred), mirroring
@@ -143,7 +136,7 @@ public enum DeferredToolPolicy {
         var deferred: [any AgentTool] = []
         for entry in entries {
             if let check = entry.checkFn, !check() { continue }
-            if isDeferred(name: entry.name, toolset: entry.toolsetName, config: config) {
+            if isDeferred(name: entry.name, toolset: entry.toolset, config: config) {
                 deferred.append(entry)
             } else {
                 visible.append(entry)
