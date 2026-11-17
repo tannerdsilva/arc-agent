@@ -13,6 +13,8 @@ extension KanbanAgent {
         case boardInvalid([KanbanAgent.GraphViolation])
         case leaseHeld(other: String)
         case idling
+        case generationFailed(cardID: String, reason: String)
+        case childrenMinted(cardID: String, count: Int)
 
         public var description: String {
             switch self {
@@ -30,6 +32,10 @@ extension KanbanAgent {
                 return "lease held by \(other)"
             case .idling:
                 return "no runnable cards; all roots terminal — idling"
+            case .generationFailed(let c, let r):
+                return "generation for card \(c) failed: \(r)"
+            case .childrenMinted(let c, let n):
+                return "\(n) children minted for card \(c)"
             }
         }
     }
@@ -163,6 +169,13 @@ extension KanbanAgent {
                 let cards = try await store.cards(boardID: boardID)
                 let pending = KanbanTraversal.pendingTransitions(in: cards, root: root, graph: graph)
                 if let card = pending.first {
+                    // Generation point (spec 05 §3): a parent with a fresh
+                    // result and no children may mint the next generation
+                    // before its own transition consumes the result.
+                    if try await mintChildren(for: card, board: &board, graph: graph, root: root, cards: cards, notices: &notices) {
+                        try await persist(board)
+                        return TickReport(boardID: boardID, executedCardID: card.id, notices: notices)
+                    }
                     try await transition(card, board: &board, graph: graph, root: root, now: now, notices: &notices)
                     try await persist(board)
                     return TickReport(boardID: boardID, executedCardID: card.id, notices: notices)
@@ -198,6 +211,15 @@ extension KanbanAgent {
                 running.result = result
                 try await store.saveCard(running, boardID: board.id)
                 executed = running.id
+
+                // Generation point (spec 05 §3): between the result and its
+                // consuming transition, a childless parent under budget may
+                // mint the next generation — children then run first
+                // (post-order) before the parent's transition.
+                if try await mintChildren(for: running, board: &board, graph: graph, root: root, cards: cards + [running], notices: &notices) {
+                    try await persist(board)
+                    return TickReport(boardID: boardID, executedCardID: executed, notices: notices)
+                }
 
                 // Transition (step 5).
                 try await transition(running, board: &board, graph: graph, root: root, now: now, notices: &notices)
@@ -353,6 +375,116 @@ extension KanbanAgent {
             }
         }
 
+        /// Verb 2 (spec 05 §3): mint the next generation under a parent.
+        /// Returns false when minting is not applicable (no budget, already
+        /// has children, judge unavailable) — the caller falls through to the
+        /// normal transition. Contract validation is hard: a defective
+        /// generation is re-asked once; a second failure is a structured
+        /// error notice, never a silent drop.
+        private func mintChildren(
+            for card: Card, board: inout BoardDocument, graph: BoardGraph,
+            root: Root, cards: [Card], notices: inout [EngineNotice]
+        ) async throws -> Bool {
+            // Always-legal exits are outside the budget (spec 05 §3).
+            let minted = KanbanTraversal.mintedChildren(of: root, in: cards)
+            guard card.generation < board.settings.maxDepth else {
+                notices.append(.generationFailed(cardID: card.id, reason: "\(GenerationDefect.depthCapReached)"))
+                return false
+            }
+            guard minted < board.settings.mintAllowance else {
+                notices.append(.generationFailed(cardID: card.id, reason: "\(GenerationDefect.mintAllowanceExhausted)"))
+                return false
+            }
+            // A parent that already has children does not mint again.
+            guard !cards.contains(where: { $0.parentID == card.id }) else { return false }
+            guard graph.column(id: card.columnID)?.kind == .agentWork,
+                  let result = card.result else { return false }
+
+            func buildRequest(_ note: String?) -> GenerationRequest {
+                GenerationRequest(
+                    parentCard: card, parentResult: result, root: root, graph: graph,
+                    mintAllowanceRemaining: board.settings.mintAllowance - minted,
+                    maxDepth: board.settings.maxDepth, reAskNote: note)
+            }
+            var children: [GeneratedChild]
+            do {
+                children = try await judge.generateChildren(buildRequest(nil))
+            } catch {
+                notices.append(.judgeUnavailable(cardID: card.id, reason: "\(error)"))
+                return false
+            }
+            // Contract validation (spec 05 §3): the three fields, hard.
+            var defects = contractDefects(children, graph: graph, parentID: card.id)
+            if !defects.isEmpty {
+                children = try await judge.generateChildren(
+                    buildRequest(defects.joined(separator: "; ")))
+                defects = contractDefects(children, graph: graph, parentID: card.id)
+                guard defects.isEmpty else {
+                    notices.append(.generationFailed(cardID: card.id, reason: "\(GenerationDefect.contractFailedTwice(defects: defects))"))
+                    return false
+                }
+            }
+            // Stamp lineage and place each child (engine-side, not judge).
+            let remaining = board.settings.mintAllowance - minted
+            var placed = 0
+            for child in children.prefix(remaining) {
+                guard let edge = graph.edges(from: card.columnID).first(where: { $0.toColumnID == child.targetColumnID }) else {
+                    notices.append(.generationFailed(cardID: card.id, reason: "\(GenerationDefect.targetUnreachable(columnID: child.targetColumnID))"))
+                    continue
+                }
+                let new = Card(
+                    id: UUID().uuidString, laneID: card.laneID, columnID: child.targetColumnID,
+                    goal: child.goal, input: child.input, doneCondition: child.doneCondition,
+                    parentID: card.id, rootID: root.id, birthEdgeID: edge.id,
+                    generation: card.generation + 1)
+                var stamped = new
+                stamped.transitionProvenance = [TransitionRecord(
+                    edgeID: edge.id, fromColumnID: card.columnID, toColumnID: edge.toColumnID,
+                    reasoning: "minted: \(child.whyNext)", decidedBy: .agent, at: Date())]
+                stamped.traversalCounts[child.targetColumnID, default: 0] = 1
+                try await store.saveCard(stamped, boardID: board.id)
+                placed += 1
+            }
+            if placed > 0 {
+                notices.append(.childrenMinted(cardID: card.id, count: placed))
+                try await appendRootEvent(board, rootID: root.id, kind: .cardCreate,
+                                          payload: "{\"mintedBy\": \"\(card.id)\", \"count\": \(placed)}")
+            }
+            return placed > 0
+        }
+
+        /// The three hard contract fields (spec 05 §3).
+        private func contractDefects(_ children: [GeneratedChild], graph: BoardGraph, parentID: String) -> [String] {
+            var defects: [String] = []
+            for child in children {
+                if child.goal.trimmingCharacters(in: .whitespaces).isEmpty {
+                    defects.append("\(GenerationDefect.emptyGoal)")
+                }
+                if child.doneCondition.trimmingCharacters(in: .whitespaces).isEmpty {
+                    defects.append("\(GenerationDefect.emptyDoneCondition)")
+                }
+                if child.input.sourceCardID != parentID {
+                    defects.append("\(GenerationDefect.inputSourceNotParent)")
+                }
+                let workTargets = graph.columns.filter { $0.kind == .agentWork || $0.kind == .timerWait }.map(\.id)
+                if !workTargets.contains(child.targetColumnID) {
+                    defects.append("\(GenerationDefect.targetUnreachable(columnID: child.targetColumnID))")
+                }
+            }
+            return defects
+        }
+
+        /// Append a root-scoped board event (next seq).
+        private func appendRootEvent(
+            _ board: BoardDocument, rootID: String,
+            kind: BoardEventKind, payload: String
+        ) async throws {
+            let last = (try? await store.events(boardID: board.id, after: 0, limit: 10_000))?.last?.seq ?? 0
+            try await store.appendEvent(
+                BoardEvent(seq: last + 1, kind: kind, cardID: rootID, payload: payload),
+                boardID: board.id)
+        }
+
         /// Step 6: the evaluate verb (spec 05 §4) — fires at every
         /// evaluation point. Green/yellow verdicts are validated and
         /// re-asked once on defect; a still-invalid verdict forces yellow
@@ -410,8 +542,14 @@ extension KanbanAgent {
             guard let index = board.roots.firstIndex(where: { $0.id == rootID }) else {
                 throw KanbanAgentStoreError.cardNotFound(boardID: boardID, cardID: rootID)
             }
+            // Green is closed forever (spec 06 §1) — resume is refused.
+            guard board.roots[index].state != .green else {
+                throw KanbanAgentStoreError.cardNotFound(boardID: boardID, cardID: "\(rootID) (green roots cannot resume)")
+            }
             board.roots[index].state = .running
             board.roots[index].resumeContext = context
+            try await appendRootEvent(board, rootID: rootID, kind: .settingsChange,
+                                      payload: "{\"resumed\": true, \"context\": \(context.map { "\"\($0)\"" } ?? "null")}")
             // Head of the queue: move before all other running roots.
             let root = board.roots.remove(at: index)
             let head = board.roots.firstIndex { $0.state == .running } ?? 0

@@ -81,6 +81,9 @@ extension KanbanAgent {
                 hasFreshResult(card)
                     && graph.column(id: card.columnID)?.kind == .agentWork
                     && card.readiness != .done
+                    // Drain rule: children resolve strictly first.
+                    && cards.filter { $0.parentID == card.id }
+                        .allSatisfy { $0.readiness == .done }
             }
         }
 

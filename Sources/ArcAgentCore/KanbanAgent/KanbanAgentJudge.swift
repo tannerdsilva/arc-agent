@@ -11,8 +11,84 @@ extension KanbanAgent {
     public protocol KanbanJudge: Sendable {
         /// Verb 1 — classify a finished card along a legal edge.
         func chooseTransition(_ req: TransitionRequest) async throws -> TransitionDecision
+        /// Verb 2 — author the next generation of cards (spec 05 §3).
+        func generateChildren(_ req: GenerationRequest) async throws -> [GeneratedChild]
         /// Verb 3 — three-way verdict on the root.
         func evaluateRoot(_ req: EvaluationRequest) async throws -> RootVerdict
+    }
+
+    /// Verb 2 input: the parent, its result, and the budgets (spec 05 §3).
+    public struct GenerationRequest: Sendable {
+        public var parentCard: Card
+        public var parentResult: CardResult
+        public var root: Root
+        public var graph: BoardGraph
+        public var mintAllowanceRemaining: Int
+        public var maxDepth: Int
+        /// Non-nil when re-asking after a contract violation — names the
+        /// defect so the judge can fix it (spec 05 §3).
+        public var reAskNote: String?
+
+        public init(parentCard: Card, parentResult: CardResult, root: Root, graph: BoardGraph,
+                    mintAllowanceRemaining: Int, maxDepth: Int, reAskNote: String? = nil) {
+            self.parentCard = parentCard
+            self.parentResult = parentResult
+            self.root = root
+            self.graph = graph
+            self.mintAllowanceRemaining = mintAllowanceRemaining
+            self.maxDepth = maxDepth
+            self.reAskNote = reAskNote
+        }
+    }
+
+    /// One authored child. The judge supplies intent; the engine stamps the
+    /// lineage (parentID, birthEdgeID, generation) — spec 05 §3.
+    public struct GeneratedChild: Sendable, Equatable {
+        public var goal: String
+        public var input: InputPassing
+        public var doneCondition: String
+        /// The column the child should start in — must be reachable from the
+        /// parent's column via a legal edge.
+        public var targetColumnID: String
+        public var whyNext: String
+
+        public init(goal: String, input: InputPassing, doneCondition: String,
+                    targetColumnID: String, whyNext: String) {
+            self.goal = goal
+            self.input = input
+            self.doneCondition = doneCondition
+            self.targetColumnID = targetColumnID
+            self.whyNext = whyNext
+        }
+    }
+
+    /// Contract violations (spec 05 §3) — hard, engine-enforced. Each names
+    /// the field so the re-ask can fix it; a second failure is a structured
+    /// generation error, never a silent drop.
+    public enum GenerationDefect: Error, Equatable, CustomStringConvertible {
+        case emptyGoal
+        case emptyDoneCondition
+        case inputSourceNotParent
+        case inputModeUndeclared
+        case referenceUnresolvable(cardID: String)
+        case targetUnreachable(columnID: String)
+        case mintAllowanceExhausted
+        case depthCapReached
+        case contractFailedTwice(defects: [String])
+
+        public var description: String {
+            switch self {
+            case .emptyGoal: return "generated child has an empty goal"
+            case .emptyDoneCondition: return "generated child has an empty done condition"
+            case .inputSourceNotParent: return "child input.sourceCardID must be the parent card"
+            case .inputModeUndeclared: return "child input mode is undeclared"
+            case .referenceUnresolvable(let id): return "child input references unresolvable card '\(id)'"
+            case .targetUnreachable(let id): return "target column '\(id)' is not reachable from the parent's column"
+            case .mintAllowanceExhausted: return "mint allowance exhausted"
+            case .depthCapReached: return "max depth reached"
+            case .contractFailedTwice(let defects): return "generation rejected twice: \(defects.joined(separator: "; "))"
+            }
+        }
     }
 
     /// Verb 1 input: the finished card and its legal moves (spec 05 §2).
@@ -25,13 +101,16 @@ extension KanbanAgent {
         public var subtree: [Card]
         /// The root's definition of done — the standing constitution.
         public var definitionOfDone: String
+        /// Non-nil on a tie-break re-ask — names the defect (spec 05 §2.3).
+        public var reAskNote: String?
 
-        public init(card: Card, result: CardResult, legalEdges: [Edge], subtree: [Card], definitionOfDone: String) {
+        public init(card: Card, result: CardResult, legalEdges: [Edge], subtree: [Card], definitionOfDone: String, reAskNote: String? = nil) {
             self.card = card
             self.result = result
             self.legalEdges = legalEdges
             self.subtree = subtree
             self.definitionOfDone = definitionOfDone
+            self.reAskNote = reAskNote
         }
     }
 
@@ -102,8 +181,10 @@ extension KanbanAgent {
         private final class State: @unchecked Sendable {
             var transitions: [TransitionDecision] = []
             var verdicts: [RootVerdict] = []
+            var generations: [[GeneratedChild]] = []
             var transitionCalls: [TransitionRequest] = []
             var evaluationCalls: [EvaluationRequest] = []
+            var generationCalls: [GenerationRequest] = []
             var illegalEdgeOnce: String? = nil   // first transition answer, if set, is an illegal edge id
         }
 
@@ -122,11 +203,24 @@ extension KanbanAgent {
         public func enqueueVerdict(_ verdict: RootVerdict) {
             state.verdicts.append(verdict)
         }
+        public func enqueueGeneration(_ children: [GeneratedChild]) {
+            state.generations.append(children)
+        }
 
         public var transitionCallCount: Int { state.transitionCalls.count }
         public var evaluationCallCount: Int { state.evaluationCalls.count }
+        public var generationCallCount: Int { state.generationCalls.count }
         public var transitionCalls: [TransitionRequest] { state.transitionCalls }
         public var evaluationCalls: [EvaluationRequest] { state.evaluationCalls }
+        public var generationCalls: [GenerationRequest] { state.generationCalls }
+
+        public func generateChildren(_ req: GenerationRequest) async throws -> [GeneratedChild] {
+            state.generationCalls.append(req)
+            guard !state.generations.isEmpty else {
+                throw KanbanJudgeUnavailable("scripted judge has no queued generation")
+            }
+            return state.generations.removeFirst()
+        }
 
         public func chooseTransition(_ req: TransitionRequest) async throws -> TransitionDecision {
             state.transitionCalls.append(req)
