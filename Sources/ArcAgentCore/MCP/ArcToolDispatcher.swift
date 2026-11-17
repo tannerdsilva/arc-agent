@@ -18,27 +18,29 @@ import MCP
 /// See `.hermes/plans/2026-10-14_163703-mcp-pack-and-carriers.md`.
 public struct ArcToolDispatcher: MCPToolDispatcher {
 
-    /// The tools served, as the registry holds them.
-    private let entries: [any AgentTool]
+    /// How this dispatcher reads its surface. A slot is read per call, so a tool
+    /// admitted after construction is served; a fixed array is for carriers whose
+    /// surface genuinely cannot change (a compiled-in registry, a test fixture).
+    private let catalog: @Sendable () -> [any AgentTool]
 
-    /// Serves an explicit tool array.
     public init(entries: [any AgentTool]) {
-        self.entries = entries
+        self.catalog = { entries }
     }
 
-    /// Serves every tool a registry holds.
+    /// Serves whatever a late-bound slot currently holds.
     ///
-    /// The dispatcher serves the tools, not their provenance: access policy is
-    /// decided by toolset and placement, and filtering by origin is a separate
-    /// decision this seam does not make.
-    public init(registry: some ToolRegistry) {
-        self.entries = registry.allTools.map { $0.tool }
+    /// The slot, not the registry: `MutableToolRegistry` is a value, so a
+    /// dispatcher handed a registry can only ever serve the copy it was built
+    /// with. The owner re-points the slot when the surface changes.
+    public init(surface: ToolDependency<any ToolRegistry>) {
+        self.catalog = { surface.get()?.allTools.map { $0.tool } ?? [] }
     }
 
     // MARK: - MCPToolDispatcher
 
     public func toolCatalog(for callerAccessLevel: AccessLevel) -> [MCPToolDescriptor] {
-        entries.compactMap { entry in
+        let entries = catalog()
+        return entries.compactMap { entry in
             guard callerAccessLevel >= Self.access(for: entry) else { return nil }
             return MCPToolDescriptor(
                 name: entry.name,
@@ -49,6 +51,7 @@ public struct ArcToolDispatcher: MCPToolDispatcher {
     }
 
     public func requiredAccess(named name: String) -> AccessLevel? {
+        let entries = catalog()
         guard let entry = entries.first(where: { $0.name == name }) else { return nil }
         return Self.access(for: entry)
     }
@@ -58,6 +61,7 @@ public struct ArcToolDispatcher: MCPToolDispatcher {
         arguments: [String: Any],
         context: MCPContext
     ) async throws -> MCPToolResult? {
+        let entries = catalog()
         guard let entry = entries.first(where: { $0.name == name }) else { return nil }
         // `context.arguments`, never the raw `arguments` parameter: a raw
         // `[String: Any]` sent into the `@Sendable` handler is a region-isolation

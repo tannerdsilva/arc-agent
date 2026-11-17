@@ -459,6 +459,9 @@ extension ArcWebUITestRoot {
 private struct StubToolsetRegistry: ToolRegistry {
     let allTools: [RegisteredTool]
 
+    /// `0`: a fixture surface, never mutated.
+    var revision: Int { 0 }
+
     init(toolsets: [String]) {
         self.allTools = toolsets.map { ts in
             RegisteredTool(

@@ -467,6 +467,14 @@ public struct MutableToolRegistry: ToolRegistry {
     public private(set) var builtIn: CompileTimeToolRegistry
     private var pluginEntries: [String: RegisteredTool] = [:]
 
+    /// The identity of this surface's contents.
+    ///
+    /// A caller cannot watch this registry — it is a value, and the caller
+    /// holds a copy — so it compares this number instead. Bumped only when a
+    /// mutation is *accepted*: a refused install or a duplicate registration
+    /// leaves the surface byte-identical and the identity where it was.
+    public private(set) var revision: Int = 0
+
     private static let logger = Logger(label: "arc.plugins")
 
     public init(builtIn: CompileTimeToolRegistry) {
@@ -488,6 +496,7 @@ public struct MutableToolRegistry: ToolRegistry {
             throw ToolRegistryError.duplicateName(tool.name)
         }
         pluginEntries[tool.name] = RegisteredTool(tool: tool, origin: origin)
+        revision += 1
     }
 
     public func lookup(name: String) -> RegisteredTool? {
@@ -516,6 +525,9 @@ public struct MutableToolRegistry: ToolRegistry {
     public func replacingBuiltIns(_ replacements: [any AgentTool]) -> MutableToolRegistry {
         var copy = self
         copy.builtIn = builtIn.replacing(replacements)
+        // a new surface, not the old one re-pointed: the copy's contents differ
+        // from `self`'s by at least the names it replaced.
+        copy.revision += 1
         return copy
     }
 
@@ -544,6 +556,7 @@ public struct MutableToolRegistry: ToolRegistry {
         }
         pluginEntries[pluginTool.name] = RegisteredTool(
             tool: pluginTool, origin: .plugin(pluginTool.plugin))
+        revision += 1
         return true
     }
 

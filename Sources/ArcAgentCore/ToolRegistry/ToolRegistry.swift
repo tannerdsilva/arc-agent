@@ -62,6 +62,13 @@ public protocol ToolRegistry: Sendable {
     /// prefix on every launch.
     var allTools: [RegisteredTool] { get }
 
+    /// A monotonically increasing identity for this surface's contents.
+    ///
+    /// a value registry is re-pointed rather than mutated in place, so a cache
+    /// cannot watch it — it compares this number. an immutable registry answers
+    /// `0` forever; an admitting registry bumps on every accepted mutation.
+    var revision: Int { get }
+
     /// Build the OpenAI-compatible function-calling schema array.
     ///
     /// This method filters tools by the enabled/disabled toolsets, runs

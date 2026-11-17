@@ -86,6 +86,9 @@ public struct CompileTimeToolRegistry: ToolRegistry {
         tools.values.sorted { $0.name < $1.name }
     }
 
+    /// `0`: the compiled surface is immutable after the builder returns.
+    public var revision: Int { 0 }
+
     /// A copy with `replacements` taking the place of the built-ins that share
     /// their name (an unknown name is added).
     ///

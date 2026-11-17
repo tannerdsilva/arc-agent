@@ -91,6 +91,16 @@ extension ArcAgentCore {
     }
 }
 
+// MARK: - Plugin fixtures
+
+/// A plugin tool for tests that need runtime-tier entries without touching
+/// `~/.arc/plugins`. The `PluggabilityTests.swift:326` shape.
+func fixturePlugin(_ name: String, toolset: String = "plugins") -> PluginTool {
+    PluginTool(
+        plugin: "audit", name: name,
+        description: "audit fixture", command: "python3", toolset: toolset)
+}
+
 // MARK: - Messaging doubles
 
 /// A ``BotMessageDelivering`` that answers immediately with a fixed line.

@@ -36,13 +36,16 @@ public actor LocalMCPBridge {
     }
 
     /// Bridges every tool a registry holds.
+    ///
+    /// A snapshot by construction: the argument is a value, so the slot wraps
+    /// the copy the caller passed and nothing can re-point it afterwards.
     public init(
         registry: some ToolRegistry,
         serverName: String = "arc",
         serverVersion: String = ArcAgentCore.version
     ) {
         self.init(
-            dispatcher: ArcToolDispatcher(registry: registry),
+            dispatcher: ArcToolDispatcher(surface: ToolDependency<any ToolRegistry>(registry)),
             serverName: serverName,
             serverVersion: serverVersion
         )

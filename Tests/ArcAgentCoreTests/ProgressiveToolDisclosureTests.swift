@@ -234,6 +234,9 @@ extension ArcCoreTestRoot {
 private struct StubRegistry: ToolRegistry {
     let allTools: [RegisteredTool]
 
+    /// `0`: a fixture surface, never mutated.
+    var revision: Int { 0 }
+
     init(allTools: [any AgentTool]) {
         self.allTools = allTools.map { RegisteredTool(tool: $0, origin: .builtin) }
     }
