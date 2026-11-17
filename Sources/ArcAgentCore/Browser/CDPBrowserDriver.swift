@@ -30,9 +30,32 @@ public actor BrowserRegistry {
         providers[provider.name] = provider
     }
 
+    /// The provider a browser tool should use.
+    ///
+    /// `cdp` is arc's own provider and needs no configuration, so it is created
+    /// on first demand instead of by `buildRegistry` — a synchronous builder
+    /// cannot await, and the `Task` it used to spawn raced the first browser
+    /// call. Registration is by name, so this is idempotent.
     public func active() -> (any BrowserProvider)? {
-        let name = ProcessInfo.processInfo.environment["BROWSER_PROVIDER"] ?? "cdp"
-        return providers[name] ?? providers["cdp"]
+        active(named: ProcessInfo.processInfo.environment["BROWSER_PROVIDER"] ?? "cdp")
+    }
+
+    /// The provider the given name selects, creating arc's own `cdp` provider on
+    /// first demand.
+    ///
+    /// A name a caller configured must register itself: this returns `nil`
+    /// rather than silently substituting `cdp` for a provider nobody installed.
+    ///
+    /// The name is a parameter, not read from the environment here, so a test
+    /// can pin both branches without mutating the process environment — an
+    /// in-process mutation is observed by every other suite running
+    /// concurrently.
+    func active(named name: String) -> (any BrowserProvider)? {
+        if let provider = providers[name] { return provider }
+        guard name == "cdp" else { return nil }
+        let provider = CDPBrowserProvider()
+        providers["cdp"] = provider
+        return provider
     }
 
     public func available() -> [String] {

@@ -157,7 +157,10 @@ public enum ArcAgentCore {
         try registry.register(BrowserTools.close)
         try registry.register(ComputerUseTool.entry)
         try registry.register(MCPClientTool.entry)
-        Task { await BrowserRegistry.shared.register(CDPBrowserProvider()) }
+        // No browser-provider registration here: `BrowserRegistry.active()`
+        // creates arc's own `cdp` provider on first demand. A synchronous
+        // builder cannot await an actor, and the `Task` this used to spawn
+        // raced the first browser call.
 
         // `tool_search` sees the surface it lives on; the agent re-points this
         // at its own registry (which may carry plugin tools) when it adopts the
