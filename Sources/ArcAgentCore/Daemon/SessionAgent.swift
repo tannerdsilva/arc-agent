@@ -28,10 +28,12 @@ public actor SessionAgent: Service {
         registry: SessionRegistry,
         responseContinuation: AsyncStream<String>.Continuation,
         isCronSession: Bool = false,
+        ephemeral: Bool = false,
         workspace: String? = nil,
         model: String? = nil
     ) {
         self.isCronSession = isCronSession
+        self.ephemeral = ephemeral
         self.workspaceOverride = workspace
         self.modelOverride = model
         self.sessionID = sessionID
@@ -47,6 +49,7 @@ public actor SessionAgent: Service {
     /// Whether this agent's turns are unattended cron runs (set by the
     /// cron runner's `getOrCreate`). Durable for the session's life.
     private let isCronSession: Bool
+    private let ephemeral: Bool
 
     /// Workspace root for the session's tools (nil = the process cwd).
     /// Cron jobs set this per firing from the job's `workspace` field.
@@ -79,6 +82,7 @@ public actor SessionAgent: Service {
         resolvedRecipe: ResolvedContextRecipe,
         profile: String,
         isCronSession: Bool = false,
+        ephemeral: Bool = false,
         profileDisabledToolsets: Set<String> = [],
         profileEnabledToolsets: Set<String>? = nil
     ) -> ArcAgent.Configuration {
@@ -94,7 +98,7 @@ public actor SessionAgent: Service {
             maxIterations: agentConfig.maxIterations ?? 25,
             toolLoopCap: agentConfig.toolLoopCap,
             maxTurnDuration: agentConfig.maxTurnDuration ?? 0,
-            persistSessions: agentConfig.tessera != nil ? agentConfig.persistSessions : false,
+            persistSessions: ephemeral ? false : (agentConfig.tessera != nil ? agentConfig.persistSessions : false),
             // Fresh-context cron runs: a recurring job's earlier runs stay in
             // the transcript (the job's chat) but never enter later contexts.
             restoreHistoryOnStart: !isCronSession,
@@ -322,6 +326,7 @@ public actor SessionAgent: Service {
                 resolvedRecipe: resolvedRecipe,
                 profile: profile,
                 isCronSession: isCronSession,
+                ephemeral: ephemeral,
                 profileDisabledToolsets: resolvedProfileRecord?.disabledToolsets ?? [],
                 profileEnabledToolsets: resolvedProfileRecord?.enabledToolsets
             ))

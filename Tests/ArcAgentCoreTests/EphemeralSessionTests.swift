@@ -92,3 +92,56 @@ extension ArcCoreTestRoot {
         }
     }
 }
+
+// =========================================================================
+// Kanban cards + judges: the daemon's card runner builds agents with
+// `ephemeral: true`, which must force persistSessions off regardless of
+// the tessera config (a card run leaves no session record at all).
+// =========================================================================
+@Suite("Ephemeral card agents")
+struct EphemeralCardAgentTests {
+    private func makeConfig(ephemeral: Bool, tesseraConfigured: Bool) throws -> ArcAgent.Configuration {
+        var agentConfig = SessionRegistry.AgentConfig(
+            model: "test-model",
+            provider: "openai",
+            baseURL: "https://api.openai.com/v1",
+            apiKey: "test",
+            persistSessions: true
+        )
+        if tesseraConfigured {
+            agentConfig = SessionRegistry.AgentConfig(
+                model: "test-model",
+                provider: "openai",
+                baseURL: "https://api.openai.com/v1",
+                apiKey: "test",
+                tessera: TesseraConfig(serverIP: "127.0.0.1", serverPort: 51921, serverPublicKey: "", myPrivateKey: "", application: 1),
+                persistSessions: true
+            )
+        }
+        return SessionAgent.agentConfiguration(
+            agentConfig: agentConfig,
+            sessionID: "kanban-agent-TEST",
+            registry: MutableToolRegistry(builtIn: CompileTimeToolRegistry()),
+            sessionStore: VolatileSessionStore(),
+            memoryProvider: FileMemoryProvider(),
+            resolvedModel: "test-model",
+            resolvedProvider: "openai",
+            resolvedBaseURL: URL(string: "https://api.openai.com/v1")!,
+            resolvedParams: nil,
+            resolvedRecipe: ResolvedContextRecipe.resolve(global: nil, profile: nil, session: nil),
+            profile: "default",
+            isCronSession: true,
+            ephemeral: ephemeral
+        )
+    }
+
+    @Test("ephemeral card agents never persist, even with tessera active")
+    func ephemeralBeatsTessera() throws {
+        #expect(try makeConfig(ephemeral: true, tesseraConfigured: true).persistSessions == false)
+    }
+
+    @Test("non-ephemeral hosted agents keep the configured persistence")
+    func normalAgentsKeepPersistence() throws {
+        #expect(try makeConfig(ephemeral: false, tesseraConfigured: true).persistSessions == true)
+    }
+}

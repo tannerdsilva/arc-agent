@@ -326,6 +326,7 @@ public actor SessionRegistry {
         sessionID: String,
         profile: String = "default",
         isCron: Bool = false,
+        ephemeral: Bool = false,
         workspace: String? = nil,
         model: String? = nil
     ) async -> SessionHandle {
@@ -376,6 +377,7 @@ public actor SessionRegistry {
             registry: self,
             responseContinuation: responseContinuation,
             isCronSession: isCron,
+            ephemeral: ephemeral,
             workspace: workspace,
             model: model
         )

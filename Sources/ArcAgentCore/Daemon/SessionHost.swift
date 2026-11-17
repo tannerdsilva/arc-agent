@@ -233,12 +233,18 @@ public struct SessionHost: Service {
         let hostLogger = self.logger
         let delivery = self.deliveryManager
         let hostRegistry = reg
+        // Kanban cards (and the judge sub-calls behind them) run in true
+        // isolation: an in-memory session agent with persistence disabled.
+        // Nothing reaches the session store — no transcript, no sidebar
+        // entry, nothing resumable. The card's OUTCOME artifact is the only
+        // durable trace (written to the board, not the store).
         self.kanbanCardRunner = { prompt in
             let sessionID = "kanban-agent-\(UUID().uuidString)"
             let handle = await hostRegistry.getOrCreate(
                 sessionID: sessionID,
                 profile: "default",
-                isCron: true
+                isCron: true,
+                ephemeral: true
             )
             let incoming = IncomingMessage(
                 id: UUID().uuidString,
