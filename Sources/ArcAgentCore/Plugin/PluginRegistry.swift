@@ -643,6 +643,10 @@ public struct MutableToolRegistry: ToolRegistry {
                 try registry.register(tool, origin: .source(source.name))
             }
         }
+        // the slot follows the newest surface: `make` installs into a copy of
+        // the builder's product, so the builder's fill points at a registry
+        // that has no plugins on it. fill again with the complete one.
+        registry.toolDependencies.toolSearchRegistry.set(registry)
         return registry
     }
 }

@@ -1,5 +1,30 @@
 import ArcToolKit
 
+/// The read side of a tool surface: what a consumer that only *advertises* or
+/// *looks up* tools needs.
+///
+/// `tool_search` and the MCP dispatcher hold this, so neither can reach
+/// `register` — mutating a copy would be a lie either way. A reader that wants
+/// to *search* the live catalog reads whatever the ``ToolDependency`` slot
+/// currently names; whoever produced the newest surface fills it.
+public protocol ToolCatalogReader: Sendable {
+
+    /// Look up a tool by name.
+    ///
+    /// - Parameter name: The tool's unique name.
+    /// - Returns: The tool and its origin, or `nil` if no tool with that name
+    ///   is registered.
+    func lookup(name: String) -> RegisteredTool?
+
+    /// All registered tools, each with its origin.
+    ///
+    /// The order is **name order**, and that is a contract rather than a
+    /// convenience: this array is rendered into the prompt prefix, so a
+    /// registry whose order is stable across processes is what lets the
+    /// provider's prompt cache hit.
+    var allTools: [RegisteredTool] { get }
+}
+
 /// A registry that manages tool discovery, registration, and lookup.
 ///
 /// ``ToolRegistry`` is the narrow waist of the ARC Agent tool system. Every tool
@@ -30,7 +55,7 @@ import ArcToolKit
 /// 3. **Macros** — A `#tool` macro may eventually generate registration calls
 ///
 /// See ``CompileTimeToolRegistry`` for the built-in implementation.
-public protocol ToolRegistry: Sendable {
+public protocol ToolRegistry: Sendable, ToolCatalogReader {
 
     /// Register a tool with the registry.
     ///

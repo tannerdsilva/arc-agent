@@ -12,7 +12,7 @@ extension ArcCoreTestRoot {
         @Test("a tool admitted after construction is served by the live surface")
         func catalogFollowsTheSlot() throws {
             var registry = MutableToolRegistry(builtIn: try ArcAgentCore.testRegistry())
-            let surface = ToolDependency<any ToolRegistry>(registry)
+            let surface = ToolDependency<any ToolCatalogReader>(registry)
             let dispatcher = ArcToolDispatcher(surface: surface)
 
             #expect(dispatcher.toolCatalog(for: .root).contains { $0.name == "late_fixture" } == false)
@@ -76,6 +76,51 @@ extension ArcCoreTestRoot {
             let replaced = registry.replacingBuiltIns([])
             #expect(replaced.revision == start + 2)
             #expect(registry.revision == start + 1)
+        }
+
+        @Test("tool_search sees the plugins on the surface `make` produced")
+        func toolSearchSeesTheSurfacesPlugins() async throws {
+            // A plugin registry over a temp directory, never `~/.arc/plugins`:
+            // the manifest is the fixture shape `PluggabilityTests` writes, and
+            // `fixturePlugin` owns the tool's identity inside it.
+            let fixture = fixturePlugin("late_arrival")
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("plugins-\(UUID().uuidString)")
+            let pluginDir = root.appendingPathComponent(fixture.plugin)
+            try FileManager.default.createDirectory(
+                at: pluginDir, withIntermediateDirectories: true)
+            let manifest: [String: Any] = [
+                "name": fixture.plugin,
+                "version": "1.0.0",
+                "tools": [[
+                    "name": fixture.name,
+                    "description": fixture.description,
+                    "command": fixture.command,
+                ]],
+            ]
+            try JSONSerialization.data(withJSONObject: manifest)
+                .write(to: pluginDir.appendingPathComponent("manifest.json"))
+
+            let registry = try await MutableToolRegistry.make(
+                context: ArcAgentCore.testContext(),
+                profiles: TesseraProfileStore.shared,
+                memory: FileMemoryProvider(),
+                sessions: FileSessionStore(),
+                pluginRegistry: PluginRegistry(pluginsDir: root)
+            )
+            // The plugin is on the returned surface, so a `tool_search` that
+            // reads the slot must find it. The build-time fill names the
+            // builder's own product — the copy `make` started from, which has no
+            // plugins on it — so this is the assertion that `make` re-fills the
+            // slot with the surface it is about to return.
+            #expect(registry.lookup(name: "late_arrival") != nil)
+
+            let out = try await registry.lookup(name: "tool_search")!.handler(
+                ["query": "late_arrival", "form": "names"])
+            // exact, not `contains`: the no-match line is
+            // "No tools match 'late_arrival'." — it echoes the query, so a
+            // substring assertion would pass on an empty catalog.
+            #expect(out == "late_arrival")
         }
     }
 }

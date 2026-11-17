@@ -38,7 +38,7 @@ public final class MCPServerAdapter: Service {
 
         // a fresh slot, never re-pointed: this parameter is the compiled surface,
         // immutable after the builder returns, so a fixed slot is honest here.
-        let dispatcher = ArcToolDispatcher(surface: ToolDependency<any ToolRegistry>(registry))
+        let dispatcher = ArcToolDispatcher(surface: ToolDependency<any ToolCatalogReader>(registry))
 
         if let host = host {
             let address = ServerAddress.hostname(host, port: port)

@@ -589,7 +589,7 @@ struct McpLocal: AsyncParsableCommand {
         )
         // a fresh slot, never re-pointed: `arc local` builds its registry and
         // exits, so the surface cannot change under the dispatcher.
-        let dispatcher = ArcToolDispatcher(surface: ToolDependency<any ToolRegistry>(registry))
+        let dispatcher = ArcToolDispatcher(surface: ToolDependency<any ToolCatalogReader>(registry))
         let bridge = LocalMCPBridge(dispatcher: dispatcher)
 
         if let tool = call {

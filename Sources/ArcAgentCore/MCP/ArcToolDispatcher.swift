@@ -32,7 +32,7 @@ public struct ArcToolDispatcher: MCPToolDispatcher {
     /// The slot, not the registry: `MutableToolRegistry` is a value, so a
     /// dispatcher handed a registry can only ever serve the copy it was built
     /// with. The owner re-points the slot when the surface changes.
-    public init(surface: ToolDependency<any ToolRegistry>) {
+    public init(surface: ToolDependency<any ToolCatalogReader>) {
         self.catalog = { surface.get()?.allTools.map { $0.tool } ?? [] }
     }
 

@@ -85,11 +85,15 @@ public struct ToolDependencies: Sendable {
     /// but they report that no board is available.
     public let kanbanBoard: ToolDependency<any KanbanBoard>
 
-    /// The registry `tool_search` searches. Filled by the builder with the
-    /// registry it just built, then re-pointed by ``ArcAgent`` at the agent's
-    /// own registry (which may carry plugin tools) — the self-reference the
-    /// plan listed as a blocker, resolved without a special case.
-    public let toolSearchRegistry: ToolDependency<any ToolRegistry>
+    /// The catalog `tool_search` searches, read through the narrow
+    /// ``ToolCatalogReader``: a searcher cannot reach `register`, because
+    /// mutating a copy of a value registry would be a lie.
+    ///
+    /// The slot follows the newest surface. The builder fills it with its own
+    /// product; ``MutableToolRegistry/make(context:profiles:memory:sessions:messaging:groupChats:kanban:cron:cronHistory:pluginRegistry:enabledPlugins:sources:)``
+    /// fills it again with the surface that carries the plugins it installed;
+    /// ``ArcAgent`` has the last word, with the registry it dispatches through.
+    public let toolSearchRegistry: ToolDependency<any ToolCatalogReader>
 
     /// The delivery path `send_message` acts through. Filled by whoever owns
     /// one (the daemon's session host); empty in a surface with no delivery.
@@ -108,7 +112,7 @@ public struct ToolDependencies: Sendable {
         sessionStore: ToolDependency<any SessionStore> = ToolDependency(),
         delegationManager: ToolDependency<DelegationManager> = ToolDependency(),
         kanbanBoard: ToolDependency<any KanbanBoard> = ToolDependency(),
-        toolSearchRegistry: ToolDependency<any ToolRegistry> = ToolDependency(),
+        toolSearchRegistry: ToolDependency<any ToolCatalogReader> = ToolDependency(),
         sendMessageDelivery: ToolDependency<DeliveryManager> = ToolDependency(),
         homeChatResolver: ToolDependency<SendMessageTool.HomeChatResolver> = ToolDependency(),
         executeCodeTimeout: ToolDependency<Double> = ToolDependency()

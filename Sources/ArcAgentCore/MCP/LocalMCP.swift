@@ -45,7 +45,7 @@ public actor LocalMCPBridge {
         serverVersion: String = ArcAgentCore.version
     ) {
         self.init(
-            dispatcher: ArcToolDispatcher(surface: ToolDependency<any ToolRegistry>(registry)),
+            dispatcher: ArcToolDispatcher(surface: ToolDependency<any ToolCatalogReader>(registry)),
             serverName: serverName,
             serverVersion: serverVersion
         )
