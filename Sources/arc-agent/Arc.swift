@@ -115,6 +115,9 @@ struct Chat: AsyncParsableCommand {
     @Flag(name: .shortAndLong, help: "Enable YOLO mode (no approval prompts).")
     var yolo: Bool = false
 
+    @Flag(name: .long, help: "Session-less run: no store record, no transcript, nothing resumable.")
+    var ephemeral = false
+
     @Flag(name: .long, help: "Enable automatic checkpoints before file changes (reference --checkpoints).")
     var checkpoints: Bool = false
 
@@ -292,7 +295,12 @@ struct Chat: AsyncParsableCommand {
             maxIterations: arcConfig.effectiveMaxTurns(),
             toolLoopCap: arcConfig.toolCallLimit(),
             maxTurnDuration: arcConfig.effectiveMaxTurnDuration() ?? 0,
-            persistSessions: arcConfig.agent.persistSessions,
+            // `--ephemeral` (reference Hermes `_persist_disabled`): the turn
+            // runs with the full tool surface but never touches the session
+            // store — `persistConversationIfNeeded` (the only `create` site),
+            // compaction commits, and title generation all no-op, so no
+            // Tessera event or session file is ever written.
+            persistSessions: arcConfig.agent.persistSessions && !ephemeral,
             approvalMode: approvalMode,
             query: query,
             personalityPrompt: arcConfig.agent.systemPrompt,
