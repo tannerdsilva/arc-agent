@@ -109,6 +109,11 @@ public enum ErrorClassifier {
             return ClassifiedFailure(reason: .emptyResponse)
         case .networkError:
             return ClassifiedFailure(reason: .timeout)
+        case .endpointUnreachable(let endpoint, let detail):
+            // no failover target helps: the address itself does not answer.
+            return ClassifiedFailure(
+                reason: .unknown, detail: "\(endpoint): \(detail)"
+            )
         case .modelNotFound:
             return ClassifiedFailure(reason: .unknown)
         case .apiError(let status, let message):

@@ -34,6 +34,14 @@ public actor ArcAgent: Service {
         public var baseURL: URL
         /// The API key.
         public var apiKey: String
+        /// Preflight reachability for `baseURL`.
+        ///
+        /// When set, `prime()` asks the endpoint for `/models` (memoized per
+        /// process by ``EndpointReachability``) and throws
+        /// ``LLMError/endpointUnreachable(endpoint:detail:)`` when it does not
+        /// answer — a dead base URL then costs one probe instead of a retry
+        /// cycle. `nil` (tests, fixtures) skips the check.
+        public var endpointProbe: (any EndpointProbing)? = nil
         /// The tool registry (built-ins plus any runtime-discovered plugin
         /// tools; see ``MutableToolRegistry``).
         public var registry: any ToolRegistry
@@ -228,6 +236,7 @@ public actor ArcAgent: Service {
             provider: String = "openai",
             baseURL: URL = URL(string: "https://api.openai.com/v1")!,
             apiKey: String,
+            endpointProbe: (any EndpointProbing)? = nil,
             registry: any ToolRegistry,
             sessionStore: SessionStore = FileSessionStore(),
             memoryProvider: MemoryProvider? = FileMemoryProvider(),
@@ -286,6 +295,7 @@ public actor ArcAgent: Service {
             self.provider = provider
             self.baseURL = baseURL
             self.apiKey = apiKey
+            self.endpointProbe = endpointProbe
             self.registry = registry
             self.sessionStore = sessionStore
             self.memoryProvider = memoryProvider
@@ -756,6 +766,29 @@ public actor ArcAgent: Service {
     /// wiring. Idempotent — safe to call from `run()` and `streamConversation`.
     public func prime() async throws {
         if httpClient != nil { return }
+        // preflight: a base URL that cannot answer must be reported by name
+        // before a turn is built on it. Failures are never memoized, so a
+        // repaired endpoint works on the very next turn.
+        //
+        // an injected client (`config.llmClient`) means the transport is decided
+        // elsewhere — the URL will never be dialed, so probing it would refuse
+        // turns that a stub or a router serves perfectly well.
+        if config.llmClient == nil, let probe = config.endpointProbe {
+            let endpoint = ProviderEndpoint(
+                baseURL: config.baseURL,
+                model: config.model,
+                provider: config.provider,
+                source: .config
+            )
+            let reachability = await EndpointReachability.shared.result(
+                for: endpoint, apiKey: config.apiKey, probe: probe
+            )
+            if case .unreachable(let detail) = reachability.outcome {
+                throw LLMError.endpointUnreachable(
+                    endpoint: config.baseURL.absoluteString, detail: detail
+                )
+            }
+        }
         let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
         self.httpClient = httpClient
         makeAuxRouter()
