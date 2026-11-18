@@ -5580,7 +5580,7 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                                         McBadge { Text("active") }
                                     }
                                 }
-                                McModel { Text(c.model) }
+                                McModel { Text("\(c.model) · \(c.endpointAuthority)") }
                                 Div(class: ClassName(.rowActionsMain, .rowActionsFlush)) {
                                     ArcButton("Remove", id: "mc-del-\(encName)",
                                               class: ClassName(.dangerBtn, .btnSm))

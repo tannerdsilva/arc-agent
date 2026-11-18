@@ -379,19 +379,40 @@ public actor BatchRunner {
         let selectedToolsets = distribution.sample(seed: seed, universe: ctx.allToolsets)
         let disabled = Set(ctx.allToolsets.filter { !selectedToolsets.contains($0) })
 
-        let effectiveBase = ctx.options.baseURL
-            ?? ProcessInfo.processInfo.environment["ARC_BASE_URL"]
-            ?? loadConfig().model.baseURL
-            ?? "https://api.openai.com/v1"
+        let batchConfig = loadConfig()
+        // one precedence rule, same as every other surface. a batch worker
+        // cannot throw per prompt, so an unusable URL is printed once and the
+        // reserved `.invalid` host fails each prompt visibly instead of the key
+        // quietly going to api.openai.com.
+        let endpoint: ProviderEndpoint
+        do {
+            endpoint = try ProviderEndpointResolver.resolve(
+                choice: ProviderEndpointResolver.Choice(
+                    baseURL: ctx.options.baseURL ?? ProcessInfo.processInfo.environment["ARC_BASE_URL"],
+                    model: ctx.options.model,
+                    source: .flag
+                ),
+                config: batchConfig.model
+            )
+        } catch {
+            FileHandle.standardError.write(Data("arc batch: \(error)\n".utf8))
+            endpoint = ProviderEndpoint(
+                baseURL: URL(string: "https://invalid.invalid")!,
+                model: ctx.options.model,
+                provider: batchConfig.model.provider,
+                source: .flag
+            )
+        }
         let effectiveKey = ctx.options.apiKey
             ?? ProcessInfo.processInfo.environment["ARC_API_KEY"]
             ?? ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
             ?? ""
         let agentConfig = ArcAgent.Configuration(
-            model: ctx.options.model,
-            provider: loadConfig().model.provider,
-            baseURL: URL(string: effectiveBase) ?? URL(string: "https://api.openai.com/v1")!,
+            model: endpoint.model,
+            provider: endpoint.provider,
+            baseURL: endpoint.baseURL,
             apiKey: effectiveKey,
+            endpointProbe: HTTPEndpointProbe(),
             // Deliberate `.default` scope: a batch trajectory is a sample run
             // over a dataset, not a profile's session. It must not address any
             // real profile's documents, and it writes none — the surface is

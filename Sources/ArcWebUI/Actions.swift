@@ -243,6 +243,7 @@ extension AppState {
     ///     policy). A scheduled job keeps its own cap through here.
     func makeTurnAgent(
         preset: ModelConfigPreset,
+        endpoint: ProviderEndpoint? = nil,
         thinking: String,
         headless: Bool,
         sessionID: String,
@@ -252,6 +253,7 @@ extension AppState {
     ) async -> (agent: ArcAgent, config: ArcAgent.Configuration) {
         let minted = await makeTurnAgent(
             preset: preset,
+            endpoint: endpoint,
             thinking: thinking,
             headless: headless,
             sessionID: sessionID,
@@ -636,6 +638,35 @@ extension AppState {
         // Model parameters resolve from the chat's model configuration (per
         // model); the bound profile does not carry parameters.
         let effectivePreset = preset
+
+        // Resolve the endpoint before any request is built: a preset whose base
+        // URL is unusable fails here, naming the string, instead of becoming an
+        // unexplained transport failure mid-turn.
+        let endpoint: ProviderEndpoint
+        do {
+            endpoint = try ProviderEndpointResolver.resolve(
+                choice: effectivePreset.endpointChoice, config: arcConfig.model
+            )
+        } catch {
+            LogCollector.shared.append(level: .error, text: "[model] \(error)")
+            _ = toast("\(error)", kind: "error")
+            let notice = Message(role: .assistant, content: "\(error)", createdAt: Date())
+            session.messages.append(notice)
+            if let idx = sessions.firstIndex(where: { $0.id == sessionID }) {
+                sessions[idx] = session
+            }
+            sessionVersion += 1
+            if let store {
+                await persistMessage(notice, sessionID: sessionID, store: store, healWith: session.messages)
+            }
+            await pusher(await transcriptFragments())
+            return
+        }
+
+        // Record what this chat actually talks to (model + provider + source):
+        // the store record was created before the preset was resolved, so
+        // without this a transcript claims an endpoint its turns never used.
+        await stampEndpoint(endpoint, on: sessionID)
         // The turn's agent builds its own provider client from the turn's
         // configuration. This pre-flight gate keeps the legacy behaviour for a
         // configuration that cannot build one at all (no http client), so the
@@ -759,6 +790,7 @@ extension AppState {
         // approves silently.
         let minted = await makeTurnAgent(
             preset: preset,
+            endpoint: endpoint,
             thinking: thinkingLevel(for: sessionID),
             headless: headless,
             sessionID: sessionID,
@@ -782,6 +814,7 @@ extension AppState {
         var streamedText = ""
         var turnCompleted = false
         var finalError: String?
+        var finalFailure: Error?
 
         /// The store's reply for a turn that finished normally.
         func storedFinalMessage() -> Message {
@@ -967,6 +1000,7 @@ extension AppState {
             // below writes the transcript notice.
             if activeTurns[sessionID]?.stopped != true {
                 finalError = "\(error)"
+                finalFailure = error
             }
         }
         // A cancelled stream can end without a terminal event; a tool round
@@ -1000,9 +1034,9 @@ extension AppState {
             // interruption reason survive reloads exactly like a normal turn.
             let reason = wasStopped ? "user_stopped" : "disconnected"
             let partial = streamedText.trimmingCharacters(in: .whitespacesAndNewlines)
-            let notice = wasStopped
-                ? "Turn interrupted — stopped by the user."
-                : "Turn interrupted — the connection to the model was lost."
+            // a dead endpoint is reported by name: "the connection was lost"
+            // cannot be acted on, the address that did not answer can.
+            let notice = TurnFailureNotice.text(stopped: wasStopped, failure: finalFailure)
             let interrupt = Message(
                 role: .assistant,
                 content: partial.isEmpty ? notice : partial,

@@ -87,6 +87,7 @@ public actor SessionAgent: Service {
             provider: resolvedProvider,
             baseURL: resolvedBaseURL,
             apiKey: agentConfig.apiKey,
+            endpointProbe: HTTPEndpointProbe(),
             registry: registry,
             sessionStore: sessionStore,
             memoryProvider: memoryProvider,
@@ -157,44 +158,35 @@ public actor SessionAgent: Service {
 
         do {
             // Resolve profile-specific configuration
-            let resolvedModel: String
-            let resolvedProvider: String
-            let resolvedBaseURL: URL
-            let resolvedSOUL: String?
-            let resolvedProfileRecord: Profile?
-            let resolvedParams: PerModelParameters?
-            let resolvedProfileDefaults: ContextRecipe?
 
-            if let profileConfig = try await profileManager.get(name: profile) {
-                // Job-level model override (cron) wins over the profile;
-                // the profile wins over the server default.
-                resolvedModel = modelOverride ?? profileConfig.model ?? agentConfig.model
-                resolvedProvider = profileConfig.provider ?? agentConfig.provider
-                // Safe URL resolution — no force-unwrap
-                if let profileURL = profileConfig.baseURL.flatMap({ URL(string: $0) }) {
-                    resolvedBaseURL = profileURL
-                } else if let configURL = URL(string: agentConfig.baseURL) {
-                    resolvedBaseURL = configURL
-                } else {
-                    resolvedBaseURL = URL(string: "https://api.openai.com/v1")!
-                }
-                resolvedSOUL = profileConfig.soulMD
-                resolvedProfileRecord = profileConfig
-                resolvedParams = ModelParameterStore.parameters(forModel: resolvedModel)
-                resolvedProfileDefaults = profileConfig.contextDefaults
-            } else {
-                resolvedModel = modelOverride ?? agentConfig.model
-                resolvedProvider = agentConfig.provider
-                if let url = URL(string: agentConfig.baseURL) {
-                    resolvedBaseURL = url
-                } else {
-                    resolvedBaseURL = URL(string: "https://api.openai.com/v1")!
-                }
-                resolvedSOUL = nil
-                resolvedProfileRecord = nil
-                resolvedParams = ModelParameterStore.parameters(forModel: agentConfig.model)
-                resolvedProfileDefaults = nil
-            }
+            let profileConfig = try await profileManager.get(name: profile)
+            // one precedence rule for every surface (``ProviderEndpointResolver``):
+            // a profile pin wins over the process config, then the built-in
+            // default. an unusable URL is reported by name at boot instead of
+            // silently redirecting the key to a different provider.
+            let endpoint = try ProviderEndpointResolver.resolve(
+                choice: profileConfig.map { cfg in
+                    ProviderEndpointResolver.Choice(
+                        baseURL: cfg.baseURL,
+                        model: modelOverride ?? cfg.model,
+                        provider: cfg.provider,
+                        source: .preset,
+                        label: cfg.name
+                    )
+                },
+                config: ModelConfig(
+                    defaultModel: modelOverride ?? agentConfig.model,
+                    provider: agentConfig.provider,
+                    baseURL: agentConfig.baseURL
+                )
+            )
+            let resolvedModel = endpoint.model
+            let resolvedProvider = endpoint.provider
+            let resolvedBaseURL = endpoint.baseURL
+            let resolvedSOUL = profileConfig?.soulMD
+            let resolvedProfileRecord = profileConfig
+            let resolvedParams = ModelParameterStore.parameters(forModel: resolvedModel)
+            let resolvedProfileDefaults = profileConfig?.contextDefaults
 
             // Storage backend. When Tessera is configured, sessions and
             // memory flow through the shared Tessera connection (signed

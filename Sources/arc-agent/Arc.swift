@@ -179,10 +179,6 @@ struct Chat: AsyncParsableCommand {
 
         let resolvedModel = model ?? ProcessInfo.processInfo.environment["ARC_MODEL"]
             ?? arcConfig.model.defaultModel
-        let resolvedBaseURL = baseURL
-            ?? ProcessInfo.processInfo.environment["ARC_BASE_URL"]
-            ?? arcConfig.model.baseURL
-            ?? "https://api.openai.com/v1"
         let resolvedApiKey = apiKey
             ?? ProcessInfo.processInfo.environment["ARC_API_KEY"]
             ?? ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
@@ -194,10 +190,26 @@ struct Chat: AsyncParsableCommand {
             return
         }
 
-        guard let url = URL(string: resolvedBaseURL) else {
-            print("Error: Invalid base URL '\(resolvedBaseURL)'.")
+        // one precedence rule (``ProviderEndpointResolver``): an explicit
+        // --base-url / ARC_BASE_URL wins, then `~/.arc/config.json` (already
+        // profile-adjusted above), then the built-in default. an unusable URL
+        // is named here, with the ipv6 case spelled out, instead of failing as
+        // an anonymous transport error on the first request.
+        let endpoint: ProviderEndpoint
+        do {
+            endpoint = try ProviderEndpointResolver.resolve(
+                choice: ProviderEndpointResolver.Choice(
+                    baseURL: baseURL ?? ProcessInfo.processInfo.environment["ARC_BASE_URL"],
+                    model: resolvedModel,
+                    source: .flag
+                ),
+                config: arcConfig.model
+            )
+        } catch {
+            print("Error: \(error).")
             return
         }
+        let url = endpoint.baseURL
 
         // Storage: with a `tessera` configuration, sessions and memory are
         // persisted to the Tessera server as signed NOSTR events. If the
@@ -285,6 +297,7 @@ struct Chat: AsyncParsableCommand {
             provider: arcConfig.model.provider,
             baseURL: url,
             apiKey: resolvedApiKey,
+            endpointProbe: HTTPEndpointProbe(),
             registry: registry,
             sessionStore: sessionStore,
             memoryProvider: memoryProvider,

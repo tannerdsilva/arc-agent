@@ -236,6 +236,37 @@ struct ModelConfigPreset: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+extension ModelConfigPreset {
+    /// The preset's contribution to the shared endpoint resolution: every field
+    /// the picker set, tagged with where it came from. Blank fields defer to
+    /// `~/.arc/config.json` (`ProviderEndpointResolver`), which is why an
+    /// untouched optional in the add form cannot shadow a configured endpoint.
+    var endpointChoice: ProviderEndpointResolver.Choice {
+        ProviderEndpointResolver.Choice(
+            baseURL: baseURL,
+            model: model,
+            provider: provider,
+            source: .preset,
+            label: name
+        )
+    }
+
+    /// `host:port` for this preset's base URL, parsed the way a turn parses it.
+    ///
+    /// Rendered beside the model in Settings, so the row shows the address a
+    /// chat will actually dial instead of hiding it behind the picker. An
+    /// unusable string comes back raw — a typo must be visible in the row, not
+    /// collapsed into a placeholder.
+    var endpointAuthority: String {
+        guard let url = try? ProviderEndpointResolver.parse(baseURL, source: .preset) else {
+            return baseURL
+        }
+        let host = url.host ?? baseURL
+        guard let port = url.port else { return host }
+        return host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+    }
+}
+
 /// A named workspace bound to an arbitrary folder on disk. `path` is the
 /// required anchor (Unix path standards, see `WorkspaceRules`); `name` is a
 /// label — optional at the edges (create form, decode) and always resolved to
@@ -751,6 +782,9 @@ actor AppState {
     /// Logs view: active severity filter ("all" | "info" | "warn" | "error").
     var logFilter = "all"
 
+    /// true when this state came from `init(renderFixture:)`: it owns no file
+    /// and dials no network, so optional preflights stay off.
+    private(set) var isRenderFixture = false
     var sessions: [Session] = []
 
     // MARK: Lazy message loading (scalable design)
@@ -1588,6 +1622,10 @@ actor AppState {
     ///   **scratch** store here.
     init(renderFixture fixture: RenderFixture,
          configurationStore: ConfigurationStore? = nil) {
+        // a fixture owns no file and dials no network: it is the seam tests and
+        // render previews run on, so the turn factory installs no reachability
+        // probe for it (see `makeTurnAgent`).
+        self.isRenderFixture = true
         self.settings = fixture.settings
         self.sessions = fixture.sessions
         self.arcConfig = fixture.arcConfig
@@ -2892,14 +2930,24 @@ actor AppState {
 
     /// Build an OpenAI-compatible client for the given config preset,
     /// reusing the process-wide HTTP client.
+    ///
+    /// Resolution goes through the shared rule, so an aux call (title,
+    /// compression, vision) addresses exactly the endpoint the chat's turns do.
     func makeClient(for preset: ModelConfigPreset) -> OpenAICompatibleClient? {
-        guard let hc = httpClient,
-              let url = URL(string: preset.baseURL)
-        else { return nil }
+        guard let hc = httpClient else { return nil }
+        let endpoint: ProviderEndpoint
+        do {
+            endpoint = try ProviderEndpointResolver.resolve(
+                choice: preset.endpointChoice, config: arcConfig.model
+            )
+        } catch {
+            LogCollector.shared.append(level: .error, text: "[model] \(error)")
+            return nil
+        }
         return OpenAICompatibleClient(
-            baseURL: url,
+            baseURL: endpoint.baseURL,
             apiKey: preset.apiKey,
-            model: preset.model,
+            model: endpoint.model,
             httpClient: hc,
             defaultParameters: RequestParameters(temperature: preset.temperature, maxTokens: preset.maxOutputTokens, topP: preset.topP)
         )
@@ -2957,6 +3005,7 @@ actor AppState {
     /// - Returns: The agent and the `Configuration` it was built from.
     func makeTurnAgent(
         preset: ModelConfigPreset,
+        endpoint suppliedEndpoint: ProviderEndpoint? = nil,
         thinking: String,
         headless: Bool,
         sessionID: String,
@@ -3023,11 +3072,31 @@ actor AppState {
             )
         )
 
-        // an unparseable preset url must not trap the server; fail closed to
-        // the reserved .invalid tld so the request errors out visibly instead
-        // of redirecting the key to a different provider.
-        let baseURL = URL(string: effectivePreset.baseURL)
-            ?? URL(string: "https://invalid.invalid")!
+        // one precedence rule (``ProviderEndpointResolver``): the chat's preset
+        // wins, then `~/.arc/config.json`, then the built-in default. a caller
+        // that already resolved the endpoint (the interactive turn, so it can
+        // fail the turn with the offending string) hands it down; every other
+        // path resolves here and falls back to the reserved `.invalid` host with
+        // the cause named in the log rather than silently redirecting the key.
+        let endpoint: ProviderEndpoint
+        if let suppliedEndpoint {
+            endpoint = suppliedEndpoint
+        } else {
+            do {
+                endpoint = try ProviderEndpointResolver.resolve(
+                    choice: effectivePreset.endpointChoice, config: arcConfig.model
+                )
+            } catch {
+                LogCollector.shared.append(level: .error, text: "[model] \(error)")
+                endpoint = ProviderEndpoint(
+                    baseURL: URL(string: "https://invalid.invalid")!,
+                    model: effectivePreset.model,
+                    provider: effectivePreset.provider,
+                    source: .preset,
+                    label: effectivePreset.name
+                )
+            }
+        }
 
         // build the configuration from those sources.
         // Per-profile toolset tightening, matching the SessionAgent precedent:
@@ -3045,10 +3114,12 @@ actor AppState {
         }
 
         let config = ArcAgent.Configuration(
-            model: effectivePreset.model,
-            provider: effectivePreset.provider,
-            baseURL: baseURL,
+            model: endpoint.model,
+            provider: endpoint.provider,
+            baseURL: endpoint.baseURL,
             apiKey: effectivePreset.apiKey,
+            // a fixture never dials, so it never preflights either.
+            endpointProbe: isRenderFixture ? nil : HTTPEndpointProbe(),
             registry: turnRegistry,
             // a scratch store: the UI is the transcript's only writer (§3.3), so
             // the agent must never restore from — or persist into — a durable one.
@@ -3450,6 +3521,38 @@ actor AppState {
     func configName(for sessionID: String?) -> String {
         if let sid = sessionID, let c = settings.sessionConfig[sid], !c.isEmpty { return c }
         return settings.activeConfig
+    }
+
+    /// Record the endpoint that actually serves this chat, so a transcript can
+    /// never claim a model/provider its turns never used.
+    ///
+    /// The store record is created when the first message is sent — before the
+    /// turn resolves its preset — so the stamp rides that turn as an update.
+    /// Only a change is written: a chat on a stable endpoint records once.
+    ///
+    /// The caller must have materialized this session's messages
+    /// (`ensureSessionMessages`), or the update would write a summary back as a
+    /// transcript.
+    func stampEndpoint(_ endpoint: ProviderEndpoint, on sessionID: String) async {
+        guard let idx = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        var session = sessions[idx]
+        let changed = session.model != endpoint.model || session.provider != endpoint.provider
+        session.model = endpoint.model
+        session.provider = endpoint.provider
+        if session.source == nil { session.source = "webui" }
+        guard changed else { return }
+        sessions[idx] = session
+        sessionVersion += 1
+        guard let store, !isDraftSession(sessionID) else { return }
+        do {
+            try await store.update(session)
+        } catch {
+            LogCollector.shared.append(
+                level: .error,
+                text: "[store] failed to record endpoint for session "
+                    + "\(String(sessionID.prefix(8))): \(error)"
+            )
+        }
     }
 
     func profileName(for sessionID: String?) -> String? {
