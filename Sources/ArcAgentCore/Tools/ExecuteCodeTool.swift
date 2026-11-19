@@ -47,7 +47,7 @@ public enum ExecuteCodeTool {
     ) -> ToolEntry {
         ToolEntry(
             name: "execute_code",
-            toolset: "code_execution",
+            toolset: .codeExecution,
             description: "Run a Python script that calls arc tools programmatically. "
                 + "Use when you need 3+ tool calls with logic between them: "
                 + "filtering/reducing large outputs before they enter context, "

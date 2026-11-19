@@ -18,7 +18,7 @@ public enum ReadFileTool {
     /// The ``ToolEntry`` for this tool.
     public static let entry = ToolEntry(
         name: "read_file",
-        toolset: "file",
+        toolset: .file,
         description: "Read a text file and return its contents with line numbers. "
             + "Use offset and limit for pagination.",
         schema: .object(properties: [
@@ -41,6 +41,7 @@ public enum ReadFileTool {
             }
             return try await Self.readFile(path: path, offset: offset, limit: limit)
         },
+        parallelSafe: true,
         emoji: "📄"
     )
 

@@ -48,10 +48,16 @@ extension ArcWebUITestRoot {
 			"pill-other", "queue-card",
 			"queue-loop-count-label", "skill-cat-title",
 			"thinking-detail", "todo-list", "visible", "ws-head", "ws-menu", "yolo-text",
+			// the ENGINE's drawer focus target: the framework sheet declares it,
+			// arc's does not, so `ArcClass` cannot name it (A13)
+			"drawer__panel",
 		]
 
 		/// sites whose class value is interpolated (`\\(` inside the literal).
-		static let residualInterpolatedSites = 25
+		/// the theme card's `theme-pick-btn\(active ? " active" : "")` became
+		/// `ClassName(.themePickBtn)` when the `.active` mirror retired.
+		/// measured 22 in the merged tree.
+		static let residualInterpolatedSites = 22
 
 		static func sources() -> [(String, String)] {
 			let root = URL(fileURLWithPath: #filePath)

@@ -36,7 +36,7 @@ enum KanbanTool {
         let storeBox = StoreBox(storeOverride: storeOverride, envOverride: envOverride, dispatch: dispatch)
         return ToolEntry(
             name: "kanban",
-            toolset: "kanban",
+            toolset: .kanban,
             description: """
             Kanban card operations — create, list, show, claim, run, complete, block, unblock, link, comment, attach, heartbeat, events, delete_board. Everything kanban goes through this tool.
             In a worker session, task_id and run_id default to your own assignment. `complete` needs a `summary` handoff (plus optional metadata/artifacts); `block` needs `kind` (dependency|needs_input|capability|transient) and `reason`; `run` dispatches a worker one-shot in the background.

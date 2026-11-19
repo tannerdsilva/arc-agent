@@ -9,7 +9,7 @@ struct SkillViewTool {
 
     static let entry = ToolEntry(
         name: "skill_view",
-        toolset: "core",
+        toolset: .core,
         description: "Load a skill's full content by name. "
             + "Use this when the skills index mentions a skill you need to follow. "
             + "Pass the exact skill name as shown in the Available Skills section.",
@@ -53,6 +53,7 @@ struct SkillViewTool {
 
             return "Error: Skill '\(name)' not found. Available skills are listed in the Available Skills section."
         },
+        parallelSafe: true,
         emoji: "📚"
     )
 }

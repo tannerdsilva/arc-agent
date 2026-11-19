@@ -15,7 +15,7 @@ public enum PatchTool {
     public static func entry(grant: ToolGrant) -> ToolEntry {
         ToolEntry(
             name: "patch",
-            toolset: "file",
+            toolset: .file,
             description: "Targeted find-and-replace edits. "
                 + "Use this instead of write_file for surgical changes. "
                 + "Replace mode: path + old_string + new_string (optionally "

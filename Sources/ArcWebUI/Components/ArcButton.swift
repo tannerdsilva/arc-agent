@@ -34,10 +34,17 @@ public struct ArcButton<Views: WebUI.View>: WebUI.View {
 	public var tabIndex: Int? = nil
 	public var disabled: Bool = false
 	public var hidden: Bool = false
+	/// raw attributes emitted verbatim after the built ones — a leading space
+	/// included. the seam a render-time control uses to carry `controlAttributes`
+	/// output (id + event) it registered while rendering.
+	public var extraAttributes: String = ""
 
 	public func render(into buffer: inout HTMLBuffer) {
 		var attributes = ""
 		if let id { attributes += " id=\"\(htmlEscape(id))\"" }
+		// emitted before `component` so a control that supplies its own
+		// data-component-id keeps the attribute where it has always sat.
+		if !extraAttributes.isEmpty { attributes += extraAttributes }
 		let componentId = routing.map { $0.value } ?? component
 		if let componentId, !componentId.isEmpty {
 			attributes += " data-component-id=\"\(htmlEscape(componentId))\""

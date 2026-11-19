@@ -19,7 +19,6 @@ public static let css: String = """
       --radius-md: 11px;
       --radius-sm: 8px;
       --warning: #E68A00;
-      --warning-strong: #E68A00;
     }
     /* Text size (user setting -> #app data-size; md = default) */
     #app[data-size="sm"] { --font-size: 13px; }
@@ -34,125 +33,13 @@ public static let css: String = """
       -webkit-font-smoothing: antialiased;
     }
 
-    /* ─── Light theme ─────────────────────────────────────────── */
-    :root[data-theme="light"] {
-      --bg: #FDFBF7;
-      --surface: #FFFFFF;
-      --surface-2: #F7F3EA;
-      --sidebar: #FAF7F0;
-      --border: #EAE2D3;
-      --border-strong: #D5CEBE;
-      --text: #2A2723;
-      --muted: #7A7263;
-      --accent: #B8860B;
-      --accent-strong: #9A6F09;
-      --accent-strong-ink: #FFFFFF;
-      --accent-soft: rgba(184, 134, 11, 0.10);
-      --accent-border: rgba(184, 134, 11, 0.45);
-      --link: #0288A8;
-      --danger: #B34141;
-      --danger-soft: rgba(179, 65, 65, 0.10);
-      --warning-strong: #8A5B00;
-      --success: #4E7C3A;
-      --shadow: 0 2px 12px rgba(60, 50, 30, 0.08);
-      --user-bubble: rgba(184, 134, 11, 0.10);
-      --code-bg: #F4EFE3;
-      --code-text: #1D1D24;
-      --code-inline-bg: rgba(0, 0, 0, 0.05);
-      --input-bg: rgba(0, 0, 0, 0.02);
-      --hover-bg: rgba(0, 0, 0, 0.04);
-      --border-subtle: rgba(0, 0, 0, 0.08);
-      --scroll-thumb: #D8D0BE;
-    }
-
-    /* ─── Dark theme (reference dark + Sisyphus violet) ───────────── */
-    :root[data-theme="dark"] {
-      --bg: #0D0D1A;
-      --surface: #1A1A2E;
-      --surface-2: #20203A;
-      --sidebar: #141425;
-      --border: #2A2A45;
-      --border-strong: #3A3A5C;
-      --text: #FFF8DC;
-      --muted: #C0C0C0;
-      --accent: #A78BFA;
-      --accent-strong: #8B5CF6;
-      --accent-soft: rgba(167, 139, 250, 0.08);
-      --accent-border: rgba(167, 139, 250, 0.35);
-      --link: #A78BFA;
-      --danger: #EF5350;
-      --danger-soft: rgba(239, 83, 80, 0.14);
-      --success: #4CAF50;
-      --shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
-      --user-bubble: rgba(167, 139, 250, 0.08);
-      --code-bg: #1A1A2E;
-      --code-text: #E2E8F0;
-      --code-inline-bg: rgba(0, 0, 0, 0.35);
-      --input-bg: rgba(255, 255, 255, 0.04);
-      --hover-bg: rgba(255, 255, 255, 0.06);
-      --border-subtle: rgba(255, 255, 255, 0.075);
-      --scroll-thumb: #2A2A45;
-    }
-
-    /* ─── System theme (light by default; follows the OS) ──────── */
-    :root[data-theme="system"] {
-      --bg: #FDFBF7;
-      --surface: #FFFFFF;
-      --surface-2: #F7F3EA;
-      --sidebar: #FAF7F0;
-      --border: #EAE2D3;
-      --border-strong: #D5CEBE;
-      --text: #2A2723;
-      --muted: #7A7263;
-      --accent: #B8860B;
-      --accent-strong: #9A6F09;
-      --accent-soft: rgba(184, 134, 11, 0.10);
-      --accent-border: rgba(184, 134, 11, 0.45);
-      --link: #0288A8;
-      --danger: #B34141;
-      --danger-soft: rgba(179, 65, 65, 0.10);
-      --warning-strong: #8A5B00;
-      --success: #4E7C3A;
-      --shadow: 0 2px 12px rgba(60, 50, 30, 0.08);
-      --user-bubble: rgba(184, 134, 11, 0.10);
-      --code-bg: #F4EFE3;
-      --code-text: #1D1D24;
-      --code-inline-bg: rgba(0, 0, 0, 0.05);
-      --input-bg: rgba(0, 0, 0, 0.02);
-      --hover-bg: rgba(0, 0, 0, 0.04);
-      --border-subtle: rgba(0, 0, 0, 0.08);
-      --scroll-thumb: #D8D0BE;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root[data-theme="system"] {
-        --bg: #17171B;
-        --surface: #1F1F24;
-        --surface-2: #26262C;
-        --sidebar: #1B1B20;
-        --border: #2E2E36;
-        --border-strong: #3C3C46;
-        --text: #E8E6E1;
-        --muted: #9A9486;
-        --accent: #D9A441;
-        --accent-strong: #E3B45C;
-        --accent-strong-ink: #17171B;
-        --accent-soft: rgba(217, 164, 65, 0.14);
-        --accent-border: rgba(217, 164, 65, 0.5);
-        --link: #58B7D6;
-        --danger: #E06C6C;
-        --danger-soft: rgba(224, 108, 108, 0.14);
-        --success: #7FB069;
-        --shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
-        --user-bubble: rgba(217, 164, 65, 0.13);
-        --code-bg: #2A2A31;
-        --code-text: #E2E8F0;
-        --code-inline-bg: rgba(0, 0, 0, 0.35);
-        --input-bg: rgba(255, 255, 255, 0.04);
-        --hover-bg: rgba(255, 255, 255, 0.06);
-        --border-subtle: rgba(255, 255, 255, 0.075);
-        --scroll-thumb: #3A3A44;
-      }
-    }
+    /* No static palette here. every scheme block the catalog emits is
+       `:root[data-scheme="<id>"][data-theme="<light|system|dark>"]` — three attribute
+       selectors — so a `:root[data-theme="…"]` copy could never win the cascade: it
+       was dead on a served page and could only drift from `ArcBaseTheme` unseen
+       (light `--success` was `#4E7C3A` there, `#2A6F3B` on the base). the paint lives
+       in `Sources/ArcTheme/ThemeCatalog.swift`, one statement per scheme and mode;
+       this sheet states geometry and the two mode-independent fallbacks above. */
 
     /* ─── App chrome ──────────────────────────────────────────── */
     #app {
@@ -334,7 +221,18 @@ public static let css: String = """
       display: flex;
       flex-direction: column;
       background: var(--sidebar);
+      /* `#panel` also carries the engine's `.drawer__panel` class (2.15.0's
+         drawer focus target), whose own box decoration belongs to the
+         framework's drawer chrome. Every property below is stated here so the
+         id wins over that class and the panel's frame is unchanged — including
+         in the narrow block, whose later `#panel` rules still override these. */
+      border: 0;
       border-right: 1px solid var(--border);
+      border-radius: 0;
+      box-shadow: none;
+      /* the rail form: `position: relative` would also come from that class,
+         and the narrow block below is the only place the panel is `fixed`. */
+      position: static;
       min-width: 0;
     }
     .panel-head {
@@ -449,6 +347,10 @@ public static let css: String = """
     .log-panel-note { font-size: 0.86em; color: var(--muted); line-height: 1.5; margin: 4px 6px 0; }
 
     /* ─── Chat list rows ──────────────────────────────────────── */
+    /* a bucket is a native <details>: the caret points right while closed and
+       the platform hides the rows. the head keeps its own styling and its
+       quiet tab order; `list-style: none` plus the -webkit marker rule is the
+       pair that removes the UA triangle in Safari and Chrome. */
     .sess-group { margin: 2px 0 4px; }
     .sess-group-head {
       display: flex; align-items: center; gap: 6px; width: 100%;
@@ -458,15 +360,16 @@ public static let css: String = """
       font-size: 11.5px; font-weight: 600;
       letter-spacing: 0.06em; text-transform: uppercase;
       cursor: pointer; border-radius: 8px; text-align: left;
+      list-style: none;
     }
+    .sess-group-head::-webkit-details-marker { display: none; }
     .sess-group-head:hover { color: var(--text); background: var(--surface-2); }
     .sess-group-head:focus-visible { outline: 1px solid var(--accent-border); }
     .sess-caret { display: inline-flex; align-items: center; opacity: 0.7; transition: transform 0.15s ease; }
     .sess-caret svg { width: 10px; height: 10px; }
     .sess-group-head .sess-group-title { flex: 0 0 auto; }
     /* Collapsed buckets hide their rows; the caret rotates from down to right. */
-    .sess-group.collapsed .sess-caret { transform: rotate(-90deg); }
-    .sess-group.collapsed .sess-group-rows { display: none; }
+    .sess-group:not([open]) .sess-caret { transform: rotate(-90deg); }
     .sess-group-rows { display: flex; flex-direction: column; }
     .rel-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
     .sess-row {
@@ -553,8 +456,7 @@ public static let css: String = """
       border: 1px solid var(--danger, #c0392b); color: var(--danger, #c0392b);
       background: color-mix(in srgb, var(--danger, #c0392b) 8%, transparent);
       font-size: 12.5px; white-space: pre-wrap; word-break: break-word;
-    }
-    .icon-mini {
+    }    .icon-mini {
       width: 24px; height: 24px;
       display: flex; align-items: center; justify-content: center;
       border: none; border-radius: 7px;
@@ -687,9 +589,15 @@ public static let css: String = """
     }
     .ctx-rename input:focus { outline: none; border-color: var(--accent-border); }
     .cat-swatch {
-      width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; cursor: pointer;
+      width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent;
+      cursor: pointer; background-clip: padding-box; padding: 0; margin: 0;
+      /* a NATIVE radio (A17): the browser owns the selection and the form posts
+         the checked value under the field the server already reads, so
+         `:checked` — never a server class — is the selected state. */
+      appearance: none; -webkit-appearance: none;
     }
-    .cat-swatch.sel { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface); }
+    .cat-swatch:checked { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface); }
+    .cat-swatch:focus-visible { outline: 2px solid var(--accent-border); outline-offset: 1px; }
     .cat-add-actions { display: flex; gap: 8px; }
     .cat-add-actions .primary-btn, .cat-add-actions .ghost-btn {
       padding: 5px 12px; font-size: 0.82em; border-radius: var(--radius-sm);
@@ -768,12 +676,13 @@ public static let css: String = """
       color: var(--text); font-size: 0.84em; font-weight: 700;
       letter-spacing: 0.05em; text-transform: uppercase;
       cursor: pointer; border-radius: 8px; text-align: left;
+      list-style: none;
     }
+    .skill-cat-head::-webkit-details-marker { display: none; }
     .skill-cat-head:hover { background: var(--surface-2); }
     .skill-cat-caret { display: inline-flex; opacity: 0.7; transition: transform 0.15s ease; }
     .skill-cat-caret svg { width: 11px; height: 11px; }
-    .skill-group.collapsed .skill-cat-caret { transform: rotate(-90deg); }
-    .skill-group.collapsed .skill-cat-rows { display: none; }
+    .skill-group:not([open]) .skill-cat-caret { transform: rotate(-90deg); }
     .skill-cat-count { opacity: 0.55; font-weight: 600; }
     .skill-cat-rows { display: flex; flex-direction: column; }
     .skill-row .skill-open { flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.25; padding: 0; }
@@ -817,8 +726,16 @@ public static let css: String = """
     }
     .list-row:hover { background: var(--surface-2); }
     .list-row.active { background: var(--accent-soft); }
+    /* 2.6.0 scrollspy: the engine marks the section in view with
+       aria-current on the anchor (it cannot toggle an arc class), so the row
+       takes the same accent when its own link is current. */
+    .list-row:has(> .panel-nav-link[aria-current]) { background: var(--accent-soft); }
     .list-row .lr-name { flex: 1; min-width: 0; font-size: 0.93em; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .list-row .lr-sub { font-size: 0.84em; color: var(--muted); }
+    /* a tool switched off stays listed — the operator must be able to switch
+       it back on — but reads as unavailable rather than present-and-working. */
+    .list-row.tool-off .lr-name { color: var(--muted); }
+    .list-row.tool-off .switch { opacity: 0.5; }
     .tool-group { font-size: 0.84em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 12px 10px 4px; }
 
     /* ─── Main content ────────────────────────────────────────── */
@@ -1157,7 +1074,7 @@ public static let css: String = """
     .kb-lane-single { flex: 1 1 auto; min-height: 0; }
     .kb-lane-head { display: flex; align-items: center; gap: 6px;
       padding: 0 2px 6px; flex: none; }
-    .kb-lane-name { font-size: 0.8rem; font-weight: 600; color: var(--text-dim);
+    .kb-lane-name { font-size: 0.8rem; font-weight: 600; color: var(--muted);
       letter-spacing: 0.02em; min-width: 0; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
     .kb-lane-cols { display: flex; gap: 12px; align-items: stretch; flex: 1 1 auto;
@@ -1168,7 +1085,7 @@ public static let css: String = """
     .kb-boards-head { display: flex; align-items: center; justify-content: space-between;
       margin: 10px 0 4px; }
     .kb-boards-label { font-size: 11px; font-weight: 600; letter-spacing: .06em;
-      text-transform: uppercase; color: var(--muted, var(--text-dim, #888)); }
+      text-transform: uppercase; color: var(--muted, #888); }
     /* Script jobs: the script box (mono, inset) + helper, and the
        Hermes-style per-run output disclosure rows. */
     .task-script-box { font-family: var(--mono, monospace); font-size: 0.9em;
@@ -1324,10 +1241,10 @@ public static let css: String = """
     }
     .theme-pick-btn .thm-ic { display: inline-flex; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3)); }
     .theme-pick-btn .thm-label { font-size: 12px; font-weight: 500; }
-    .theme-pick-btn.active {
+    .theme-pick-btn[aria-pressed="true"] {
       border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
     }
-    .theme-pick-btn.active .thm-label {
+    .theme-pick-btn[aria-pressed="true"] .thm-label {
       /* WCAG AA: same accent→text pin as the sidebar-tab chips. */
       color: color-mix(in srgb, var(--accent) 42%, var(--text));
     }
@@ -1400,6 +1317,14 @@ public static let css: String = """
     .chat-scroll::-webkit-scrollbar { width: 8px; }
     .chat-scroll::-webkit-scrollbar-track { background: transparent; }
     .chat-scroll::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
+    /* a11: the jump control's target. Zero height and OUTSIDE `.chat-inner`'s
+       bottom padding, so `scrollIntoView` clamps to the true scroll bottom and
+       the engine clears `data-follow-state`. */
+    #chat-end { display: block; height: 0; }
+    /* The scroller is a keyboard region now (`data-reading-keys`), so it takes
+       focus: a focused region has to say so. Inset so the ring is never clipped
+       by `overflow-y: auto`. */
+    #chat-scroll:focus-visible { outline: 2px solid var(--accent-border); outline-offset: -2px; }
 
     /* Conversation column. `--chat-measure` is shared by the transcript, the
        queued-send chips and the composer, so all three share their left and
@@ -1557,22 +1482,25 @@ public static let css: String = """
       width: 320px; max-height: 50vh; z-index: 9998;
       background: var(--surface); border: 1px solid var(--border-strong);
       border-radius: 10px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
-      display: flex; flex-direction: column; overflow: hidden;
+      display: none; overflow: hidden;
     }
-    #outline-panel[hidden] { display: none; }
+    /* the open state is the engine's layer attribute (A17): the dismiss stack
+       clears it on Escape and on a click-away, so the sheet — never a server
+       class — is what the closed state means. */
+    #outline-panel[data-open] { display: flex; flex-direction: column; }
     /* The panel floats over the transcript; while it is open, move the reading
        column clear of it instead of letting it sit on top of the text. Below
        1200px there is not enough room to shift, so the panel overlays (it has a
-       close button and Escape routes to it). `!important` + the id in :has()
-       are needed to outrank the `#main .chat-scroll { padding: … !important }`
-       rule that pins the transcript's gutters. */
-    .chat-scroll-wrap:has(#outline-panel:not([hidden])) .chat-scroll { padding-right: 348px !important; }
+       close button and the engine routes Escape to it). `!important` + the id in
+       :has() are needed to outrank the `#main .chat-scroll { padding: …
+       !important }` rule that pins the transcript's gutters. */
+    .chat-scroll-wrap:has(#outline-panel[data-open]) .chat-scroll { padding-right: 348px !important; }
     /* The composer follows the same shift, or the two columns would stop
        sharing their edges the moment the outline opens. */
-    .chat-main:has(#outline-panel:not([hidden])) .composer-wrap { padding-right: 348px; }
+    .chat-main:has(#outline-panel[data-open]) .composer-wrap { padding-right: 348px; }
     @media (max-width: 1200px) {
-      .chat-scroll-wrap:has(#outline-panel:not([hidden])) .chat-scroll { padding-right: 28px !important; }
-      .chat-main:has(#outline-panel:not([hidden])) .composer-wrap { padding-right: 28px; }
+      .chat-scroll-wrap:has(#outline-panel[data-open]) .chat-scroll { padding-right: 28px !important; }
+      .chat-main:has(#outline-panel[data-open]) .composer-wrap { padding-right: 28px; }
     }
     .outline-header {
       display: flex; align-items: center; justify-content: space-between;
@@ -1612,7 +1540,11 @@ public static let css: String = """
       0% { background: var(--accent-border); }
       100% { background: transparent; }
     }
-    .outline-jump-flash { animation: outline-flash 1.2s ease-out forwards; }
+    /* The engine's `data-scroll-to` marks the target with `data-scroll-flash`
+       for 1.4 s; the outline's own `.outline-jump-flash` class is retired with
+       its client handler, and the keyframes are shared so the flash looks the
+       same whichever consequence moved the reader. */
+    .outline-jump-flash, [data-scroll-flash] { animation: outline-flash 1.2s ease-out forwards; }
 
     /* Token usage renders in `.msg-meta` (see `.msg-usage-inline`). */
 
@@ -1877,7 +1809,12 @@ public static let css: String = """
       outline: var(--border-width-2) solid var(--accent);
       outline-offset: 2px;
     }
-    /* Jump-to-latest circle button (reference .scroll-to-bottom-btn mirror). */
+    /* Jump-to-latest circle button (reference .scroll-to-bottom-btn mirror).
+       a11: visibility is keyed on the ENGINE's output — it writes
+       `data-follow-state="away"` on the scroller while the reader is off the
+       live tail. The button is display:none otherwise, so it is not a tab
+       stop while the reader is at the bottom, and no script or server handler
+       touches it. */
     .scroll-to-bottom-btn {
       position: absolute; left: 50%; right: auto; bottom: 14px;
       transform: translateX(-50%);
@@ -1889,7 +1826,7 @@ public static let css: String = """
       color: var(--muted);
       font-size: 15px; line-height: 1;
       cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
+      display: none; align-items: center; justify-content: center;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
       z-index: 10;
       transition: color .12s, border-color .12s, background .12s, transform .12s;
@@ -1900,7 +1837,9 @@ public static let css: String = """
       background: var(--surface-2);
       transform: translate(-50%, -1px);
     }
-    .scroll-to-bottom-btn[hidden] { display: none; }
+    .chat-scroll-wrap:has(#chat-scroll[data-follow-state="away"]) .scroll-to-bottom-btn {
+      display: flex;
+    }
 
     /* The outline toggle's lane geometry and states live with `#outline-toggle`
        (see the conversation-outline block above) — the markup's class stays
@@ -2453,6 +2392,15 @@ public static let css: String = """
     .composer-toolbar .spacer { flex: 1; }
     /* ── Context window indicator (arc parity) ── */
     .ctx-indicator-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    /* the chip is a native <details>; its summary is the ring, and the marker
+       (plus its tab stop) is suppressed so the button inside stays the one
+       control the reader tabs to. */
+    .ctx-indicator-wrap > details { display: inline-flex; align-items: center; }
+    .ctx-indicator-wrap > details > summary {
+      display: flex; align-items: center; justify-content: center;
+      list-style: none; outline: none;
+    }
+    .ctx-indicator-wrap > details > summary::-webkit-details-marker { display: none; }
     .ctx-indicator { width: 26px; height: 26px; padding: 0; border: none; background: none; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s, transform 0.15s; }
     .ctx-indicator:hover { opacity: 0.88; transform: translateY(-1px); }
     .ctx-ring { position: relative; display: flex; width: 22px; height: 22px; align-items: center; justify-content: center; }
@@ -2465,7 +2413,7 @@ public static let css: String = """
     .ctx-indicator.ctx-high .ctx-ring-value { stroke: var(--danger); }
     .ctx-tooltip { position: absolute; right: 0; bottom: calc(100% + 10px); min-width: 210px; max-width: 250px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22); font-size: 12px; line-height: 1.45; color: var(--muted); opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity 0.14s ease, transform 0.14s ease; z-index: 30; }
     .ctx-tooltip::after { content: ''; position: absolute; right: 10px; top: 100%; border-width: 6px 6px 0 6px; border-style: solid; border-color: var(--surface) transparent transparent transparent; }
-    .ctx-indicator-wrap:hover .ctx-tooltip, .ctx-indicator-wrap:focus-within .ctx-tooltip, .ctx-indicator-wrap.ctx-open .ctx-tooltip { opacity: 1; transform: translateY(0); pointer-events: auto; }
+    .ctx-indicator-wrap:hover .ctx-tooltip, .ctx-indicator-wrap:focus-within .ctx-tooltip, .ctx-indicator-wrap > details[open] ~ .ctx-tooltip { opacity: 1; transform: translateY(0); pointer-events: auto; }
     .ctx-tooltip-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
     .ctx-tooltip-line + .ctx-tooltip-line { margin-top: 3px; }
     .send-btn {
@@ -2532,9 +2480,12 @@ public static let css: String = """
       padding: 12px;
       margin-top: 6px;
       box-shadow: var(--shadow);
-      display: flex; flex-direction: column; gap: 8px;
+      /* state is the engine's `data-open` (no-webui 2.15.0): the attribute's
+         presence is open, and its absence is the only closed state — a class
+         would be a second spelling the dismiss stack cannot remove. */
+      display: none;
     }
-    .file-pop.hidden { display: none; }
+    .file-pop[data-open] { display: flex; flex-direction: column; gap: 8px; }
     .file-pop .fp-row { display: flex; gap: 6px; }
     .file-pop input {
       flex: 1;
@@ -2575,10 +2526,14 @@ public static let css: String = """
       min-width: 320px; max-width: 380px;
       background: var(--surface); border: 1px solid var(--border);
       border-radius: 12px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
-      padding: 8px; z-index: 60; display: flex; flex-direction: column; gap: 2px;
+      padding: 8px; z-index: 60;
       max-height: min(60vh, 420px); overflow: hidden;
+      /* `data-open` is the engine's open state (Escape / outside click remove
+         it with no round-trip), so it is the only key: `.hidden` here would be
+         a second spelling nothing can clear. */
+      display: none;
     }
-    .dd-pop.hidden { display: none; }
+    .dd-pop[data-open] { display: flex; flex-direction: column; gap: 2px; }
     /* Settings pickers (Main model / Auxiliary models) open downward — the
        settings list is tall, so an upward popover would clip. */
     .dd-settings .dd-trigger {
@@ -2721,6 +2676,30 @@ public static let css: String = """
       pointer-events: auto;
     }
     .toast .toast-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: 0 0 8px; }
+    /* The ENGINE's toast (no-webui's `toast()` in webui-engine-ext.js): a bare
+       `<div data-webui-toast role="status">` appended to <body>, its text set to
+       "Copied", removed after 2 s. It is the feedback for every `data-copy`
+       control — code blocks, the conversation link, the work-log digest, the
+       preview — so it must read as arc's own toast family: same pill, same
+       tokens, all 27 schemes and both themes. Bottom-CENTRE, so it never
+       collides with the server stack (#toasts, bottom-right). No transition:
+       the motion gate holds every entry animation at zero. */
+    [data-webui-toast] {
+      position: fixed;
+      left: 50%;
+      bottom: 120px;
+      transform: translateX(-50%);
+      z-index: 1001;
+      background: var(--surface);
+      border: 1.5px solid var(--border-strong);
+      border-radius: 999px;
+      padding: 8px 16px;
+      box-shadow: var(--shadow);
+      font-size: 0.88em;
+      color: var(--text);
+      max-width: 440px;
+      pointer-events: none;
+    }
     .toast .toast-x { border: none; background: none; color: var(--muted); opacity: 0.9; cursor: pointer; font-size: 1.25em; line-height: 1; padding: 0 3px; }
     .toast .toast-x:hover { opacity: 1; }
     /* Success confirms (copied / deleted / saved): green, never red. */
@@ -2810,7 +2789,11 @@ public static let css: String = """
       box-shadow: var(--shadow);
       padding: 5px;
     }
-    .chat-menu.open { display: flex; }
+    /* the menu's open state is server-rendered `data-open`: the ⋮ (row and
+       workspace both) dispatches to the server's one-render latch and the
+       engine's dismiss stack owns Escape / outside click. There is no `.open`
+       client state left (A16d retired the workspace menu's overlay toggle). */
+    .chat-menu[data-open] { display: flex; }
     .chat-menu button {
       display: flex; align-items: center; gap: 9px;
       border: none; background: transparent;
@@ -3075,6 +3058,31 @@ public static let css: String = """
     }
     .kb-addcard-form input:focus { border-color: var(--accent-border); }
 
+    /* ─── Kanban inline edit (2.9.0 `data-inline-edit`) ───────────────
+       the name is the control. the form carries `data-inline-edit`, the
+       engine adds `[data-editing]` in place (local — no round trip), and the
+       save is the form's own submit. the text field and the two buttons ship in
+       the first render and are revealed by `[data-editing]`, so entering and
+       leaving an edit never needs a patch. the hidden id field is a sibling, not
+       a row item: `input[type="text"]` is the only field the layout sizes. */
+    .kb-col-head form[data-inline-edit] {
+      display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;
+    }
+    .kb-card form[data-inline-edit] {
+      display: flex; align-items: center; gap: 4px; min-width: 0;
+    }
+    .kb-col-head form[data-inline-edit] .kb-col-name,
+    .kb-card form[data-inline-edit] .kb-card-title { cursor: text; }
+    .kb-card form[data-inline-edit] .kb-card-title { flex: 1; min-width: 0; }
+    form[data-inline-edit] input[type="text"] { display: none; flex: 1; min-width: 0; }
+    form[data-inline-edit] button[type="submit"],
+    form[data-inline-edit] button[type="button"] { display: none; }
+    form[data-inline-edit][data-editing] input[type="text"] { display: block; }
+    form[data-inline-edit][data-editing] button[type="submit"],
+    form[data-inline-edit][data-editing] button[type="button"] { display: inline-flex; }
+    form[data-inline-edit][data-editing] .kb-col-name,
+    form[data-inline-edit][data-editing] .kb-card-title { display: none; }
+
     /* ─── Personal memory ────────────────────────────────────── */
     .mem-box {
       display: flex; align-items: center; gap: 10px;
@@ -3105,9 +3113,11 @@ public static let css: String = """
     .mem-sep { border: 0; border-top: 1px solid var(--border); margin: 14px 0; padding: 10px 0; text-align: center; color: var(--muted); font-size: 0.95em; user-select: none; }
 
     /* ─── Workspace panel (right side) ───────────────────────── */
-    /* The handle is a persistent affordance (the collapse tab must be
-       discoverable while the panel is open): muted at rest, full strength on
-       hover/keyboard focus and while the panel is open.
+    /* The handle is a persistent affordance: muted at rest, full strength on
+       hover/keyboard focus. It exists only while the panel is CLOSED (the rule
+       below hides it on `#ws-panel[data-open]`), so it is the open handle and
+       the header ✕ is the one close control — the A17 conversion states that in
+       CSS instead of rendering two server variants.
        It is a flush drawer pull, not a floating circle: a circle parked in the
        reading gutter read as an orphaned control with no home. Flush to the
        viewport edge it occupies the outer margin, so the transcript needs no
@@ -3124,32 +3134,48 @@ public static let css: String = """
       transition: opacity .15s ease, background .12s, color .12s, border-color .12s, width .12s ease;
     }
     #ws-dock:hover .ws-dock-btn,
-    .ws-dock-btn:focus-visible,
-    .ws-dock-btn.ws-dock-open { opacity: 1; }
+    .ws-dock-btn:focus-visible { opacity: 1; }
     .ws-dock-btn:hover { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent-border); }
-    /* UX-30: the collapse tab must actually leave when the panel is open —
-       .ws-dock-btn declares display:flex, which would override the UA
-       [hidden] rule and leave a dead chevron floating over the file rows. */
-    .ws-dock-btn[hidden] { display: none; }
+    /* UX-30: while the panel is open, exactly ONE close control is visible —
+       the header ✕. The dock's collapse tab floats at the panel's mid-right
+       edge over the file rows, so it hides while the panel is open. The key is
+       `#ws-panel[data-open]` (A17), the engine's own layer attribute, NOT a
+       server `hidden`: an engine dismissal clears that attribute without
+       telling the server, so a server-rendered `hidden` would outlive the panel
+       and strand the tab off-screen with no way back in. */
+    #app:has(#ws-panel[data-open]) .ws-dock-btn { display: none; }
+    /* The panel is an engine LAYER (A17): `data-open` is its open state and the
+       sheet owns everything the old client hook did.
+       MEASURED, and the reason this is not `display:none` + `@starting-style`:
+       the panel is a PATCHED-IN node, and the at-rule's declarations stuck as
+       its computed style — an open panel sat at `opacity: 0` forever (probed
+       live: `data-open="13"`, display flex, opacity 0). So the closed state is
+       zero width, invisible and out of the tab order, the node stays mounted in
+       both, and ONE transition list covers the enter AND the exit. That is the
+       whole of `.ws-closing` (a capture-phase click listener used to stamp it
+       BEFORE the replacing patch landed — there is no such hook now) and of
+       `.ws-enter` (a one-shot server animation class). `visibility` keeps the
+       closed panel's controls out of the tab order and the a11y tree (a
+       transform alone leaves them focusable off-screen — the drawer's rule). */
     .ws-panel {
+      width: 0; flex: 0 0 0; min-width: 0; overflow: hidden;
+      display: flex; flex-direction: column;
+      background: var(--bg);
+      opacity: 0; transform: translateX(70px);
+      /* a closing panel must not hit-test: an invisible element that still
+         swallows clicks over the right edge would eat the dock tab that reopens
+         it — the defect the old `.ws-closing` rule named. */
+      pointer-events: none; visibility: hidden;
+      transition-property: width, flex-basis, opacity, transform, visibility;
+      transition-duration: 0.28s;
+      transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .ws-panel[data-open] {
       width: var(--panel-w); flex: 0 0 var(--panel-w);
       border-left: 1px solid var(--border);
-      display: flex; flex-direction: column; min-width: 0;
-      background: var(--bg);
-      transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease;
+      opacity: 1; transform: none;
+      pointer-events: auto; visibility: visible;
     }
-    /* The panel stays mounted (opacity 0, translated off-edge) until the
-       server's close patch lands, which is a frame or two after the 280ms
-       exit. An invisible element that still hit-tests swallows clicks over
-       the right edge — including the dock button that reopens it — so the
-       closing state must not be clickable. */
-    .ws-panel.ws-closing { transform: translateX(70px); opacity: 0; pointer-events: none; }
-    .ws-panel.ws-enter { animation: wsSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
-    @keyframes wsSlideIn {
-      from { transform: translateX(70px); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
-    .ws-panel.hidden { display: none; }
     .ws-tools { display: flex; gap: 3px; align-items: center; }
     .ws-menu-wrap { position: relative; }
     .ws-body { flex: 1; overflow: auto; }
@@ -3197,12 +3223,15 @@ public static let css: String = """
     .ws-caret { width: 12px; flex: 0 0 12px; color: var(--muted); font-size: 0.86em; }
     .ws-ic { flex: 0 0 auto; font-size: 0.95em; }
     .ws-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-    .ws-panel.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); }
-    #ws-dock.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); border-radius: var(--radius-sm); }
-    .composer-bar.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); }
-    /* Upload progress tray. The rows are client-owned (overlay.js appends the
-       tray to <body>), so they must not depend on a server fragment: a
-       workspace re-render replaces #ws-panel wholesale. */
+    /* Upload affordance: the engine paints `data-upload-active` on the zone while
+       a drag is over it. All three arc zones carry `data-upload-into` (the
+       composer form via `UploadDestination.attachments`, `#ws-dock`, `#ws-panel`),
+       so the engine owns the state and the sheet only styles it. */
+    [data-upload-active] { box-shadow: inset 0 0 0 2px var(--accent-strong); }
+    #ws-dock[data-upload-active] { border-radius: var(--radius-sm); }
+    /* Upload progress tray. The rows are the ENGINE's (its upload transport
+       appends the tray to <body>), so they must not depend on a server
+       fragment: a workspace re-render replaces #ws-panel wholesale. */
     .ws-uploads {
       position: fixed; right: 14px; bottom: 14px; z-index: 900;
       display: flex; flex-direction: column; gap: 6px;
@@ -3279,39 +3308,40 @@ public static let css: String = """
     .blank-sub { font-size: 13px; color: var(--muted); max-width: 38ch; }
     .blank-cta { margin-top: 12px; display: inline-flex; align-items: center; gap: 7px; }
 
-    /* ── Slash autocomplete (reference commands.js parity) ── */
-    .cmd-dropdown { display: none; position: fixed; width: min(560px, calc(100vw - 24px));
+    /* ── Slash palette: a FilterList(token: "/") region (no-webui 3.1.0) ──
+       The region wraps the composer textarea and the panel. Its open state is
+       the ENGINE's `data-open` on `.combo__panel` (the filter list reconciles
+       it on input/focus/caret), so no class and no display rule of ours can
+       disagree with it. The panel keeps the old dropdown's absolute geometry:
+       anchored above the textarea, full width up to 560px. */
+    .combo { position: relative; }
+    .combo__panel { display: none; position: absolute; left: 0; bottom: calc(100% + 8px);
+      width: min(560px, calc(100vw - 24px)); max-height: 460px; overflow-y: auto;
+      scrollbar-gutter: stable;
       background: var(--bg); border: 1px solid var(--border-strong); border-radius: 10px;
-      box-shadow: 0 -8px 24px rgba(0,0,0,.4); z-index: 200; overflow: hidden; }
-    .cmd-dropdown.open { display: block; }
-    /* T25: the scroll region is a borderless inner wrapper, so its border-box
-       height IS the content height — the JS sizes it to an exact whole-number
-       multiple of the row pitch and the last visible row lands flush on the
-       box edge instead of being sliced in half. */
-    .cmd-list { max-height: 460px; overflow-y: auto; scrollbar-gutter: stable; }
+      box-shadow: 0 -8px 24px rgba(0,0,0,.4); z-index: 200; }
+    .combo__panel[data-open] { display: block; }
     /* UX-54: macOS overlay scrollbars are invisible at rest, which hid 6 of
        the 10 commands behind a silent fold. A slim, always-visible track lets
        the remaining rows advertise themselves. */
-    .cmd-list::-webkit-scrollbar { width: 11px; }
-    .cmd-list::-webkit-scrollbar-track { background: transparent; }
-    .cmd-list::-webkit-scrollbar-thumb {
+    .combo__panel::-webkit-scrollbar { width: 11px; }
+    .combo__panel::-webkit-scrollbar-track { background: transparent; }
+    .combo__panel::-webkit-scrollbar-thumb {
       background: var(--border-strong); border-radius: 999px;
       border: 3px solid transparent; background-clip: content-box;
     }
-    .cmd-list::-webkit-scrollbar-thumb:hover { background: var(--muted); border: 3px solid transparent; background-clip: content-box; }
-    .cmd-item { display: block; width: 100%; text-align: left; padding: 8px 14px; cursor: pointer;
-      transition: background .12s; background: transparent; border: 0; color: inherit; font: inherit; }
-    .cmd-item:hover { background: rgba(140,140,140,.12); }
-    /* T25: the active row is unmistakable — accent-tinted fill plus a left
-       accent bar (inset shadow so the row pitch is untouched by the marker). */
-    .cmd-item.active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent-strong); }
-    .cmd-item-name { font-size: 13px; color: var(--text); font-weight: 500; }
-    .cmd-item-arg { color: var(--muted); font-weight: 400; font-style: italic; }
-    .cmd-item-desc { font-size: 12px; color: var(--muted); margin-top: 1px; }
-    .cmd-item-badge { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 700;
-      letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px;
-      border: 1px solid var(--border-strong); color: var(--muted); background: var(--hover-bg); vertical-align: 1px; }
-    .cmd-item-badge-skill { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-strong); }
+    .combo__panel::-webkit-scrollbar-thumb:hover { background: var(--muted); border: 3px solid transparent; background-clip: content-box; }
+    /* a row's textContent is the BARE command name (the insert writes exactly
+       it); the description rides `data-desc` and is painted below the name. */
+    .combo__option { display: block; width: 100%; text-align: left; padding: 8px 14px;
+      cursor: pointer; transition: background .12s; font-size: 13px; font-weight: 500;
+      color: var(--text); box-sizing: border-box; }
+    /* the engine hides a filtered-out row with the `hidden` attribute, and an
+       author `display` rule would otherwise outrank the UA's [hidden]. */
+    .combo__option[hidden] { display: none; }
+    .combo__option:hover, .combo__option:focus-visible { background: rgba(140,140,140,.12); outline: none; }
+    .combo__option::after { content: attr(data-desc); display: block; margin-top: 1px;
+      font-size: 12px; font-weight: 400; color: var(--muted); }
 
     /* ── Context chips (reference _renderSelectionChips parity) ── */
     .selection-chips-wrap { display: flex; flex-direction: column; gap: 8px; max-width: 100%;
@@ -3355,7 +3385,7 @@ public static let css: String = """
     }
     .drawer-toggle-btn:hover { background: var(--surface-2); color: var(--text); }
     .drawer-toggle-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    @media (min-width: 1024px) { .drawer-toggle-btn { display: none; } }
+    @media (min-width: 861px) { .drawer-toggle-btn { display: none; } }
     /* The scrim covers the chat column while the drawer is open (below the
        topbar, so the toggle stays reachable). Clicking it closes the drawer;
        at rest it is transparent and swallows no clicks. */
@@ -3366,16 +3396,20 @@ public static let css: String = """
       transition: opacity 0.22s ease;
       z-index: 69;
     }
-    #app.drawer-open .drawer-scrim { opacity: 1; pointer-events: auto; }
-    @media (min-width: 1024px) { .drawer-scrim { display: none; } }
-    /* Below 1024px the left panel is an overlay drawer: fixed to the left
-       edge above the chat, slid off-canvas at rest. `visibility: hidden`
+    /* the open state is the engine's `data-open` on #app (no-webui 2.15.0):
+       `data-drawer-toggle` flips it with no round-trip, and the engine's own
+       breakpoint is 860px — the sheet splits at the same width. */
+    #app[data-open] .drawer-scrim { opacity: 1; pointer-events: auto; }
+    @media (min-width: 861px) { .drawer-scrim { display: none; } }
+    /* At 860px and narrower the left panel is an overlay drawer: fixed to the
+       left edge above the chat, slid off-canvas at rest. `visibility: hidden`
        puts its controls OUT of the tab order and the a11y tree while closed
-       (a transform alone leaves them focusable off-screen). The open class
-       lives on #app, never on #panel: the panel is a server fragment whose
-       node is REPLACED on every patch, so state on the panel would be wiped;
-       #app survives the patch cycle. */
-    @media (max-width: 1023.98px) {
+       (a transform alone leaves them focusable off-screen). The open state is
+       `data-open` on #app — the engine's, never on #panel: the panel is a
+       server fragment whose node is REPLACED on every patch, so state on the
+       panel would be wiped; #app survives the patch cycle. 860px is the
+       engine's own `data-drawer-toggle` breakpoint. */
+    @media (max-width: 860px) {
       /* UX-61: the drawer starts AFTER the icon rail — the rail stays visible
          and reachable while the panel is open. Before this, the panel (z70)
          and the scrim (z69, left:0) covered the rail, so every tap meant for a
@@ -3391,7 +3425,7 @@ public static let css: String = """
         box-shadow: 0 0 44px rgba(0, 0, 0, 0.35);
         transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0.28s;
       }
-      #app.drawer-open #panel {
+      #app[data-open] #panel {
         transform: translateX(0);
         visibility: visible;
         transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);

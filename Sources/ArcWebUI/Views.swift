@@ -4,6 +4,7 @@ import ArcTheme
 import Foundation
 import Logging
 import WebUI
+import WebUICore
 import WebUIDesignSystem
 
 // MARK: - Views (actor methods on AppState)
@@ -25,7 +26,11 @@ extension AppState {
     /// escaped and wrapped in `<pre><code>`, the rest goes through
     /// `markdownToHTML`. Splitting on the fence string makes the parts
     /// alternate text / code / text / code…
-    func renderMarkdown(_ markdown: String) -> String {
+    ///
+    /// `tableEnhance` is the serialized pipe-table behavior (see
+    /// `chatTableEnhance`); empty leaves the renderer's bytes untouched for
+    /// every surface that does not want sortable tables.
+    func renderMarkdown(_ markdown: String, tableEnhance: String = "") -> String {
         let parts = markdown.components(separatedBy: "```")
         var out = ""
         for (index, part) in parts.enumerated() {
@@ -53,15 +58,24 @@ extension AppState {
                 // tables, blockquotes, nested lists, task checkboxes, math
                 // elements, sanitized images/autolinks — identical to the
                 // tested parity output, engine-independent.
-                out += MarkdownRenderer.render(part)
+                out += MarkdownRenderer.render(part, tableEnhance: tableEnhance)
             }
         }
         return out
     }
 
+    /// The pipe-table behavior, serialized from the framework's typed value.
+    ///
+    /// The overlay's enhancer this replaces was scoped to `.msg-body table`,
+    /// so only chat bodies opt in: a table in the memory panel or a skill doc
+    /// stays the inert wrapper it was.
+    var chatTableEnhance: String {
+        TableEnhance(mode: .sortAndFilter).attributeText
+    }
+
     /// Wrap markdown fragment HTML in the `.md` container class.
-    func mdBox(_ markdown: String) -> String {
-        "<div class=\"md\">\(renderMarkdown(markdown))</div>"
+    func mdBox(_ markdown: String, tableEnhance: String = "") -> String {
+        "<div class=\"md\">\(renderMarkdown(markdown, tableEnhance: tableEnhance))</div>"
     }
 
     // MARK: - Shell
@@ -80,7 +94,11 @@ extension AppState {
         let main = await mainContentHTML()
 
         return Div {
+            // 2.6.0 skip target: the anchor still carries `href="#composer-input"`
+            // for a no-JS browser; `data-skip-to` is what the engine's handler
+            // reads to move real focus (a hash jump only scrolls).
             Link("Skip to composer", href: "#composer-input", class: .skipLink)
+                .behavior(SkipTarget(id: "composer-input"))
             topbarHTML()
             Div {
                 iconbarHTML()
@@ -88,8 +106,14 @@ extension AppState {
                 main
                 workspaceDockHTML()          // phase 7.4: typed, bridge retired
                 workspacePanelHTML()         // phase 7.4: typed, bridge retired
+                // the drawer's outside surface (no-webui 2.15.0): the engine's
+                // `data-drawer-toggle` flips `data-open` on #app with no
+                // round-trip, moves focus into `.drawer__panel`, and returns it to
+                // the toggle on close. `onDocClick` ignores a click that lands on
+                // a toggle, so the scrim's own click is the close.
                 Div(id: "drawer-scrim", class: .drawerScrim) {}
                     .aria(.hidden(.yes))
+                    .data("drawer-toggle", "app")
             }.id("app-body")
             modalRootHTML()
             toastsShell()
@@ -102,20 +126,21 @@ extension AppState {
     /// colorless lightning mark centred with the current chat's name beside it.
     func topbarHTML() -> some WebUI.View {
         Header {
-            // UX-19/T12: below 1024px the left panel becomes an overlay drawer
-            // opened from this toggle. The open/closed CLASS stays client-owned
-            // (overlay.js flips `#app.drawer-open` — it survives every fragment
-            // patch and owns both the visual and the aria truth). The control
-            // itself is wired to the engine (`data-component-id` + a click handler
-            // in Actions) so clicks route instead of logging the engine's
-            // "click on unwired control #drawer-toggle" warning.
+            // UX-19/T12: below 860px the left panel becomes an overlay drawer
+            // opened from this toggle. The open state is the ENGINE's (no-webui
+            // 2.15.0): `data-drawer-toggle` flips `data-open` on #app — the stable
+            // root, because `#panel` is a patched fragment whose attributes a
+            // patch replaces — with no round-trip, and the sheet splits at the
+            // same 860px the engine does. No component id: the click has no
+            // server consequence, and `data-drawer-toggle` is a behavior, so the
+            // engine's "unwired control" warning stays quiet.
             ArcButton("\u{2630}",          // ☰ — the &#9776; entity in the golden; Text escapes, so emit the char
                       id: "drawer-toggle",
-                      component: "drawer-toggle",
-                      class: .drawerToggleBtn)
+                      component: nil,
+                      class: .drawerToggleBtn,
+                      extraAttributes: " data-drawer-toggle=\"app\"")
                 .aria(.label("Toggle sidebar"))
                 .aria(.expanded(.no))
-                .data("event", "click")
             Div(class: .topbarCenter) {
                 Span(class: .topbarBolt) { WebUIIcon(.zap, size: .medium) }
                 Span(class: .topbarName) { Text(topbarLabel()) }
@@ -138,7 +163,15 @@ extension AppState {
         Div(id: "toasts") {
             toastsHTML()
         }
-        .wire("toast-dismiss")
+        // the container registers its own handler in this render pass: the toast
+        // id travels as `targetId`, so one stable id covers every row.
+        .control(id: "toast-dismiss", perform: { event in
+            guard let tid = event.string("targetId") else { return .fragments([]) }
+            guard tid.hasPrefix("t-"),
+                  let id = Int(tid.dropFirst("t-".count)) else { return .fragments([]) }
+            await self.dismissToast(id: id)
+            return .refresh
+        })
     }
 
     func iconbarHTML() -> some WebUI.View {
@@ -156,13 +189,16 @@ extension AppState {
             }
         }
         .id("iconbar")
+        // 2.6.0 roving: one tab stop for the whole rail; ArrowUp/Down (and
+        // Left/Right) move focus and tabindex together inside this container.
+        .behavior(Roving())
     }
 
     /// One rail tab as a button.
     ///
     /// UX-07 roving rail: the ACTIVE nav item is the single tab stop; every other
-    /// tab is `tabindex="-1"` and reached with ArrowUp/ArrowDown (overlay.js roves
-    /// tabindex with focus). UX-08: an icon-only button still needs an accessible
+    /// tab is `tabindex="-1"` and reached with ArrowUp/ArrowDown (#iconbar carries
+    /// `data-roving`; the engine moves tabindex with focus). UX-08: an icon-only button still needs an accessible
     /// name — the `data-tip` pill is hover-only, so assistive tech and touch never
     /// see it.
     ///
@@ -171,11 +207,21 @@ extension AppState {
     /// `Group` keeps it as exactly one `<button>` (no wrapper element), so the
     /// rail renders one button per tab.
     private func railButton(_ tab: any SidebarTab, active: Bool) -> some WebUI.View {
+        // the id and the handler travel with the control: registration happens
+        // in this render pass, so no central nav loop has to enumerate the rail.
+        // the handler answers `HandlerOutcome.refresh`: the server re-renders
+        // this session's page and ships the regions whose bytes moved.
+        let tabID = tab.id
+        let navigation = controlAttributes(id: "nav-\(tabID)", event: .click, outcome: { _ in
+            await self.switchTab(tabID)
+            await self.notifyTabActivated(tabID)
+            return .refresh
+        })
         let base = ArcButton(
-            id: "nav-\(tab.id)",
-            component: "nav-\(tab.id)",
+            id: "nav-\(tabID)",
             class: ClassName(active ? "icon-btn active" : "icon-btn"),
-            tabIndex: active ? 0 : -1
+            tabIndex: active ? 0 : -1,
+            extraAttributes: navigation
         ) {
             SidebarTabIconRenderer.view(tab.icon)
         }
@@ -201,11 +247,6 @@ extension AppState {
         // their TTL tick).
         let visible = toasts.suffix(3)
         let overflow = toasts.count - visible.count
-        // Clipboard side-channel for the shared-link copy (UX-06): consumed
-        // by the overlay's post-patch pass; single-shot — the state is read
-        // and cleared here so a later toast push never re-emits it.
-        let marker = pendingCopyURL
-        pendingCopyURL = nil
         return Group {
             for t in visible {
                 Div(class: ClassName("toast \(t.kind)")) {
@@ -222,16 +263,29 @@ extension AppState {
             if overflow > 0 {
                 Div(class: ClassName(.toast, .toastMore)) { Text("+\(overflow) more") }
             }
-            if let marker {
-                Span {}.id("pending-copy").data("copy-url", marker)
-            }
         }
     }
 
     /// The one confirmation dialog. Chat and profile deletes arm their original
     /// state fields; newer guards (workspaces) arm `pendingConfirm` — so every
     /// destructive action gets the same dialog, the same Cancel/Delete pair, a
-    /// real dialog role, and (via the overlay) the same focus + Escape handling.
+    /// real dialog role, and (via no-webui 2.14.0) the same focus + Escape
+    /// handling.
+    ///
+    /// Focus is the ENGINE's now — arc emits two attributes and keeps no code:
+    ///  - `data-focus-return` on Cancel names the control focus goes back to when
+    ///    the dialog's removal patch lands (the engine's opener memo is keyed by
+    ///    element id, so the target must be a visible, focusable control — see
+    ///    `confirmOpenerID`);
+    ///  - `autofocus` on Cancel is the entry path: the dialog is inserted by a
+    ///    patch, and the HTML autofocus flush puts focus on its first control.
+    ///    no-webui has no "focus this dialog" behavior of its own (F3).
+    /// `data-dismiss` is still the engine's Escape contract: `escape` fires the
+    /// layer's first `[data-dismiss]` control, so Cancel is that control and
+    /// Delete never is. All three ride `extraAttributes` (the stored-property
+    /// seam) rather than view modifiers: `modalHTML()` sits on a render-stack
+    /// cliff, and ONE more view modifier anywhere in this function overflows it
+    /// (see the row 1.4 defect).
     func modalHTML() -> some WebUI.View {
         Group {
             if let req = activeConfirm {
@@ -241,7 +295,9 @@ extension AppState {
                             .id("modal-title")
                         Paragraph(req.body)
                         Div(class: .modalActions) {
-                            ArcButton("Cancel", id: "modal-cancel", component: nil, class: .ghostBtn)
+                            ArcButton("Cancel", id: "modal-cancel", component: nil, class: .ghostBtn,
+                                      extraAttributes: DismissStack().attribute().attributeText
+                                          + confirmFocusReturn(req))
                             ArcButton("Delete", id: "modal-confirm", component: nil, class: .dangerBtn)
                         }
                         .wire("modal")
@@ -250,7 +306,87 @@ extension AppState {
                     .aria(.modal(.yes))
                     .aria(.labelledby("modal-title"))
                 }
+                // the ENTRY path is 3.1.0's `FocusInto`: the dialog is inserted
+                // by a patch, and the binder focuses its Cancel when live focus
+                // is vacant or outside this region. Unlike `autofocus` (once per
+                // document), it fires on the first AND every later open. It sits
+                // on the overlay root — a fresh element whose chain carries no
+                // other modifier, so the `modalHTML()` render-stack cliff the
+                // Cancel button's `extraAttributes` works around is untouched.
+                .attribute(FocusInto(id: "modal-cancel").attribute())
             }
+        }
+    }
+
+    /// ` data-focus-return="<opener id>"` for the dialog's Cancel control, or
+    /// `""` when the armed request has no focus-return opener.
+    private func confirmFocusReturn(_ req: ConfirmRequest) -> String {
+        let opener = confirmOpenerID(req)
+        return opener.isEmpty ? "" : FocusReturn(id: opener).attribute().attributeText
+    }
+
+    /// The rename dialog (A16a): one form, one round trip, no client code.
+    ///
+    /// A native `<dialog open>` was the plan's first shape (F4), and it is not a
+    /// modal without JS: the `open` attribute renders the element in normal flow
+    /// — no top layer, no backdrop, no inert background — and `showModal()` is a
+    /// script call. So the card is the SAME `.modal-overlay` the confirm dialog
+    /// uses, and every behaviour is the engine's (2.14.0):
+    ///  - `autofocus` on the field is the entry path (the HTML autofocus flush;
+    ///    F3's once-per-document limit applies and A16d owns the fix);
+    ///  - `data-dismiss` on Cancel is Escape's target;
+    ///  - `data-focus-return` on Cancel names the row's ⋮ — the "Rename" entry
+    ///    that armed the dialog is gone with the menu the same click closed, so
+    ///    the return target is the row's own control (the A12 resolution).
+    ///
+    /// The form posts the same `rename-id` / `rename-name` pair the retired
+    /// hidden `#rename-form` carried, so `handleChatMenu`'s submit branch is
+    /// unchanged. `sessionTitle` seeds the field from the FULL stored title —
+    /// never the 40-char row clamp, which would commit truncation (UX-21).
+    func renameDialogHTML() -> some WebUI.View {
+        Group {
+            if let rid = renameSessionID,
+               let session = sessions.first(where: { $0.id == rid }) {
+                Div(id: "rename-overlay", class: .modalOverlay) {
+                    Form(method: nil, id: "rename-form", class: .modalCard) {
+                        Heading("Rename conversation", level: .h3)
+                            .id("rename-title")
+                        Input(field: "rename-name", type: .text, value: sessionTitle(session),
+                              attributes: [("autofocus", ""), ("aria-label", "Conversation title")])
+                        Input(field: "rename-id", type: .hidden, value: rid)
+                        Div(class: .modalActions) {
+                            ArcButton("Cancel", id: "rename-cancel", component: nil, class: .ghostBtn,
+                                      extraAttributes: DismissStack().attribute().attributeText
+                                          + FocusReturn(id: "s-menu-\(enc(rid))").attribute().attributeText)
+                            ArcButton("Rename", id: "rename-save", component: nil, class: .primaryBtn, type: .submit)
+                        }
+                    }
+                    .data("component-id", "chat-menu")
+                    .attribute("role", "dialog")
+                    .aria(.modal(.yes))
+                    .aria(.labelledby("rename-title"))
+                }
+            }
+        }
+    }
+
+    /// The id of the control focus returns to when the dialog closes, per
+    /// confirmation kind: the control the user activated — except for a chat,
+    /// where the activated item is the row menu's Delete entry and the whole
+    /// menu closes on that same click, leaving the item with no layout and no
+    /// focus. The chat's target is therefore the row's ⋮ button (`s-menu-`,
+    /// which owns the menu and stays visible), and `sm-del-` names the dialog
+    /// itself so the pairing is stated on both ends.
+    /// A kind with no known opener returns `""` — no attribute, no guessing.
+    private func confirmOpenerID(_ req: ConfirmRequest) -> String {
+        switch req.kind {
+        case "chat": return "s-menu-\(enc(req.id))"
+        case "profile": return "pr-del-\(enc(req.id))"
+        case "skill": return "sk-delete"
+        case "workspace": return "ws-del-\(enc(req.id))"
+        case "mcp": return "mcp-del-\(enc(req.id))"
+        case "empty-drafts": return "chat-clear-empty"
+        default: return ""
         }
     }
 
@@ -325,12 +461,13 @@ extension AppState {
             }
         }
     }
-    /// Everything rendered in #modal-root (delete confirmation + category menu).
+    /// Everything rendered in #modal-root (delete confirmation + rename + category menu).
     /// Owns the `#modal-root` wrapper so the fragment id rides beside the builder
     /// that emits it.
     func modalRootHTML() -> some WebUI.View {
         Div(id: "modal-root") {
             modalHTML()
+            renameDialogHTML()
             contextPaneHTML()
             categoryMenuHTML()
         }
@@ -370,16 +507,42 @@ extension AppState {
         }
     }
 
+    /// The context-pane boundary, installed by the ring and the card in their
+    /// own render passes. The engine only sends `targetId` for a nested
+    /// id-bearing element (never for the wired component itself), so: no
+    /// targetId = ring click (pane closed) or backdrop click (pane open); the
+    /// card id itself is inert.
+    private func contextPaneBoundary(_ event: EventData) async -> HandlerOutcome {
+        switch event.string("targetId") {
+        case "ctx-pane-close":
+            closeContextPane()
+            return .refresh
+        case "ctx-pane-card":
+            return .fragments([]) // clicks inside the card content are inert
+        default:
+            // No nested id: the ring (open) or the backdrop (close).
+            if contextPane != nil {
+                closeContextPane()
+            } else {
+                await openContextPane()
+            }
+            return .refresh
+        }
+    }
+
     /// The context-breakdown pane: one centered card describing exactly what
     /// the next request would contain and how many tokens each part carries.
-    /// Opened by clicking the context ring; dismissed by the close button,
-    /// the backdrop, or Escape (overlay.js routes it to `#ctx-pane-close`).
+    /// Opened by clicking the context ring; dismissed by the close button, the
+    /// backdrop, or Escape (the engine fires the card's `data-dismiss` control,
+    /// `#ctx-pane-close`).
     func contextPaneHTML() -> some WebUI.View {
         Group {
             if let pane = contextPane {
                 Div(id: "ctx-pane-overlay", class: .modalOverlay) {
                     Div(id: "ctx-pane-card", class: .ctxPaneCard) {
-                        ArcButton(id: "ctx-pane-close", component: nil, class: ClassName(.ghostBtn, .ctxPaneClose)) {
+                        ArcButton(id: "ctx-pane-close", component: nil, class: ClassName(.ghostBtn, .ctxPaneClose),
+                                  extraAttributes: DismissStack().attribute().attributeText
+                                      + FocusReturn(id: "ctx-chip-summary").attribute().attributeText) {
                             WebUIIcon(.x, size: .small)
                         }
                         Heading("Context breakdown", level: .h3)
@@ -405,8 +568,13 @@ extension AppState {
                     .attribute("role", "dialog")
                     .aria(.modal(.yes))
                     .aria(.labelledby("ctx-pane-title"))
-                    .wire("ctxpane")
+                    .control(id: "ctxpane", perform: contextPaneBoundary)
                 }
+                // entry (A16d): `FocusInto` on the inserted region root — first
+                // and every later open, not `autofocus`'s once. Same placement
+                // as the confirm dialog: the overlay root, whose chain carries
+                // no other modifier.
+                .attribute(FocusInto(id: "ctx-pane-close").attribute())
             }
         }
     }
@@ -421,7 +589,13 @@ extension AppState {
         } else {
             plugin = nil
         }
-        return Div {
+        // `drawer__panel` is the engine's focus target inside a
+        // `data-drawer-toggle` root (`root.querySelector('.drawer__panel')`), and
+        // `data-dismiss` makes it the drawer's layer: armed only while #app
+        // carries `data-open` (2.15.0's `dismissGate`), so a closed drawer never
+        // takes Escape. The sheet clears the framework's own box decoration for
+        // that class so arc's `#panel` frame is unchanged.
+        return Div(class: ClassName("drawer__panel")) {
             if let plugin {
                 // plugin seam: the third-party ABI is a plain html fragment
                 // (`SidebarTab.panelHTML()`), sanitized by the kit. this Raw
@@ -431,7 +605,9 @@ extension AppState {
             } else {
                 chatPanel()
             }
-        }.id("panel")
+        }
+        .id("panel")
+        .data("dismiss", "")
     }
 
     /// Panel content for a built-in view id (dispatched through the tab
@@ -511,6 +687,14 @@ extension AppState {
         // pinned chats now get their own group above the date buckets.
         let pinned = ordered.filter { bookmarks.contains($0.id) }
         let unpinned = ordered.filter { !bookmarks.contains($0.id) }
+        // the row menu's open latch is CONSUMED here (the same one-render rule
+        // as the composer popovers): this render states the armed row's menu
+        // open, every later render states it closed, and the engine's dismissal
+        // (Escape / an outside click, which removes `data-open` client-side) is
+        // never re-asserted by a patch.
+        let openMenu = rowMenu
+        let openMenuSerial = rowMenuSerial
+        rowMenu = nil
         // arc parity: chats are bucketed into Today / Yesterday / Earlier this
         // week / Older (youngest first within each bucket); each bucket is
         // collapsible. Yesterday splits out of the 1-6 day band so a chat from
@@ -578,7 +762,8 @@ extension AppState {
                 }
             }
             if !todos && !showArchived && clearableDrafts > 0 {
-                ArcButton(id: "chat-clear-empty", component: "chat-clear-empty", class: .archLink) {
+                ArcButton(id: "chat-clear-empty", component: "chat-clear-empty", class: .archLink,
+                          extraAttributes: FocusReturn(id: "modal-overlay").attribute().attributeText) {
                     Span(class: "arch-ico") { WebUIIcon(.trash, size: .small) }
                     Span { Text(" Clear \(clearableDrafts) empty chat\(clearableDrafts == 1 ? "" : "s")") }
                 }
@@ -586,16 +771,29 @@ extension AppState {
             }
             PanelBody {
                 if !pinned.isEmpty {
-                    groupHTML(key: "pinned", title: "Pinned", sessions: pinned, todos: todos)
+                    groupHTML(key: "pinned", title: "Pinned", sessions: pinned, todos: todos,
+                              openMenu: openMenu, menuSerial: openMenuSerial)
                 }
                 for bucket in bucketRows {
-                    ErasedViews([groupHTML(key: bucket.key, title: bucket.title, sessions: bucket.sessions, todos: todos)])
+                    ErasedViews([groupHTML(key: bucket.key, title: bucket.title, sessions: bucket.sessions, todos: todos,
+                                           openMenu: openMenu, menuSerial: openMenuSerial)])
                 }
                 if pinned.isEmpty && bucketRows.isEmpty {
                     EmptyHint { Text(emptyMsg) }
                 }
             }
             .id("sess-list-body")
+            // UX-07 roving, one group for the whole list: the rows carry the
+            // tabindex contract (active row `0`, every other row `-1`), and this
+            // container is the owner the engine binds ArrowUp/Down to. A
+            // `data-roving` per date bucket made each non-empty bucket its own
+            // roving group, so the list cost 4–5 Tab stops (measured: 17 stops
+            // to the composer at 1440). One owner, one stop, arrows across the
+            // whole list. The binder's kids are the rows a reader can reach, so
+            // collapsing a bucket re-marks the list rather than stranding its
+            // only tab stop in a hidden subtree; the bucket head stays a quiet
+            // utility by design.
+            .behavior(Roving())
             .data("scroll-key", "sessions")
             .data("component-id", "sess-list")
             .data("event", "click")
@@ -659,23 +857,34 @@ extension AppState {
                           placeholder: "Category name", type: .text)
                         .data("component-id", "cat-name-input")
                         .attribute("autofocus", "")
-                    Input(field: "cat-color-input", type: .hidden)
-                        .class("color-value")
-                        .value(AppState.palette[0])
-                    CatSwatches {
-                        for (i, c) in AppState.palette.enumerated() {
-                            ErasedViews([ArcButton(id: nil, component: nil, class: ClassName("cat-swatch\(i == 0 ? " sel" : "")")) {}
-                                .data("color", c)
-                                .attribute("style", "background:\(c)")
-                                .aria(.label(c))])
-                        }
-                    }
+                    paletteRadios("cat-color-input")
                     CatAddActions {
                         ArcButton("Add", class: .primaryBtn, type: .submit)
                         ArcButton("Cancel", id: "cat-add-cancel", component: nil, class: .ghostBtn)
                     }
                 }
                 .data("component-id", "cat-add-form")
+            }
+        }
+    }
+
+    /// The colour palette as ONE native radio group (A17).
+    ///
+    /// The selection is the browser's: a `<input type="radio">` in a named group
+    /// carries `:checked` itself and the form posts the checked colour under
+    /// `field` — the SAME wire key the server already reads (`cat-color-input`,
+    /// `kb-addcol-color`). That retires the client mirror and its hidden
+    /// `.color-value` input: nothing has to copy a button's class into a field
+    /// before submit, and the sheet paints the swatch from `:checked` instead of
+    /// a server-rendered `.sel`.
+    func paletteRadios(_ field: String) -> some WebUI.View {
+        CatSwatches {
+            for (i, c) in AppState.palette.enumerated() {
+                ErasedViews([Input(name: field, type: .radio, value: c)
+                    .class(ClassName(.catSwatch).value)
+                    .flag(.checked, when: i == 0)
+                    .attribute("style", "background:\(c)")
+                    .aria(.label(c))])
             }
         }
     }
@@ -710,9 +919,15 @@ extension AppState {
     }
 
     /// arc-parity relative time: 1m / 12m / 3h / 4d / Aug 28 (+year if older
-    /// than this year). Mirrors the client-side ladder in init.js.
-    func relTimeLabel(_ d: Date) -> String {
-        let now = Date()
+    /// than this year). The server renders the label once; the engine's
+    /// `data-reltime` binder repaints it on a tick, so the ladder exists twice
+    /// (here and in the engine) and must agree.
+    ///
+    /// `now` is injectable only so `RelativeTimeParityTests` can pin this ladder
+    /// against the golden table at a fixed instant: the production call site
+    /// passes nothing and reads the wall clock, and no bucket boundary or
+    /// format string here depends on the parameter.
+    func relTimeLabel(_ d: Date, now: Date = Date()) -> String {
         let diff = max(0, now.timeIntervalSince(d))
         if diff < 60 { return "1m" }
         if diff < 3600 { return "\(Int(diff / 60))m" }
@@ -742,31 +957,42 @@ extension AppState {
     }
 
     /// One collapsible bucket: caret + title + count + the session rows.
-    func groupHTML(key: String, title: String, sessions: [Session], todos: Bool = false) -> some WebUI.View {
-        Div(class: .sessGroup) {
-            ArcButton(
-                id: "sess-grp-\(key)",
-                component: nil,                 // the group head owns no boundary
-                class: .sessGroupHead,
-                tabIndex: -1                    // quiet utility, not a tab stop
-            ) {
-                Span(class: .sessCaret) { WebUIIcon(.chevronDown, size: .small) }
-                Span(class: .sessGroupTitle) { Text(title) }
-            }
-            .title(title)
+    ///
+    /// A native `<details>`: the engine keeps `open` across a patch by id
+    /// (`data-preserve-open`), so collapsing a bucket is the platform's job and
+    /// the overlay owns no click handler for it. The head stays a quiet utility
+    /// (`tabindex="-1"`): the bucket is a grouping, not a control.
+    ///
+    /// The bucket is NOT its own roving group: one `data-roving` per bucket made
+    /// the tab budget a function of the data (each non-empty bucket cost one Tab
+    /// stop — measured 4–5 at 1440 depending on how many date buckets held rows).
+    /// The roving owner is `#sess-list-body`, so the whole list is one tab stop.
+    func groupHTML(key: String, title: String, sessions: [Session], todos: Bool = false,
+                   openMenu: String? = nil, menuSerial: Int = 0) -> some WebUI.View {
+        ArcDisclosure(open: true,
+                      summaryClass: .sessGroupHead,
+                      summaryTabIndex: -1,
+                      summaryTitle: title) {
+            Span(class: .sessCaret) { WebUIIcon(.chevronDown, size: .small) }
+            Span(class: .sessGroupTitle) { Text(title) }
+        } content: {
             // no aria-label: the head's own `.sess-group-title` span already names
             // it, so a label would be a redundant second name — and the phase's
             // contract is that a conversion changes NO bytes.
             Div(class: .sessGroupRows) {
                 for s in sessions {
-                    ErasedViews([sessionRow(s, todos: todos)])
+                    ErasedViews([sessionRow(s, todos: todos, openMenu: openMenu, menuSerial: menuSerial)])
                 }
             }
         }
+        .addClass(.sessGroup)
+        .id("sess-grp-\(key)")
+        .behavior(Disclosure())
         .data("grp", key)
     }
 
-func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
+func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
+                    menuSerial: Int = 0) -> some WebUI.View {
         let encID = enc(s.id)
         let isActiveRow = s.id == activeSessionID
         let active = isActiveRow ? " active" : ""
@@ -777,11 +1003,14 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // (wave 4) — identical truncated rows are otherwise indistinguishable.
         let full = sessionTitle(s)
         let title = trunc(full, 40)
-        // UX-07 roving: the ROW is the single tab stop (active row tabindex
-        // 0, everyone else -1; ArrowUp/Down moves focus between rows). The
-        // open button and the ⋮ menu are quiet utilities: out of the tab
-        // order, but still reachable by keyboard through the row (Enter opens,
-        // Menu/Shift+F10 opens the ⋮ menu).
+        // UX-07 roving: the ROW is the tab stop (active row tabindex 0,
+        // everyone else -1). The roving OWNER is the whole list
+        // (`#sess-list-body`), so ArrowUp/Down crosses bucket boundaries; the
+        // engine walks the owner's focusable descendants, which is why one
+        // arrow press can land on the row's own open/⋮ button between two
+        // rows. The open button and the ⋮ menu are quiet utilities: out of the
+        // tab order, but still reachable by keyboard through the row (Enter
+        // opens, Menu/Shift+F10 opens the ⋮ menu).
         let rowTab = isActiveRow ? 0 : -1
         let rowClass = "sess-row\(active)\(archived)"
     return Group {
@@ -818,6 +1047,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             let catID = categoryID(for: s.id)
             let catColor = categoryColor(for: catID)
             let catName = categoryName(for: catID)
+            // the row menu is SERVER state now (one-render latch, like the
+            // composer popovers): the ⋮ dispatches `s-menu-<sid>`, the category
+            // panel is a server swap inside the open menu, and the engine's
+            // dismiss stack owns Escape / the outside click.
+            let menuOpen = openMenu == s.id
+            let showCategories = menuOpen && rowMenuShowsCategories
             let row = Div(class: ClassName(rowClass)) {
                 ArcButton(id: "s-open-\(encID)", component: nil, class: .sessOpen, tabIndex: -1) {
                     SessTitle {
@@ -836,6 +1071,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
                 RowActions {
+                    // the boundary is the WRAPPER, not the menu: the ⋮ button and
+                    // the menu's rows must reach the same handler (the button is
+                    // the toggle, the rows are the actions), and a boundary on
+                    // the menu alone left the toggle unwired.
                     Div(class: .menuWrap) {
                         Div(class: .menuLeft) {
                             if !catColor.isEmpty {
@@ -855,7 +1094,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         .title("Chat actions")
                         Div(class: .chatMenu) {
                             Div(class: "chat-menu-items") {
-                                ArcButton("Copy conversation link", id: "sm-copy-\(encID)", class: "")
+                                ArcButton("Copy conversation link", id: "sm-copy-\(encID)", class: "",
+                                          extraAttributes: Clipboard(text: shareURL(s.id)).attribute().attributeText)
                                     .data("sid", s.id)
                                 ArcButton("Rename conversation", id: "sm-rename-\(encID)", class: "")
                                     .data("sid", s.id)
@@ -873,15 +1113,17 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 }
                                 ArcButton("Duplicate conversation", id: "sm-dup-\(encID)", class: "")
                                     .data("sid", s.id)
-                                ArcButton("Delete conversation", id: "sm-del-\(encID)", class: .danger)
+                                ArcButton("Delete conversation", id: "sm-del-\(encID)", class: .danger,
+                                          extraAttributes: FocusReturn(id: "modal-overlay").attribute().attributeText)
                                     .data("sid", s.id)
                             }
+                            .flag(.hidden, when: showCategories)
                             // "Move to Category" swaps this menu's items for a
-                            // category panel (client-side panel swap; the category
-                            // buttons keep their wire ids).
-                            // The panel must be a SIBLING of .chat-menu-items: when JS
-                            // hides the items container, a nested panel would be
-                            // hidden with it.
+                            // category panel (server state: `rowMenuShowsCategories`);
+                            // the category buttons keep their wire ids.
+                            // The panel must be a SIBLING of .chat-menu-items: the
+                            // server hides the items container while the panel owns
+                            // the menu, and a nested panel would be hidden with it.
                             Div(class: .chatMenuPanel) {
                                 Div(class: .catPanelHead) {
                                     ArcButton(id: "sm-catback-\(encID)", component: nil, class: .catPanelBack) {
@@ -909,11 +1151,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 }
                             }
                             .id("catpanel-\(encID)")
-                            .flag(.hidden)
+                            .flag(.hidden, when: !showCategories)
                         }
-                        .wire("chat-menu")
                         .id("menu-\(encID)")
+                        .dismissibleOpen(menuOpen ? menuSerial : nil)
                     }
+                    .wire("chat-menu")
                 }
             }
             .attribute("tabindex", "\(rowTab)")
@@ -969,13 +1212,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             PanelBody {
                 for cat in cats {
                     let list = groups[cat] ?? []
-                    ErasedViews([Div(class: .skillGroup) {
-                        ArcButton(id: "skcat-\(enc(cat))", class: .skillCatHead, type: .button) {
-                            Span(class: .skillCatCaret) { WebUIIcon(.chevronDown, size: .small) }
-                            Span(class: "skill-cat-title") { Text(cat) }
-                            Span(class: .skillCatCount) { Text("(\(list.count))") }
-                        }
-                        .title("Toggle section")
+                    ErasedViews([ArcDisclosure(open: true,
+                                               summaryClass: .skillCatHead,
+                                               summaryTitle: "Toggle section") {
+                        Span(class: .skillCatCaret) { WebUIIcon(.chevronDown, size: .small) }
+                        Span(class: "skill-cat-title") { Text(cat) }
+                        Span(class: .skillCatCount) { Text("(\(list.count))") }
+                    } content: {
                         Div(class: .skillCatRows) {
                             for skill in list {
                                 ErasedViews([skillRowHTML(skill)])
@@ -983,6 +1226,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         }
                         .data("component-id", "skill-list")
                     }
+                    .addClass(.skillGroup)
+                    .id("skcat-\(enc(cat))")
+                    .behavior(Disclosure())
                     .data("grp-skill", cat)])
                 }
                 if let emptyMessage {
@@ -1054,6 +1300,22 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // configured, so a bare "1 tool" misleads — the count is meaningless
         // without knowing whether anything is behind it.
         let mcpServers = arcConfig.mcpServers.count
+        // one environment read per render, not one per row: availability is
+        // evaluated for every tool in the list below.
+        let env = ProcessInfo.processInfo.environment
+
+        // the per-tool deny list this panel both reads and writes
+        // (`tools.disabledTools`); the toolset switch above it is the norm.
+        let disabledTools = arcConfig.tools.disabledToolSet
+
+        // F18: a name in `tools.disabledTools`/`enabledTools` that no tool
+        // matches disables nothing — before this it also said nothing, so the
+        // operator's edit looked applied and did not exist. Validate on read,
+        // against the same catalog this panel lists.
+        let unknownTools = ToolEnablement.unknownNames(
+            in: arcConfig.tools.toolEnablement,
+            knownToolNames: Set(toolsets.flatMap { $0.tools.map(\.name) })
+        )
 
         return Group {
             PanelHead {
@@ -1068,6 +1330,15 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             // UX-41 panel scroll memory: the id + scroll-key preserve the
             // list's scroll position when a tool click refreshes fragments.
             PanelBody {
+                // a warning row, not an empty state: the list under it is the
+                // real surface; this names the config entries that do nothing.
+                if !unknownTools.isEmpty {
+                    Div(class: ClassName(.listRow, .setHint)) {
+                        Span(class: .setWarn) {
+                            Text("Ignored: \(unknownTools.joined(separator: ", ")) — no tool by that name. Check tools.disabledTools / tools.enabledTools in config.json.")
+                        }
+                    }
+                }
                 if noMatch {
                     EmptyHint { Text("No tools match “\(toolFilter)”.") }
                 } else {
@@ -1092,9 +1363,20 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                         Text("\(filtered.count) tool\(filtered.count == 1 ? "" : "s")")
                                     }
                                 }
-                                ArcSwitch(id: "ts-\(encTS)", on: !disabled, component: "tools-toggle",
-                                          event: "change", value: "ts-\(encTS)",
-                                          ariaLabel: "Enable \(toolset) tools")
+                                // each row registers the tools boundary in this
+                                // render pass; the row button keeps only its id,
+                                // so the click still reports `tl-open-<enc>` as
+                                // `targetId`.
+                                ArcSwitch(id: "ts-\(encTS)", on: !disabled,
+                                          value: "ts-\(encTS)",
+                                          ariaLabel: "Enable \(toolset) tools",
+                                          extraAttributes: controlAttributes(id: "tools-toggle", event: .change, outcome: { event in
+                                              let tid = event.string("targetId") ?? event.string("value") ?? ""
+                                              guard tid.hasPrefix("ts-") else { return .fragments([]) }
+                                              let ts = dec(String(tid.dropFirst("ts-".count))) ?? ""
+                                              await self.setToolset(ts, enabled: event.checked == true)
+                                              return .refresh
+                                          }))
                                     .title(disabled ? "Toolset disabled" : "Toolset enabled")
                             }
                             if toolset == "mcp" && mcpServers == 0 {
@@ -1105,19 +1387,70 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             for t in filtered {
                                 let encT = enc(t.name)
                                 let active = t.name == selectedTool
-                                let avail = (t.checkFn?() ?? true)
-                                ErasedViews([Div(class: ClassName("list-row\(active ? " active" : "")")) {
+                                let avail = t.availability.unavailableReason(env: env) == nil
+                                // per-tool override — the exception; the
+                                // toolset switch above is the norm. when the
+                                // toolset is what removed the tool the row's
+                                // switch is inert and says so, so the control
+                                // never claims an effect it cannot have.
+                                let toolOff = disabledTools.contains(t.name)
+                                let rowOff = disabled || toolOff
+                                let switchHint = disabled
+                                    ? "Off with toolset \(toolset) — enable the toolset first"
+                                    : (toolOff ? "Tool disabled" : "Tool enabled")
+                                ErasedViews([Div(class: ClassName("list-row\(active ? " active" : "")\(rowOff ? " tool-off" : "")")) {
                                     ArcButton(id: "tl-open-\(encT)", class: ClassName(.sessOpen, .sessOpenFlush), type: .button) {
                                         LrName {
                                             toolIcon(t.emoji)
                                             Text(t.name)
-                                            if !avail {
+                                            if disabled {
+                                                LrSub { Text(" (toolset off)") }
+                                            } else if toolOff {
+                                                LrSub { Text(" (disabled)") }
+                                            } else if !avail {
                                                 LrSub { Text(" (needs env)") }
+                                            }
+                                            // provenance without opening the pane:
+                                            // the operator's main trust signal, and
+                                            // the reader `origin` was kept for. the
+                                            // loop holds `any AgentTool`; provenance
+                                            // lives on the admitted `RegisteredTool`,
+                                            // so it is resolved through the registry.
+                                            if let origin = registry.lookup(name: t.name)?.origin,
+                                               !origin.isCompiledIn {
+                                                LrSub { Text(" \(origin.displayName)") }
                                             }
                                         }
                                     }
+                                    // a switched-off tool stays listed: removing
+                                    // it would strand the operator with no way
+                                    // back on.
+                                    ArcSwitch(id: "tl-toggle-\(encT)", on: !rowOff,
+                                              value: "tl-toggle-\(encT)",
+                                              ariaLabel: disabled
+                                                  ? "\(t.name) is off with its toolset"
+                                                  : "Enable \(t.name)",
+                                              extraAttributes: disabled
+                                                  ? " disabled=\"\" aria-disabled=\"true\""
+                                                  : controlAttributes(id: "tool-toggle", event: .change, outcome: { event in
+                                                      let tid = event.string("targetId") ?? event.string("value") ?? ""
+                                                      guard tid.hasPrefix("tl-toggle-") else { return .fragments([]) }
+                                                      let name = dec(String(tid.dropFirst("tl-toggle-".count))) ?? ""
+                                                      await self.setTool(name, enabled: event.checked == true)
+                                                      return .refresh
+                                                  }))
+                                        .title(switchHint)
                                 }
-                                .data("component-id", "tool-list")
+                                // the row boundary registers in this render pass;
+                                // the button inside carries only its id so the
+                                // click reports `tl-open-<enc>` as `targetId`.
+                                .control(id: "tool-list", on: .click, perform: { event in
+                                    guard let tid = event.string("targetId"), tid.hasPrefix("tl-open-") else { return .fragments([]) }
+                                    let name = dec(String(tid.dropFirst("tl-open-".count))) ?? ""
+                                    await self.selectTool(name)
+                                    return .refresh
+                                })
+                                .aria([.disabled(true)], when: rowOff)
                                 .aria([.current(.yes)], when: active)])
                             }
                         }
@@ -1163,7 +1496,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             // `main` has no delete control: the default workspace
                             // cannot be removed, and the absence is the contract.
                             if !isMain {
-                                ArcButton(id: "ws-del-\(encWS)", class: ClassName(.iconMini, .danger), type: .button) {
+                                ArcButton(id: "ws-del-\(encWS)", class: ClassName(.iconMini, .danger), type: .button,
+                                          extraAttributes: FocusReturn(id: "modal-overlay").attribute().attributeText) {
                                     WebUIIcon(.x, size: .small)
                                 }
                                 .title("Delete")
@@ -1318,43 +1652,38 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     func chatMain() -> some WebUI.View {
         let hasSession = activeSessionID != nil
         let session = activeSession()
-        // the follow flag is consumed once: the render that scrolls to the
-        // bottom clears it, so a later re-render must not re-scroll.
-        let follow = forceScrollBottom
-        forceScrollBottom = false
-        // `.attribute` decorates the NEXT element opened, so the scroller is
-        // built on its own and decorated before it is nested in the wrapper —
-        // otherwise `data-follow` lands on `.chat-scroll-wrap`.
-        let scroller = ChatScroll {
+        // a11: the engine owns follow, the reading keys and the per-session
+        // position. `ChatScroller` writes all three attributes (and the
+        // focusability `ReadingKeys` needs) into its own open tag — four more
+        // modifiers here segfault the shell render (D-5(a′)). The engine
+        // answers with `data-follow-state="away"` while the reader is off the
+        // tail, and the sheet keys the jump control on that attribute — never
+        // on `[hidden]`.
+        let scroller = ChatScroller(session: activeSessionID ?? "") {
             ChatInner {
                 messagesHTML(session?.messages ?? [], sessionID: session?.id)
             }
             .id("chat-inner")
-        }
-        .id("chat-scroll")
-        .data("scroll-key", "chat")
-        .data("session", activeSessionID ?? "")
-        // `data-follow` is presence-only, so the scrolling shape is a branch
-        // rather than an empty attribute.
-        let followedScroller = Group {
-            if follow {
-                scroller.data("follow", "bottom")
-            } else {
-                scroller
-            }
+            // the jump control's target: zero-height, after the message
+            // column's own padding, so `scrollIntoView` lands at the true
+            // scroll bottom (a 32px-gap landing would leave `away` set).
+            Span {}
+                .id("chat-end")
         }
         let scroll = Div(class: .chatScrollWrap) {
-            followedScroller
+            scroller
             // The jump button anchors to its own wrapping container so it sits
             // just above the composer (never overlapping it), at the bottom-right
-            // of the scroll viewport.
-            ArcButton(id: "scroll-to-bottom", component: "scroll-to-bottom",
+            // of the scroll viewport. Visibility is the sheet's, keyed on the
+            // engine's `data-follow-state="away"`; the click is the engine's
+            // `ScrollTo` contract. No component id: no handler ever existed.
+            ArcButton(id: "scroll-to-bottom", component: nil,
                       class: .scrollToBottomBtn) {
                 Text("↓")
             }
             .title("Jump to latest")
             .aria(.label("Jump to latest"))
-            .flag(.hidden)
+            .behavior(ScrollTo(id: "chat-end"))
             outlinePanelHTML
         }
         return Group {
@@ -1380,9 +1709,15 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
-    /// The outline panel itself (server-rendered shell; the JS fills entries
-    /// from the rendered user message anchors and handles jumps). Open state is
-    /// server-owned — see `AppState.outlineOpen`.
+    /// The outline panel: one entry per user message, emitted server-side.
+    ///
+    /// Each entry is keyed to the transcript row's own anchor id
+    /// (`msg-user-<rawIdx>` — the id `messageHTML` renders) and carries the
+    /// engine's `data-scroll-to` consequence, which scrolls, flashes the row
+    /// for 1.4 s and prevents the default. Nothing here is built on the
+    /// client. Open state is server-owned — see `AppState.outlineOpen` — and
+    /// stated as the engine's `data-open` (A17): the dismiss stack owns Escape
+    /// and the click-away, and the sheet keys visibility on the attribute.
     var outlinePanelHTML: some WebUI.View {
         Group {
             if settings.showConversationOutline {
@@ -1397,19 +1732,52 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         .title("Close outline")
                         .aria(.label("Close outline"))
                     }
-                    Div(class: .outlineEntries) {}
-                        .id("outline-entries")
+                    Div(class: .outlineEntries) {
+                        outlineEntriesHTML()
+                    }
+                    .id("outline-entries")
                 }
                 .id("outline-panel")
                 .attribute("role", "navigation")
                 .aria(.label("Conversation outline"))
-                // The doc comment above and `AppState.outlineOpen` promised a
-                // server-owned open state, but nothing ever read it: the panel was
-                // emitted hidden unconditionally, so the (wired) toggle flipped a
-                // flag no renderer consumed and the outline could never appear.
-                .flag(.hidden, when: !outlineOpen)
+                // one layer, one contract: `data-open` (serial-valued, so an
+                // engine dismissal can be re-opened by a byte-different render)
+                // plus `data-dismiss`, which is what puts the panel on the
+                // engine's stack. A server-owned boolean alone could not: the
+                // engine clears the attribute on Escape and never tells the
+                // server, so the closed state must be readable from the DOM.
+                .dismissibleOpen(outlineOpen ? outlineSerial : nil)
             }
         }
+    }
+
+    /// The outline's rows: `#n` plus the first 90 characters of what the reader
+    /// typed. The anchor index is the message's index in the transcript, which
+    /// is exactly what `messagesHTML` passes to `messageHTML` as `rawIdx`.
+    func outlineEntriesHTML() -> some WebUI.View {
+        let messages = activeSession()?.messages ?? []
+        var rows: [any WebUI.View] = []
+        var number = 0
+        for (index, message) in messages.enumerated() where message.role == .user {
+            number += 1
+            let raw = (message.displayText ?? message.content ?? "")
+                .split(whereSeparator: { $0.isWhitespace })
+                .joined(separator: " ")
+            rows.append(outlineEntryHTML(number, raw: raw, anchor: "msg-user-\(index)"))
+        }
+        if rows.isEmpty {
+            rows.append(Div(class: .outlineEmpty) { Text("No user messages yet.") })
+        }
+        return ErasedViews(rows)
+    }
+
+    func outlineEntryHTML(_ number: Int, raw: String, anchor: String) -> some WebUI.View {
+        ArcButton(id: nil, component: nil, class: .outlineEntry) {
+            Span(class: .outlineEntryNum) { Text("#\(number)") }
+            Span(class: .outlineEntryText) { Text(trunc(raw, 90)) }
+        }
+        .title(trunc(raw, 240))
+        .behavior(ScrollTo(id: anchor))
     }
 
     /// The transcript rows.
@@ -1459,7 +1827,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         WebUIIcon(.edit, size: .small)
                         Span { Text("Start typing") }
                     }
-                    .data("focus-composer", "")
+                    // the engine's skip target moves real focus to the composer
+                    // (and scrolls it into view) — the same consequence the skip
+                    // link uses, so the blank canvas keeps no client handler
+                    // (A16c). `href` is not needed: this is a button, and the
+                    // behavior does the focusing.
+                    .behavior(SkipTarget(id: "composer-input"))
                 }
             }
         }
@@ -1503,7 +1876,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // trusted raw at this one seam rather than as an untyped string.
         return Group {
             if !content.isEmpty {
-                MsgBody { TrustedMarkup(mdBox(content), from: .markdown) }
+                MsgBody { TrustedMarkup(mdBox(content, tableEnhance: chatTableEnhance), from: .markdown) }
             }
             toolChipsHTML(m.toolCalls)
         }
@@ -1532,8 +1905,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     }
 
     /// `0:42` style clock for the running turn. The live node re-renders on every
-    /// push, so the client repaints this label from `data-started` on a 1 s tick
-    /// (`overlay.js`) instead of the server recomputing it per push.
+    /// push, so the engine repaints this label from `data-started` on a 1 s tick
+    /// (`TickingLabel`) instead of the server recomputing it per push.
     func fmtElapsed(_ since: Date) -> String {
         let n = Int(max(0, Date().timeIntervalSince(since)))
         return "\(n / 60):" + String(format: "%02d", n % 60)
@@ -1543,9 +1916,16 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// entries as `key: value · key: value` (keys sorted, so re-renders diff
     /// clean); falls back to the raw text when the JSON does not parse.
     func toolArgSummary(_ raw: String, limit: Int = 68) -> String {
+        esc(toolArgText(raw, limit: limit))
+    }
+
+    /// The same summary UNESCAPED — the `data-copy` value a copy control carries
+    /// (the attribute emitter escapes on the way out; escaping here too would
+    /// put `&amp;` on the clipboard).
+    func toolArgText(_ raw: String, limit: Int = 68) -> String {
         let oneLine = raw.replacingOccurrences(of: "\n", with: " ")
         let parsed = (try? JSONSerialization.jsonObject(with: Data(oneLine.utf8))) as? [String: Any]
-        guard let parsed, !parsed.isEmpty else { return esc(trunc(oneLine, limit)) }
+        guard let parsed, !parsed.isEmpty else { return trunc(oneLine, limit) }
         let pairs = parsed.sorted { $0.key < $1.key }.prefix(3).map { key, value -> String in
             let val: String
             if let s = value as? String {
@@ -1562,7 +1942,27 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             return key + ": " + trunc(val, 24)
         }
         let joined = pairs.joined(separator: " · ")
-        return esc(trunc(joined.isEmpty ? oneLine : joined, limit))
+        return trunc(joined.isEmpty ? oneLine : joined, limit)
+    }
+
+    /// Plain-text digest of one work-log round — the value its "copy this
+    /// activity" control carries (A16b).
+    ///
+    /// It is what the old client copy actually produced: the round's interim
+    /// text, then one line per tool call (name + its one-line argument summary).
+    /// The old handler read `.wl-detail`'s `innerText`, which for a CLOSED
+    /// disclosure is empty — so the collapsed copy button copied nothing at all.
+    /// Rendering the digest server-side makes the control work in both states.
+    func worklogCopyText(_ m: Message) -> String {
+        var parts: [String] = []
+        if let interim = m.content, !interim.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append(interim)
+        }
+        for c in m.toolCalls ?? [] {
+            let args = toolArgText(c.function.arguments)
+            parts.append(args.isEmpty ? c.function.name : "\(c.function.name) \(args)")
+        }
+        return parts.joined(separator: "\n\n")
     }
 
     /// `data-webui-key` attribute for a stable engine identity. Empty key in,
@@ -1660,16 +2060,16 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     WebUIIcon(.tool, size: .small)
                     Span { Text(summary) }
                     TwSpacer {}
-                    ArcButton(id: nil, component: nil, class: .twCopy, tabIndex: -1) {
+                    ArcButton(id: nil, component: nil, class: .twCopy, tabIndex: -1,
+                              extraAttributes: Clipboard(text: worklogCopyText(m)).attribute().attributeText) {
                         WebUIIcon(.copy, size: .small)
                     }
-                    .data("copy-target", target)
                     .title("Copy this activity")
                     TwCaret { WebUIIcon(.chevronRight, size: .small) }
                 }, content: {
                     WlDetail {
                         if let interim = m.content, !interim.isEmpty {
-                            Div(class: ClassName(.msgBody, .interim)) { TrustedMarkup(mdBox(interim), from: .markdown) }
+                            Div(class: ClassName(.msgBody, .interim)) { TrustedMarkup(mdBox(interim, tableEnhance: chatTableEnhance), from: .markdown) }
                         }
                         toolChipsHTML(calls, results: pair.1)
                     }
@@ -1766,7 +2166,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     thinkingRowHTML(r, key: mk.isEmpty ? "" : "think-r\(mk)")
                 }
                 if let interim = m.content, !interim.isEmpty {
-                    Div(class: ClassName(.msgBody, .interim)) { TrustedMarkup(mdBox(interim), from: .markdown) }
+                    Div(class: ClassName(.msgBody, .interim)) { TrustedMarkup(mdBox(interim, tableEnhance: chatTableEnhance), from: .markdown) }
                 }
                 for c in calls {
                     ErasedViews([toolCardHTML(c, result: results[c.id])])
@@ -1786,7 +2186,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             Div(class: "tc-detail thinking-detail") { Text(r) }
                         }
                         if let interim = m.content, !interim.isEmpty {
-                            Div(class: ClassName(.msgBody, .interim)) { TrustedMarkup(mdBox(interim), from: .markdown) }
+                            Div(class: ClassName(.msgBody, .interim)) { TrustedMarkup(mdBox(interim, tableEnhance: chatTableEnhance), from: .markdown) }
                         }
                         toolChipsHTML(calls, results: results)
                     }
@@ -1898,7 +2298,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     if !pills.paths.isEmpty {
                         userAttachmentPillsHTML(pills.paths)
                     }
-                    Div(class: ClassName(.msgBody, .userBubble)) { TrustedMarkup(mdBox(visible), from: .markdown) }
+                    Div(class: ClassName(.msgBody, .userBubble)) { TrustedMarkup(mdBox(visible, tableEnhance: chatTableEnhance), from: .markdown) }
                     messageActionsHTML(actions)
                 }
                 if rawIdx >= 0 {
@@ -2424,19 +2824,38 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         return Group {
             if !s.messages.isEmpty {
                 Div(class: .ctxIndicatorWrap) {
-                    ArcButton(id: "ctx-ring", component: nil, class: ClassName("ctx-indicator\(level)")) {
-                        Span(class: .ctxRing) {
-                            // the ring geometry lives in ArcRing: one typed view
-                            // instead of an inline <svg> string.
-                            ArcRing(percentage: pct)
-                            Span(class: .ctxRingCenter) {
-                                Text(pct >= 100 ? "99+" : "\(pct)%")
+                    // The chip IS the disclosure: a `<details>` whose summary is
+                    // the ring. A click on the summary therefore both opens the
+                    // pane (the `ctxpane` boundary rides the details) and pins
+                    // the breakdown open, which is the activation path touch
+                    // needs. The button inside could not do this: a click on an
+                    // interactive descendant does NOT run a summary's activation
+                    // behaviour, so the chip stayed shut.
+                    //
+                    // The tooltip is the details' SIBLING rather than its body:
+                    // a closed `<details>` renders no content, and the breakdown
+                    // must still appear on hover.
+                    ArcDisclosure(summaryID: "ctx-chip-summary",
+                                  summaryTitle: "Context window usage — click for the breakdown",
+                                  summaryLabel: "Context window usage — click for the breakdown") {
+                        Span(class: ClassName("ctx-indicator\(level)")) {
+                            Span(class: .ctxRing) {
+                                // the ring geometry lives in ArcRing: one typed view
+                                // instead of an inline <svg> string.
+                                ArcRing(percentage: pct)
+                                Span(class: .ctxRingCenter) {
+                                    Text(pct >= 100 ? "99+" : "\(pct)%")
+                                }
                             }
                         }
+                    } content: {
+                        EmptyView()
                     }
-                    .wire("ctxpane")
-                    .title("Context window usage — click for the breakdown")
-                    .aria(.label("Context window usage — click for the breakdown"))
+                    .id("ctx-chip")
+                    .behavior(Disclosure())
+                    // the summary registers the pane boundary in this render pass;
+                    // the click opens or closes through the one shared body.
+                    .control(id: "ctxpane", perform: contextPaneBoundary)
                     Div(class: .ctxTooltip) {
                         Div(class: .ctxTooltipTitle) { Text("Context window") }
                         CtxTooltipLine { Text("\(pct)% used · \(100 - pct)% left") }
@@ -2476,32 +2895,81 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         ("model", "Switch model configuration", "<name>"),
     ]
 
-    /// JSON payload for the client-side slash autocomplete (reference
-    /// `/api/skills` + COMMANDS merged into one list).
-    func slashDataJSON() -> String {
-        func jstr(_ v: String) -> String {
-            var out = ""
-            for ch in v {
-                switch ch {
-                case "\"": out += "\\\""
-                case "\\": out += "\\\\"
-                case "\n": out += "\\n"
-                case "\r": out += "\\r"
-                case "\t": out += "\\t"
-                default: out.append(ch)
+    /// The slash palette (A16d): server-rendered `[role=option]` rows for the
+    /// composer's `FilterList(source:token:)` region (no-webui 3.1.0+).
+    ///
+    /// The whole client-side menu — payload parse, token regex, filter, row
+    /// construction, highlight, insertion, keyboard — is the framework's now:
+    /// the region states `data-filter-list="/|#composer-input"` (prefix, then
+    /// source), `data-filter-insert` names the field the value is written back
+    /// to, and `data-filter-template="/{value} "` puts the slash and the
+    /// trailing space around the row's text. A row's `textContent` is therefore
+    /// the BARE command name — the engine inserts exactly that — while the
+    /// description rides `data-desc` and the sheet paints it with
+    /// `.combo__option::after`.
+    ///
+    /// 3.1.1 moves the highlight to the FIELD: the lit row carries
+    /// `data-highlight`, ArrowUp/Down move it, and Enter inside the textarea
+    /// inserts that row and prevents the submit. The engine would also name the
+    /// lit row from the field (`aria-activedescendant`), but it can only do that
+    /// for a row with an `id`, and these rows carry none: `.id()` on either row
+    /// builder overflows this function's render-stack cliff (measured: the panel
+    /// collapses from 10 rows with `data-desc` to 1 bare row, 13,006 → 11,989
+    /// bytes of composer markup), which is the same arity cliff `modalHTML()`
+    /// documents. Splitting the panel into smaller view functions is what makes
+    /// the id — and with it the `aria-activedescendant` half — expressible.
+    func slashPanel() -> some WebUI.View {
+        Div(class: .combo) {
+            ComposerText(field: FieldID("composer-input"),
+                         component: "composer-input",
+                         placeholder: composerPlaceholder(),
+                         value: composerDraftValue(),
+                         session: activeSessionID ?? "",
+                         rows: 1)
+            Div(class: .comboPanel) {
+                for b in Self.slashBuiltins {
+                    Div(class: .comboOption) { Text(b.name) }
+                        .attribute("role", "option")
+                        .attribute("tabindex", "-1")
+                        .attribute(RowDescription(b.arg.map { "\($0) · \(b.desc)" } ?? b.desc))
+                }
+                for skill in skills {
+                    Div(class: .comboOption) { Text(skill.name) }
+                        .attribute("role", "option")
+                        .attribute("tabindex", "-1")
+                        .attribute(RowDescription(skill.description.isEmpty ? "Skill" : skill.description))
                 }
             }
-            return "\"\(out)\""
+            .id("cmd-dropdown")
+            .attribute("role", "menu")
+            .aria(.label("Slash commands"))
         }
-        var items: [String] = []
-        for b in Self.slashBuiltins {
-            let arg = b.arg.map { ",\"arg\":" + jstr($0) } ?? ""
-            items.append("{\"name\":\(jstr(b.name)),\"desc\":\(jstr(b.desc)),\"kind\":\"builtin\"\(arg)}")
-        }
-        for skill in skills {
-            items.append("{\"name\":\(jstr(skill.name)),\"desc\":\(jstr(skill.description)),\"kind\":\"skill\"}")
-        }
-        return "{\"items\":[\n      " + items.joined(separator: ",\n      ") + "\n    ]}"
+        .attribute(FilterList(source: "#composer-input", token: "/").attribute())
+        .attribute(FilterInsert(target: "composer-input").attribute())
+        .attribute(FilterTemplate(text: "/{value} ").attribute())
+    }
+
+    /// `data-desc` for a slash row: the description is CONTENT the sheet paints
+    /// with `.combo__option::after`, so it can never join the row's
+    /// `textContent` (which `FilterInsert` writes verbatim). A typed value, not
+    /// `.attribute("data-desc", …)`: the attribute census requires the
+    /// vocabulary's escaping and spelling to own it.
+    struct RowDescription: AttributeRepresentable {
+        static let name = "data-desc"
+        let value: String
+        init(_ value: String) { self.value = value }
+    }
+
+    /// the composer's placeholder and server seed, named once so the slash
+    /// region and the form cannot disagree about them.
+    private func composerPlaceholder() -> String {
+        activeTurns[activeSessionID ?? ""] != nil
+            ? "Send another message — queued after this reply."
+            : "Message ARC…"
+    }
+
+    private func composerDraftValue() -> String {
+        settings.composerDrafts[activeSessionID ?? ""] ?? ""
     }
 
     /// "Context N" chips above the composer (reference `_renderSelectionChips`).
@@ -2538,22 +3006,29 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     func composerHTML() -> some WebUI.View {
         let running = activeTurns[activeSessionID ?? ""] != nil
-        let sid = activeSessionID ?? ""
-        let draft = settings.composerDrafts[sid] ?? ""
         let isBooked = activeSessionID.map { isBookmarked($0) } ?? false
-        let selOpen = wsSelectOpen || profileSelectOpen || modelSelectOpen || thinkSelectOpen
+        // the open latch is CONSUMED here (see `AppState.composerPopover`): this
+        // render is the one that states a popover open, and every later render
+        // states it closed — the engine's dismissal removes `data-open`
+        // client-side, so a durable server copy would re-open it on the next
+        // patch of this region.
+        // the new-chat focus latch is consumed by this render too: `+` arms it,
+        // this render states `data-focus-into`, and no later render can.
+        let focusComposer = composerFocusArmed
+        composerFocusArmed = false
+        let openPopover = composerPopover
+        composerPopover = nil
+        let openSerial = composerPopoverSerial
+        let selOpen = openPopover != nil && openPopover != .file
         return Div(class: .composerWrap) {
             Div { composerFlyoutHTML() }
                 .id("composer-flyout")
-            Div(class: .cmdDropdown) {}
-                .id("cmd-dropdown")
-                .aria(.label("Slash commands"))
             queuedSendsHTML()
             selectionChipsHTML()
             Form(action: "", method: nil, id: "composer-form",
                  class: ClassName("composer-bar" + (selOpen ? " sel-open" : ""))) {
                 Div(class: .attachChips) {
-                    for (i, path) in attachments.enumerated() {
+                    for path in attachments {
                         Span(class: .chip) {
                             Span(class: .chipLabel) {
                                 // Visually just the file name — the full
@@ -2561,7 +3036,26 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 // be long without crowding the composer.
                                 Text("@\(trunc((path as NSString).lastPathComponent, 50))")
                             }
-                            ArcButton(id: "att-del-\(i)", component: nil, class: .chipX) {
+                            // keyed by the PATH, not its index: the engine's
+                            // input-state memo restores focus by id, and an
+                            // index-shifted `att-del-<i>` lands on a different
+                            // chip the moment an earlier one is removed (T26,
+                            // A16c). `addAttachment` refuses duplicates, so the
+                            // path is unique inside this list.
+                            //
+                            // `data-focus-return` (empty = this element) is the
+                            // DECLARED focus contract, not the memo's implicit
+                            // one: a button carries no input state, so a patch
+                            // that replaces the composer region (every selector
+                            // toggle does) would otherwise drop focus to <body>.
+                            // The declaration names this control, and the id
+                            // above is what makes the name survive the patch.
+                            // When the ✕ is pressed the chip is gone and the
+                            // declaration has no target left; the composer's
+                            // `data-focus-on-appear` (the bind pass, which runs
+                            // before the restore) takes the caret there instead.
+                            ArcButton(id: "att-del-\(enc(path))", component: nil, class: .chipX,
+                                      extraAttributes: FocusReturn().attribute().attributeText) {
                                 WebUIIcon(.x, size: .small)
                             }
                         }
@@ -2570,17 +3064,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
                 .id("attach-chips")
                 .wire("att-chips")
-                TextArea(field: "composer-input",
-                         placeholder: running ? "Send another message — queued after this reply." : "Message ARC…",
-                         value: draft, rows: 1)
-                    .data("component-id", "composer-input")
-                    .data("session", sid)
-                    .data("draft", draft)
-                    .data("prevent-enter", "send")
-                    .attribute("style", "min-height:24px")
+                // the slash menu is ONE `FilterList(token: "/")` region around
+                // the textarea and its `.combo__panel` (A16d): 3.1.0 owns the
+                // open latch, the token query, the row filter and the insert.
+                slashPanel()
                 Div(class: .composerToolbar) {
                     ArcButton(id: "cb-file", component: "cb-file",
-                              class: ClassName("tool-btn" + (filePopOpen ? " on" : ""))) {
+                              class: ClassName("tool-btn" + (openPopover == .file ? " on" : ""))) {
                         WebUIIcon(.paperclip, size: .medium)
                     }
                     .data("tip", "Attach a file")
@@ -2593,7 +3083,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                     .data("tip", "Bookmark this chat")
                     .aria(.label("Bookmark this chat"))
-                    composerSelectorsHTML()
+                    composerSelectorsHTML(open: openPopover, serial: openSerial)
                     Span(class: .spacer) {}
                 if let s = activeSession() {
                     // stable id: the pusher re-renders just this node on each
@@ -2618,11 +3108,17 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
             .data("component-id", "composer-form")
-            Span {}
-                .id("dd-dismiss")
-                .wire("dd-dismiss")
-                .flag(.hidden)
-            Div(class: ClassName("file-pop" + (filePopOpen ? "" : " hidden"))) {
+            // 2.11.0's upload zone: the engine owns the transport — drag & drop
+            // (folders recurse), image paste, the XHR, progress and the tray —
+            // and composes `X-Upload-Path` from the destination plus the
+            // templated name. `attachments` is the directory the deleted client
+            // uploader used. The template applies to EVERY file through this
+            // zone, not only pastes: the route renames onto the destination, so
+            // two drops of `photo.png` would silently overwrite without it.
+            .attribute(UploadDestination.attachments)
+            .attribute(UploadNameTemplate(template: "{name}-{ts}-{seq}.{ext}"))
+            .data("upload-to", "/api/upload")
+            Div(class: ClassName("file-pop")) {
                 Div(class: .fpRow) {
                     Input(id: "file-path-input", placeholder: "/absolute/path/to/file", type: .text)
                         .data("component-id", "file-path-input")
@@ -2640,11 +3136,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             }
             .id("file-pop")
             .wire("file-recents")
-            Div { Text(slashDataJSON()) }
-                .id("slash-data")
-                .flag(.hidden)
+            // the engine's layer (no-webui 2.15.0): `data-open` makes it the
+            // topmost layer while it is open and `data-dismiss` arms Escape and
+            // the outside click — the pair is one contract, one contribution.
+            .dismissibleOpen(openPopover == .file ? openSerial : nil)
         }
         .id("composer-wrap")
+        .focusInto(focusComposer ? "composer-input" : nil)
     }
 
     // MARK: Mid-stream queue chips (UX-04)
@@ -2684,7 +3182,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// Renders the four composer dropdown widgets (workspace, profile,
     /// model, thinking) as trigger buttons with server-rendered popovers,
     /// matching the arc agent webui look.
-    func composerSelectorsHTML() -> some WebUI.View {
+    func composerSelectorsHTML(open: ComposerPopover?, serial: Int) -> some WebUI.View {
         let ws = workspaceName(for: activeSessionID)
         let profile = (profileName(for: activeSessionID) ?? "")
         let config = configName(for: activeSessionID)
@@ -2692,24 +3190,29 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let think = thinkingLevel(for: activeSessionID)
         return Group {
             wsDropdown(ddTrigger(id: "cb-ws-toggle", icon: .folder,
-                                 label: ws.isEmpty ? "Workspace" : ws, title: "Workspace"))
+                                 label: ws.isEmpty ? "Workspace" : ws, title: "Workspace"),
+                       open: open == .workspace ? serial : nil)
             ppDropdown(ddTrigger(id: "cb-profile-toggle", icon: .user,
-                                 label: profile.isEmpty ? "Default" : profile, title: "Profile"))
+                                 label: profile.isEmpty ? "Default" : profile, title: "Profile"),
+                       open: open == .profile ? serial : nil)
             mdDropdown(ddTrigger(id: "cb-model-toggle", icon: .box,
-                                 label: model.isEmpty ? "Model" : model, title: "Model"))
+                                 label: model.isEmpty ? "Model" : model, title: "Model"),
+                       open: open == .model ? serial : nil)
             thDropdown(ddTrigger(id: "cb-think-toggle", icon: .circleGauge,
-                                 label: think.isEmpty ? "Off" : think.capitalized, title: "Thinking"))
+                                 label: think.isEmpty ? "Off" : think.capitalized, title: "Thinking"),
+                       open: open == .thinking ? serial : nil)
         }
     }
 
     private func ddTrigger(id: String, icon: IconName, iconSize: IconSize = .small,
-                           label: String, title: String) -> some WebUI.View {
+                           label: String, title: String, wiring: String = "") -> some WebUI.View {
         // the full label rides the DOM — the chip's CSS ellipsis handles
         // overflow and `title` carries the whole name, so a clipped chip stays
         // hover-readable (the old server-side truncation lost the tail of the
         // name permanently, mid-word).
         let tip = label.isEmpty ? title : "\(title) — \(label)"
-        return ArcButton(id: id, component: id, class: .ddTrigger) {
+        return ArcButton(id: id, component: wiring.isEmpty ? id : nil, class: .ddTrigger,
+                         extraAttributes: wiring) {
             WebUIIcon(icon, size: iconSize)
             DdTriggerLabel { Text(label) }
             WebUIIcon(.chevronDown, size: .small)
@@ -2764,7 +3267,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Dd {
             WebUIDropdown(isOpen: mainModelPickerOpen) {
-                ddTrigger(id: "mainmc-toggle", icon: .zap, label: label, title: "Main model")
+                ddTrigger(id: "mainmc-toggle", icon: .zap, label: label, title: "Main model",
+                          wiring: controlAttributes(id: "mainmc-toggle", event: .click, outcome: { _ in
+                              await self.setMainModelPickerOpen(!(await self.mainModelPickerOpen))
+                              return .refresh
+                          }))
             } panel: {
                 // only `isOpen` goes to the component: the trigger above is the
                 // boundary and `id:`/`onSelect:` here are register-only, so
@@ -2781,13 +3288,23 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         }
                     }
                 }
-                .wire("mainmc")
+                // the popover boundary registers in this render pass; the rows
+                // keep dispatching on `targetId`.
+                .control(id: "mainmc", perform: { event in
+                    guard let tid = event.string("targetId"), tid.hasPrefix("mainmc-pick-") else { return .fragments([]) }
+                    if let name = dec(String(tid.dropFirst("mainmc-pick-".count))) {
+                        await self.useModelConfig(name)
+                        _ = await self.hint("Active configuration: \(name)")
+                    }
+                    await self.setMainModelPickerOpen(false)
+                    return .refresh
+                })
             }
         }
     }
 
     /// Workspace dropdown: search + list + (Choose path | Manage spaces).
-    func wsDropdown(_ trigger: some WebUI.View) -> some WebUI.View {
+    func wsDropdown(_ trigger: some WebUI.View, open: Int?) -> some WebUI.View {
         let q = wsSelectQuery.lowercased()
         var rows: [any WebUI.View] = []
         for ws in settings.workspaces {
@@ -2799,7 +3316,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Dd {
             trigger
-            Div(class: ClassName("dd-pop dd-pop-ws" + (wsSelectOpen ? "" : " hidden"))) {
+            Div(class: ClassName("dd-pop dd-pop-ws")) {
                 DdSearch {
                     Input(id: "ws-search-input", placeholder: "Search workspaces…", type: .text)
                         .wire("ws-search-input", on: .input)
@@ -2838,10 +3355,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
             .wire("ws-pick")
+            // the engine's layer: `data-open` + `data-dismiss` (one render
+            // latch — see `AppState.composerPopover`)
+            .dismissibleOpen(open)
         }
     }
 
-    func ppDropdown(_ trigger: some WebUI.View) -> some WebUI.View {
+    func ppDropdown(_ trigger: some WebUI.View, open: Int?) -> some WebUI.View {
         let activeProfileName = profileName(for: activeSessionID) ?? ""
         let total = skills.count
         var rows: [any WebUI.View] = []
@@ -2867,7 +3387,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Dd {
             trigger
-            Div(class: ClassName("dd-pop" + (profileSelectOpen ? "" : " hidden"))) {
+            Div(class: ClassName("dd-pop")) {
                 Div(class: "dd-list dd-list-profile") {
                     rows
                 }
@@ -2881,10 +3401,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
             .wire("profile-pick")
+            .dismissibleOpen(open)
         }
     }
 
-    func mdDropdown(_ trigger: some WebUI.View) -> some WebUI.View {
+    func mdDropdown(_ trigger: some WebUI.View, open: Int?) -> some WebUI.View {
         let active = configName(for: activeSessionID)
         let q = modelSelectQuery.lowercased()
         var rows: [any WebUI.View] = []
@@ -2911,7 +3432,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Dd {
             trigger
-            Div(class: ClassName("dd-pop dd-pop-model" + (modelSelectOpen ? "" : " hidden"))) {
+            Div(class: ClassName("dd-pop dd-pop-model")) {
                 DdNote { Text("Applies to this conversation from your next message.") }
                 DdSearch {
                     Input(id: "model-search-input", placeholder: "Search models…", type: .text)
@@ -2935,11 +3456,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
             .wire("model-pick")
+            .dismissibleOpen(open)
         }
     }
 
     /// Thinking-level dropdown (arc-style pill trigger + level list).
-    func thDropdown(_ trigger: some WebUI.View) -> some WebUI.View {
+    func thDropdown(_ trigger: some WebUI.View, open: Int?) -> some WebUI.View {
         let current = thinkingLevel(for: activeSessionID)
         var rows: [any WebUI.View] = []
         for lv in ["off", "low", "medium", "high", "max"] {
@@ -2953,12 +3475,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Dd {
             trigger
-            Div(class: ClassName("dd-pop" + (thinkSelectOpen ? "" : " hidden"))) {
+            Div(class: ClassName("dd-pop")) {
                 DdList {
                     rows
                 }
             }
             .wire("think-pick")
+            .dismissibleOpen(open)
         }
     }
 
@@ -3007,7 +3530,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                     WebUIIcon(.edit, size: .small)
                                 }
                                 .title("Edit skill")
-                                ArcButton(id: "sk-delete", component: "skill-delete", class: ClassName(.iconMini, .danger), type: .button) {
+                                ArcButton(id: "sk-delete", component: "skill-delete", class: ClassName(.iconMini, .danger), type: .button,
+                                          extraAttributes: FocusReturn(id: "modal-overlay").attribute().attributeText) {
                                     WebUIIcon(.trash, size: .small)
                                 }
                                 .title("Delete skill")
@@ -3227,7 +3751,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 }
                                 .title("Select profile for this chat")
                                 if !isDefault {
-                                    ArcButton(id: "pr-del-\(encName)", class: ClassName(.iconMini, .danger), type: .button) {
+                                    ArcButton(id: "pr-del-\(encName)", class: ClassName(.iconMini, .danger), type: .button,
+                                              extraAttributes: FocusReturn(id: "modal-overlay").attribute().attributeText) {
                                         WebUIIcon(.trash, size: .medium)
                                     }
                                     .title("Delete profile")
@@ -3454,6 +3979,24 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     // MARK: Tools main
 
+    /// What the operator's switches currently say about one tool.
+    ///
+    /// `ToolEnablement.isEnabled` is the same verdict the schema array and
+    /// dispatch act on, so this row cannot drift from the list's switch. The
+    /// toolset case is checked first because toolset-off wins over everything —
+    /// including a per-tool enable — and saying "this tool's switch" there would
+    /// point the operator at a control that cannot fix it.
+    func toolStateLabel(_ tool: RegisteredTool) -> String {
+        let enablement = arcConfig.tools.toolEnablement
+        if enablement.disabledToolsets.contains(tool.toolsetName) {
+            return "off — its toolset is switched off"
+        }
+        if !ToolEnablement.isEnabled(tool: tool.name, toolset: tool.toolset, config: enablement) {
+            return "off — this tool's switch is off"
+        }
+        return "on"
+    }
+
     func toolsMain() -> some WebUI.View {
         Group {
             if let name = selectedTool, let tool = registry.lookup(name: name) {
@@ -3465,13 +4008,27 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     mainScroll {
                         DetailCard {
                             DetailTitle(tool.name, icon: toolIconName(tool.emoji))
-                            DetailSub { Text(tool.toolset) }
+                            DetailSub { Text(tool.toolsetName) }
                             AkvRow(key: "Description", value: tool.description)
-                            AkvRow(key: "Toolset", value: tool.toolset)
+                            AkvRow(key: "Toolset", value: tool.toolsetName)
+                            // the switch's answer, from the resolver the schema
+                            // filter and dispatch both run: a pane that said
+                            // "available" about a tool the list has switched off
+                            // would be two surfaces disagreeing about one tool.
+                            AkvRow(key: "State", value: toolStateLabel(tool))
+                            // provenance and reach were computed and stored but
+                            // never shown (F6/F16). `origin` finally has a
+                            // production reader: the operator's trust signal.
+                            AkvRow(key: "Origin", value: tool.origin.displayName)
+                            AkvRow(key: "Reach", value: tool.toolset.reach.displayName)
+                            AkvRow(key: "Disclosure", value: tool.toolset.disclosure.displayName)
+                            AkvRow(key: "Availability",
+                                   value: tool.availability.unavailableReason(
+                                       env: ProcessInfo.processInfo.environment) ?? "always")
                             AkvRow(key: "Requires env",
-                                   value: tool.requiresEnv.isEmpty
+                                   value: tool.availability.requiredEnvNames.isEmpty
                                        ? "none"
-                                       : tool.requiresEnv.joined(separator: ", "))
+                                       : tool.availability.requiredEnvNames.joined(separator: ", "))
                             Heading("Parameters", level: .h3, class: .detailH3)
                             schemaHTML(tool.schema)
                         }
@@ -3495,7 +4052,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     field
                         .aria(.invalid(true))
                         .aria(.describedby(describedBy))
-                        .data("focus-after-patch", "")
+                        .attribute(FocusOnAppear().attribute())
                 } else {
                     field
                         .aria(.invalid(true))
@@ -3657,6 +4214,259 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
+    // MARK: Tool policy (Settings)
+
+    /// Settings → Tool policy: the ordered allow / deny rules of `toolPolicy`
+    /// in `~/.arc/config.json`, with the scope summary `ToolPolicy.describe`
+    /// renders.
+    ///
+    /// Order is the semantics: `ToolPolicy.decide` walks the list and lets the
+    /// **last** matching rule win, so up/down here are policy controls, not
+    /// layout preferences. Nothing on this surface sorts the list. `describe`
+    /// is rendered exactly as it comes back — re-wording the summary here would
+    /// let the panel and the agent disagree about what the policy says — and a
+    /// new rule is appended at the END (the strongest position), which the Add
+    /// row says where the button is.
+    ///
+    /// Controls register during the render pass (`controlAttributes`) and answer
+    /// `.refresh`, the shape the per-tool switches above already use: one write
+    /// through the configuration store, one structural re-render.
+    func toolPolicySettingsHTML() -> some WebUI.View {
+        let policy = arcConfig.security.toolPolicy
+        return Group {
+            toolPolicyEnableRow(policy)
+            toolPolicyRuleList(policy)
+            toolPolicySummary(policy)
+            toolPolicyAddRow()
+        }
+    }
+
+    /// The enable switch: `toolPolicy.enabled`, the flag `decide` short-circuits
+    /// on. Rules are never cleared by turning it off.
+    private func toolPolicyEnableRow(_ policy: ToolPolicyConfig) -> some WebUI.View {
+        Div(class: ClassName(.setRow, .setRowStackTight)) {
+            RowSplit {
+                Div(class: .setLabel) {
+                    Text("Enforce this policy")
+                    Small("Off allows every tool. The rules below stay in the file, unconsulted, so turning it back on restores exactly this policy.")
+                }
+                Div(class: ClassName(.rowActions, .rowActionsInline)) {
+                    ArcSwitch(id: "tool-policy-enabled", on: policy.enabled, value: "tool-policy-enabled",
+                              ariaLabel: "Enforce the tool policy",
+                              extraAttributes: controlAttributes(id: "tool-policy-enabled", event: .change, outcome: { event in
+                                  await self.setToolPolicyEnabled(event.checked == true)
+                                  return .refresh
+                              }))
+                }
+            }
+        }
+    }
+
+    /// The ordered rule rows — rendered in the array's own order, always.
+    private func toolPolicyRuleList(_ policy: ToolPolicyConfig) -> some WebUI.View {
+        Group {
+            if policy.rules.isEmpty {
+                EmptyHint { Text("No rules — with the policy on, every tool is still allowed.") }
+            }
+            for (index, rule) in policy.rules.enumerated() {
+                ErasedViews([toolPolicyRuleRow(rule, at: index, of: policy.rules.count)])
+            }
+        }
+    }
+
+    /// The scope summary, `ToolPolicy.describe` VERBATIM.
+    ///
+    /// `<pre>` because the summary is line-oriented and its leading double space
+    /// per rule is part of what it says; collapsing the whitespace would print a
+    /// different document from the one the agent's scope is described by.
+    private func toolPolicySummary(_ policy: ToolPolicyConfig) -> some WebUI.View {
+        Div(class: ClassName(.setRow, .setRowStackTight)) {
+            Div(class: .setLabel) {
+                Text("Effective policy")
+                Small {
+                    Text("Rendered by ")
+                    InlineCode("ToolPolicy.describe")
+                    Text(" — never re-worded here, so the panel and the agent read one policy.")
+                }
+            }
+            Preformatted(ToolPolicy.describe(config: policy))
+        }
+    }
+
+    /// The Add affordance, replaced by the form while the form is open.
+    private func toolPolicyAddRow() -> some WebUI.View {
+        Group {
+            if toolPolicyEditor != nil {
+                toolPolicyRuleFormHTML()
+            } else {
+                SetRow {
+                    Div(class: .setLabel) {
+                        Text("Add a rule")
+                        Small("New rules are appended at the END of the list: the last matching rule decides, so the end is the strongest position.")
+                    }
+                    ArcButton("Add rule", id: "tp-add", class: "btn", type: .button,
+                              extraAttributes: controlAttributes(id: "tp-add", event: .click, outcome: { _ in
+                                  await self.openToolPolicyEditor(.adding)
+                                  return .refresh
+                              }))
+                }
+            }
+        }
+    }
+
+    /// One rule: its position (which IS its precedence), its verdict, its match
+    /// and toolset, and the four controls that move, edit and remove it.
+    ///
+    /// The first row's up arrow and the last row's down arrow are inert rather
+    /// than absent: a control that vanishes at the edge makes the edge look like
+    /// a different kind of row.
+    private func toolPolicyRuleRow(_ rule: ToolPolicyRule, at index: Int, of count: Int) -> some WebUI.View {
+        Div(class: ClassName(.setRow, .setRowStackTight)) {
+            RowSplit {
+                Div(class: .setLabel) {
+                    Text("\(index + 1). \(rule.action.displayName)  \(rule.match)")
+                    Small(rule.toolset.map { "toolset: \($0)" } ?? "any toolset")
+                }
+                Div(class: ClassName(.rowActions, .rowActionsInline)) {
+                    ArcButton(id: "tp-up-\(index)", class: .iconMini, type: .button,
+                              disabled: index == 0,
+                              extraAttributes: " aria-label=\"Move rule \(index + 1) up\"" + (index == 0 ? "" : controlAttributes(id: "tp-up-\(index)", event: .click, outcome: { _ in
+                                  await self.moveToolPolicyRuleUp(index)
+                                  return .refresh
+                              }))) {
+                        WebUIIcon(.arrowUp, size: .small)
+                    }
+                    .title(index == 0
+                           ? "Already first — every later rule overrides it"
+                           : "Move up: earlier means weaker, because the last match wins")
+                    ArcButton(id: "tp-down-\(index)", class: .iconMini, type: .button,
+                              disabled: index == count - 1,
+                              extraAttributes: " aria-label=\"Move rule \(index + 1) down\"" + (index == count - 1 ? "" : controlAttributes(id: "tp-down-\(index)", event: .click, outcome: { _ in
+                                  await self.moveToolPolicyRuleDown(index)
+                                  return .refresh
+                              }))) {
+                        WebUIIcon(.arrowDown, size: .small)
+                    }
+                    .title(index == count - 1
+                           ? "Already last — it has the final say"
+                           : "Move down: later means stronger, because the last match wins")
+                    ArcButton("Edit", id: "tp-edit-\(index)", class: "btn", type: .button,
+                              extraAttributes: controlAttributes(id: "tp-edit-\(index)", event: .click, outcome: { _ in
+                                  await self.openToolPolicyEditor(.editing(index))
+                                  return .refresh
+                              }))
+                    ArcButton(id: "tp-del-\(index)", class: ClassName(.iconMini, .danger), type: .button,
+                              extraAttributes: " aria-label=\"Remove rule \(index + 1)\"" + controlAttributes(id: "tp-del-\(index)", event: .click, outcome: { _ in
+                                  await self.removeToolPolicyRule(at: index)
+                                  _ = await self.hint("Rule \(index + 1) removed.")
+                                  return .refresh
+                              })) {
+                        WebUIIcon(.x, size: .small)
+                    }
+                    .title("Remove rule")
+                }
+            }
+            if let reason = rule.reason {
+                SetHint { Text(reason) }
+            }
+        }
+    }
+
+    /// The add / edit form. Field values come from `formValues` first (a refused
+    /// save restores exactly what was typed), then from the rule being edited.
+    ///
+    /// The submit is one registered control on the `<form>` itself: the engine
+    /// collects every `name`-keyed field into the event, which is why the field
+    /// ids and the keys the handler reads are the same strings
+    /// (`AppState.toolPolicyFieldKeys`).
+    func toolPolicyRuleFormHTML() -> some WebUI.View {
+        var editing: (index: Int, rule: ToolPolicyRule)?
+        if case .editing(let index) = toolPolicyEditor, arcConfig.security.toolPolicy.rules.indices.contains(index) {
+            editing = (index, arcConfig.security.toolPolicy.rules[index])
+        }
+        let title = editing.map { "Edit rule \($0.index + 1)" } ?? "New rule"
+        // the form's own id IS its routing key: a divergence would make the
+        // element a patch address distinct from the component the submit routes
+        // to, and nothing needs that split here.
+        return Form(action: "", method: nil, id: "tp-rule-form", class: ClassName(.detailCard, .mcpForm)) {
+            Heading(title, level: .h1, class: .detailTitle)
+            DetailSub {
+                Text("A rule matches a tool-name glob and, when you name one, exactly that toolset. The list is applied top to bottom and the last matching rule decides — so the rule's position is part of the policy, and Save keeps the position it was opened at.")
+            }
+            FormGrid {
+                // the fields carry an id and a name and nothing else: the submit
+                // event collects every `name`-keyed value, so no field needs its
+                // own routing key.
+                WebUIField(label: "Match", controlID: "tp-match-input") {
+                    Input(field: "tp-match-input",
+                          placeholder: "run_command or mcp_*", type: .text,
+                          value: formValues["tp-match-input"] ?? editing?.rule.match ?? "",
+                          attributes: [("autocomplete", "off")])
+                    Small("Glob on the tool name; * matches any run of characters. Required.")
+                }
+                WebUIField(label: "Toolset (optional)", controlID: "tp-toolset-input") {
+                    Input(field: "tp-toolset-input",
+                          placeholder: "terminal", type: .text,
+                          value: formValues["tp-toolset-input"] ?? editing?.rule.toolset ?? "",
+                          attributes: [("autocomplete", "off")])
+                    Small("Leave empty to match the name in every toolset.")
+                }
+                WebUIField(label: "Action", controlID: "tp-action-input") {
+                    Select(field: "tp-action-input",
+                           options: Self.toolPolicyActionOptions,
+                           selected: formValues["tp-action-input"] ?? editing?.rule.action.rawValue
+                               ?? ToolPolicyAction.deny.rawValue)
+                    Small("Deny with hint refuses and hands the reason to the agent — nothing prompts a human.")
+                }
+                WebUIField(label: "Reason (optional)", controlID: "tp-reason-input") {
+                    Input(field: "tp-reason-input",
+                          placeholder: "why the agent must not call it", type: .text,
+                          value: formValues["tp-reason-input"] ?? editing?.rule.reason ?? "",
+                          attributes: [("autocomplete", "off")])
+                    Small("Shown with the refusal.")
+                }
+            }
+            RowActionsMain {
+                ArcButton("Save rule", class: .primaryBtn, type: .submit)
+                ArcButton("Cancel", id: "tp-cancel", class: .ghostBtn, type: .button,
+                          extraAttributes: controlAttributes(id: "tp-cancel", event: .click, outcome: { _ in
+                              await self.openToolPolicyEditor(nil)
+                              return .refresh
+                          }))
+            }
+        }
+        .control(id: "tp-rule-form", on: .submit, perform: { event in
+            let match = event.string("tp-match-input") ?? ""
+            let toolset = event.string("tp-toolset-input") ?? ""
+            let reason = event.string("tp-reason-input") ?? ""
+            // an unknown spelling cannot be written anew (the enum's rawValue is
+            // the honest one), so a garbled field falls back to the refusing
+            // verdict rather than to an allow nobody asked for.
+            let action = ToolPolicyAction(rawValue: event.string("tp-action-input") ?? "") ?? .deny
+            let editor = await self.toolPolicyEditor
+            let saved: Bool
+            switch editor {
+            case .editing(let index):
+                saved = await self.updateToolPolicyRule(
+                    at: index, match: match, toolset: toolset, action: action, reason: reason)
+            default:
+                saved = await self.appendToolPolicyRule(
+                    match: match, toolset: toolset, action: action, reason: reason)
+            }
+            if saved {
+                await self.openToolPolicyEditor(nil)
+            } else {
+                // the form stays open holding what was submitted: `formValues`
+                // is what the fields render from.
+                await self.storeFormValue("tp-match-input", match)
+                await self.storeFormValue("tp-toolset-input", toolset)
+                await self.storeFormValue("tp-action-input", action.rawValue)
+                await self.storeFormValue("tp-reason-input", reason)
+            }
+            return .refresh
+        })
+    }
+
     // MARK: MCP servers (Settings)
 
     /// Settings → MCP servers: the `mcp_servers` block of `~/.arc/config.json`,
@@ -3715,7 +4525,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 Div(class: ClassName(.rowActions, .rowActionsInline)) {
                     ArcButton("Test", id: "mcp-test-\(enc(name))", class: "btn")
                     ArcButton("Edit", id: "mcp-edit-\(enc(name))", class: "btn")
-                    ArcButton(id: "mcp-del-\(enc(name))", class: ClassName(.iconMini, .danger)) {
+                    ArcButton(id: "mcp-del-\(enc(name))", class: ClassName(.iconMini, .danger),
+                              extraAttributes: FocusReturn(id: "modal-overlay").attribute().attributeText) {
                         WebUIIcon(.x, size: .small)
                     }
                     .title("Delete")
@@ -3949,18 +4760,24 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
         // `disabled` is presence-only and `.attribute` takes a non-optional
         // String, so the two shapes are built rather than passed a nil.
+        // The clamp rides the typed `NumberClamp` behavior. It has no one-sided
+        // initializer at 2.9.0 (both bounds are non-optional `Int`), so a
+        // min-only field states `Int.max` as its ceiling — a value no reader can
+        // type, which makes the clamp one-sided in fact. Recorded as D-14.
         func numField(_ id: String, _ value: Int, disabled: Bool) -> some WebUI.View {
             Group {
                 if disabled {
                     Input(id: id, type: .number, value: "\(value)")
                         .attribute("min", "1")
                         .attribute("step", "1")
+                        .behavior(NumberClamp(min: 1, max: Int.max))
                         .flag(.disabled)
                         .addClass(.numInput)
                 } else {
                     Input(id: id, type: .number, value: "\(value)")
                         .attribute("min", "1")
                         .attribute("step", "1")
+                        .behavior(NumberClamp(min: 1, max: Int.max))
                         .addClass(.numInput)
                 }
             }
@@ -4173,7 +4990,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             WebUIDropdown(isOpen: storagePickOpen) {
                                 ddTrigger(id: "storage-pick-toggle", icon: .database,
                                           label: mediumLabel(effectiveMedium),
-                                          title: "Storage medium in use")
+                                          title: "Storage medium in use",
+                                          wiring: controlAttributes(id: "storage-pick-toggle", event: .click, outcome: { _ in
+                                              let next = !(await self.storagePickOpen)
+                                              await self.setStoragePickOpen(next)
+                                              return .refresh
+                                          }))
                             } panel: {
                                 // only `isOpen` goes to the component: this trigger is
                                 // the boundary, and `id:`/`onSelect:` here are register-
@@ -4230,12 +5052,37 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                         }
                                     }
                                 }
-                                .wire("storage-pick")
+                                // the medium rows register their boundary in
+                                // this render pass; the rows keep dispatching
+                                // on `targetId`.
+                                .control(id: "storage-pick", perform: { event in
+                                    guard let tid = event.string("targetId") else { return .fragments([]) }
+                                    if tid == "storage-pick-file" {
+                                        await self.setStagedStorage("file")
+                                    } else if tid == "storage-pick-config" {
+                                        await self.setStagedStorage("config")
+                                    } else if tid.hasPrefix("storage-pick-conn-"),
+                                              let cid = dec(String(tid.dropFirst("storage-pick-conn-".count))) {
+                                        await self.setStagedStorage(cid)
+                                    } else {
+                                        return .fragments([])
+                                    }
+                                    return .refresh
+                                })
                             }
                         }
+                        // the connect button registers in this render pass.
                         ArcButton("Save and Connect", id: "storage-connect",
-                                  component: "storage-connect", class: .primaryBtn,
-                                  disabled: !canConnect)
+                                  class: .primaryBtn,
+                                  disabled: !canConnect,
+                                  extraAttributes: controlAttributes(id: "storage-connect", event: .click, outcome: { _ in
+                                      let ok = await self.connectStagedStorage()
+                                      if !ok {
+                                          _ = await self.hint("Pick a different storage medium first — Save and Connect needs a change.")
+                                          return .refresh
+                                      }
+                                      return .refresh
+                                  }))
                     }
                     if let st = stagedStorage {
                         SetHint {
@@ -4303,7 +5150,14 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 } control: {
                     ArcSwitch(id: "set-moa", on: arcConfig.moa.enabled,
-                              component: "set-moa", event: "change")
+                              extraAttributes: controlAttributes(id: "set-moa", event: .change, outcome: { event in
+                                  let on = event.checked == true
+                                  await self.setMoaEnabled(on)
+                                  _ = await self.hint(on
+                                      ? "Mixture of Agents enabled — reference models must be configured in the model routing table."
+                                      : "Mixture of Agents disabled.")
+                                  return .refresh
+                              }))
                 }
             }
             .margin(.top, .three)
@@ -4335,6 +5189,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                           attributes: [("data-component-id", "sc-port"),
                                        ("autocomplete", "off"),
                                        ("min", "1"), ("max", "65535")])
+                        .behavior(NumberClamp(min: 1, max: 65535))
                 }
             }
             WebUIField(label: "Application id", controlID: "sc-app") {
@@ -4342,6 +5197,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                       type: .number, value: se.map { String($0.application) } ?? "",
                       attributes: [("data-component-id", "sc-app"),
                                    ("min", "0"), ("max", "65535")])
+                    .behavior(NumberClamp(min: 0, max: 65535))
             }
             FormGrid2 {
                 WebUIField(label: "Server public key", controlID: "sc-pub") {
@@ -4367,7 +5223,28 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
         }
-        .data("component-id", "storage-conn-form")
+        // the form registers its submit boundary in this render pass; the
+        // `sc-*` field names still key the submit payload.
+        .control(id: "storage-conn-form", on: .submit, perform: { event in
+            let editID = (event.string("storage-edit-id") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = (event.string("sc-name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let ip = (event.string("sc-ip") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let port = Int((event.string("sc-port") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            let appid = UInt16(event.string("sc-app")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? 1
+            let pub = (event.string("sc-pub") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let priv = (event.string("sc-priv") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let ok = await self.saveStorageConnection(
+                id: editID.isEmpty ? nil : editID,
+                name: name, serverIP: ip, serverPort: port,
+                application: appid, serverPublicKey: pub, myPrivateKey: priv)
+            if ok {
+                await self.clearStorageForm()
+                _ = await self.hint("Tessera storage saved — pick it above and press Save and Connect to use it.", kind: "success")
+            } else {
+                _ = await self.hint("Check the storage name, IP and port (1–65535).")
+            }
+            return .refresh
+        })
     }
 
     /// One line at the top of Settings naming the policy values the environment
@@ -4400,12 +5277,17 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 settingsAssistanceSection()
                 agentLimitsSection()
                 storageSettingsHTML()
+                settingsToolPolicySection()
                 settingsToolPluginsSection()
                 settingsMCPSection()
                 settingsSidebarPluginsSection()
                 settingsAboutSection()
             }
             .data("scroll-key", "main-scroll")
+            // 2.6.0 scrollspy: the sections this container holds are the
+            // watched ones; the engine marks the matching `a[href="#id"]` with
+            // `aria-current` on scroll and after every patch.
+            .behavior(Scrollspy())
         }
     }
 
@@ -4450,10 +5332,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Div(class: .thmGrid) {
                         for t in themeDefs {
                             let active = settings.theme == t.key
-                            // UX-08: the card marks selection visually (.active) — the
-                            // pressed state must reach assistive tech too.
+                            // UX-08: `aria-pressed` IS the selected contract (no-webui
+                            // 2.17.0) — the server renders it, the engine reconciles it
+                            // on boot and on every press, and the sheet paints
+                            // `.theme-pick-btn[aria-pressed="true"]`. There is no
+                            // server-only class left to mirror.
                             ErasedViews([ArcButton(id: "thm-\(t.key)",
-                                      class: ClassName("theme-pick-btn\(active ? " active" : "")")) {
+                                      class: ClassName(.themePickBtn)) {
                                 Span(class: .thmPreview) {
                                     Span(class: .thmIc) { WebUIIcon(t.icon, size: .medium) }
                                 }
@@ -4465,7 +5350,15 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             .aria(.pressed(active ? .yes : .no))])
                         }
                     }
-                    .wire("theme-pick")
+                    // the theme grid registers its boundary in this render pass;
+                    // the cards keep dispatching on `targetId`.
+                    .control(id: "theme-pick", perform: { event in
+                        guard let tid = event.string("targetId"), tid.hasPrefix("thm-") else { return .fragments([]) }
+                        let theme = String(tid.dropFirst("thm-".count))
+                        await self.setTheme(theme)
+                        _ = await self.hint("Theme set to \(theme).")
+                        return .refresh
+                    })
                 }
                 Div(class: ClassName(.setRow, .setRowStack)) {
                     Div(class: .setLabel) {
@@ -4485,7 +5378,17 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             .aria(.pressed(active ? .yes : .no))
                         }
                     }
-                    .wire("font-size-pick")
+                    // the size grid registers its boundary in this render pass.
+                    .control(id: "font-size-pick", perform: { event in
+                        guard let tid = event.string("targetId"), tid.hasPrefix("fsz-") else { return .fragments([]) }
+                        let size = String(tid.dropFirst("fsz-".count))
+                        await self.setTextSize(size)
+                        // UX-22: apply text-size to the live page without a reload. The door's
+                        // render is the whole `#app` shell, which carries `data-size`
+                        // (Views.swift:75) — the live page changes in the same tick as the hint.
+                        _ = await self.hint("Text size updated.")
+                        return .refresh
+                    })
                 }
                 Div(class: ClassName(.setRow, .setRowStack)) {
                     Div(class: .setLabel) {
@@ -4517,14 +5420,24 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             .attribute("style", "--sw-accent:\(accent)")])
                         }
                     }
-                    .wire("scheme-pick")
+                    // the scheme grid registers its boundary in this render pass.
+                    .control(id: "scheme-pick", perform: { event in
+                        guard let tid = event.string("targetId"), tid.hasPrefix("scheme-") else { return .fragments([]) }
+                        if let name = dec(String(tid.dropFirst("scheme-".count))) {
+                            await self.setColorScheme(name)
+                        }
+                        return .refresh
+                    })
                 }
                 SettingRow {
                     Text("Show conversation outline")
                     Small("Adds a floating button to the chat view that lists your sent messages; clicking one jumps to it.")
                 } control: {
                     ArcSwitch(id: "set-showoutline", on: settings.showConversationOutline,
-                              component: "set-showoutline", event: "change")
+                              extraAttributes: controlAttributes(id: "set-showoutline", event: .change, outcome: { event in
+                                  await self.setShowConversationOutline(event.checked == true)
+                                  return .refresh
+                              }))
                 }
                 SettingRow {
                     Text("Activity display")
@@ -4538,7 +5451,14 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 .aria(.pressed(active ? .yes : .no))
                         }
                     }
-                    .wire("activity-display")
+                    // the mode chips register their boundary in this render pass.
+                    .control(id: "activity-display", perform: { event in
+                        guard let tid = event.string("targetId"), tid.hasPrefix("actdisp-") else { return .fragments([]) }
+                        let mode = String(tid.dropFirst("actdisp-".count))
+                        await self.setActivityDisplay(mode)
+                        _ = await self.hint("Activity display set to \(mode.replacingOccurrences(of: "_", with: " "))")
+                        return .refresh
+                    })
                 }
                 Div(class: ClassName(.setRow, .setRowStackLg)) {
                     Div(class: .setLabel) { Text("Sidebar tabs") }
@@ -4562,6 +5482,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         }
                     }
                     .wire("side-tab-chips")
+                    // 2.6.0 reorder: the engine moves the chip node and writes
+                    // the new child-id order into #sidebar-tab-order, then
+                    // dispatches `change` on it (the existing wire).
+                    .behavior(Reorder(inputID: "sidebar-tab-order"))
                     Input(id: "sidebar-tab-order", type: .hidden,
                           value: settings.sidebarTabs.joined(separator: ","),
                           attributes: [("data-component-id", "sidebar-tab-order"),
@@ -4588,7 +5512,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Select(id: "set-think",
                            options: levels.map { SelectOption(value: $0, label: $0.capitalized) },
                            selected: settings.thinkingLevel)
-                        .wire("set-think", on: .change)
+                        // the select registers in this render pass.
+                        .control(id: "set-think", on: .change, perform: { event in
+                            await self.setDefaultThinking(event.string("value") ?? "medium")
+                            _ = await self.hint("Default thinking level updated.")
+                            return .refresh
+                        })
                 }
             }
             DetailCard(class: .cardStack) {
@@ -4602,14 +5531,20 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 } control: {
                     ArcSwitch(id: "set-showtokens", on: settings.showTokenUsage,
-                              component: "set-showtokens", event: "change")
+                              extraAttributes: controlAttributes(id: "set-showtokens", event: .change, outcome: { event in
+                                  await self.setShowTokenUsage(event.checked == true)
+                                  return .refresh
+                              }))
                 }
                 SettingRow {
                     Text("Show token speed (TPS)")
                     Small("Displays tokens per second in assistant message headers while streaming and after a response completes. Off by default.")
                 } control: {
                     ArcSwitch(id: "set-showtps", on: settings.showTps,
-                              component: "set-showtps", event: "change")
+                              extraAttributes: controlAttributes(id: "set-showtps", event: .change, outcome: { event in
+                                  await self.setShowTps(event.checked == true)
+                                  return .refresh
+                              }))
                 }
                 SettingRow {
                     Text("Pinned conversations limit")
@@ -4621,6 +5556,14 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                        ("data-event", "change"),
                                        ("min", "1"), ("max", "99"), ("step", "1"),
                                        ("class", "num-input")])
+                        // the input already carries the routing pair; the render
+                        // pass supplies the registration those attributes name.
+                        .control(id: "set-pinlimit", on: .change, perform: { event in
+                            let n = Int(event.string("value") ?? "") ?? 3
+                            await self.setPinnedSessionsLimit(n)
+                            return .refresh
+                        })
+                        .behavior(NumberClamp(min: 1, max: 99))
                 }
             }
             DetailCard {
@@ -4641,7 +5584,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                         McBadge { Text("active") }
                                     }
                                 }
-                                McModel { Text(c.model) }
+                                McModel { Text("\(c.model) · \(c.endpointAuthority)") }
                                 Div(class: ClassName(.rowActionsMain, .rowActionsFlush)) {
                                     ArcButton("Remove", id: "mc-del-\(encName)",
                                               class: ClassName(.dangerBtn, .btnSm))
@@ -4744,6 +5687,30 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         .data("component-id", "modelcfg-add-form")
     }
 
+    /// the auxiliary editor's boundary, shared by the editor footer and each
+    /// summary row (both carry `aux-edit`). It used to be one boot registration;
+    /// registration is id-keyed, so each render site installs this one body.
+    private func auxEditBoundary(_ event: EventData) async -> HandlerOutcome {
+        guard let tid = event.string("targetId") else { return .fragments([]) }
+        if tid.hasPrefix("aux-edit-") {
+            await setAuxEditing(String(tid.dropFirst("aux-edit-".count)))
+            return .refresh
+        }
+        if tid.hasPrefix("aux-cancel-") {
+            await setAuxEditing(nil)
+            return .refresh
+        }
+        if tid.hasPrefix("aux-reset-") {
+            let key = String(tid.dropFirst("aux-reset-".count))
+            if let task = AuxiliaryTask(configKey: key) {
+                await clearAuxOverride(task: task)
+            }
+            await setAuxEditing(nil)
+            return .refresh
+        }
+        return .fragments([])
+    }
+
     /// one auxiliary task: either the inline editor (when it is the task being
     /// edited) or its summary row. the summary text is the five-way fallback the
     /// overrides allow, and `Main model` when nothing is set.
@@ -4780,7 +5747,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             Dd {
                                 WebUIDropdown(isOpen: auxConfigPickerOpen) {
                                     ArcButton(id: "auxmc-toggle-\(task.key)",
-                                              component: "auxmc-toggle", class: .ddTrigger) {
+                                              class: .ddTrigger,
+                                              extraAttributes: controlAttributes(id: "auxmc-toggle", event: .click, outcome: { _ in
+                                                  await self.setAuxConfigPickerOpen(!(await self.auxConfigPickerOpen))
+                                                  return .refresh
+                                              })) {
                                         DdTriggerLabel { Text(triggerLabel) }
                                         WebUIIcon(.chevronDown, size: .small)
                                     }
@@ -4828,7 +5799,24 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                             }
                                         }
                                     }
-                                    .wire("auxmc")
+                                    // the picker boundary registers in this render
+                                    // pass; the rows keep dispatching on `targetId`.
+                                    .control(id: "auxmc", perform: { event in
+                                        guard let tid = event.string("targetId") else { return .fragments([]) }
+                                        if tid.hasPrefix("auxmc-main-") {
+                                            let key = String(tid.dropFirst("auxmc-main-".count))
+                                            await self.stageAuxConfig(task: key, name: "")
+                                        } else if tid.hasPrefix("auxmc-") {
+                                            let rest = String(tid.dropFirst("auxmc-".count))
+                                            if let dash = rest.firstIndex(of: "-") {
+                                                let key = String(rest[..<dash])
+                                                let name = dec(String(rest[rest.index(after: dash)...])) ?? ""
+                                                await self.stageAuxConfig(task: key, name: name)
+                                            }
+                                        }
+                                        await self.setAuxConfigPickerOpen(false)
+                                        return .refresh
+                                    })
                                 }
                             }
                         }
@@ -4847,9 +5835,23 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         ArcButton("Save", class: .primaryBtn, type: .submit)
                         ArcButton("Cancel", id: "aux-cancel-\(task.key)", class: .ghostBtn)
                     }
-                    .wire("aux-edit")
+                    // both aux boundaries register in this render pass: the
+                    // footer buttons and the picker's rows.
+                    .control(id: "aux-edit", perform: auxEditBoundary)
                 }
-                .data("component-id", "aux-form")
+                // the editor form's submit boundary registers here too.
+                .control(id: "aux-form", on: .submit, perform: { event in
+                    guard let key = event.string("aux-task"), let task = AuxiliaryTask(configKey: key) else { return .fragments([]) }
+                    let staged = await self.auxStagedConfig[key] ?? ""
+                    if staged.isEmpty {
+                        await self.clearAuxOverride(task: task)
+                    } else {
+                        await self.setAuxOverrideFromConfig(task: task, configName: staged)
+                    }
+                    await self.clearAuxStage(task: key)
+                    await self.setAuxEditing(nil)
+                    return .refresh
+                })
             }
         }
     }
@@ -4887,7 +5889,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     ArcButton("Reset", id: "aux-reset-\(task.key)", class: .ghostBtn)
                 }
             }
-            .wire("aux-edit")
+            .control(id: "aux-edit", perform: auxEditBoundary)
         }
             .title(task.detail)
         }
@@ -4909,7 +5911,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 } control: {
                     ArcSwitch(id: "set-smart-approval", on: arcConfig.security.approvalMode == ApprovalMode.smart.rawValue,
-                              component: "set-smart-approval", event: "change")
+                              extraAttributes: controlAttributes(id: "set-smart-approval", event: .change, outcome: { event in
+                                  // the switch is a view of `security.approvalMode`: on = smart, off =
+                                  // manual. `off` (YOLO) renders as off too; flipping it on is an
+                                  // explicit request for the smart gate.
+                                  await self.setApprovalMode(event.checked == true ? .smart : .manual)
+                                  return .refresh
+                              }))
                 }
                 SettingRow {
                     Text("Smart pick-a-path")
@@ -4920,8 +5928,30 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 } control: {
                     ArcSwitch(id: "set-smart-pickapath", on: settings.smartPickAPath,
-                              component: "set-smart-pickapath", event: "change")
+                              extraAttributes: controlAttributes(id: "set-smart-pickapath", event: .change, outcome: { event in
+                                  await self.setSmartPickAPath(event.checked == true)
+                                  return .refresh
+                              }))
                 }
+            }
+        }
+    }
+
+    private func settingsToolPolicySection() -> some WebUI.View {
+        SetSection(id: "tool-policy") {
+            Heading("Tool policy", level: .h2)
+            DetailCard {
+                Div(class: ClassName(.setRow, .setRowStack)) {
+                    Div(class: .setLabel) {
+                        Text("Ordered allow / deny rules")
+                        Small {
+                            Text("A managed scope over tool calls (")
+                            InlineCode("toolPolicy")
+                            Text(" in config.json). Rules are applied in order and the last match wins, so the list's order is part of the policy. A deny here outranks the per-tool switches in the Tools panel; nothing here can switch on a tool those switches turned off.")
+                        }
+                    }
+                }
+                toolPolicySettingsHTML()
             }
         }
     }
@@ -5058,21 +6088,12 @@ extension AppState {
     func kanbanTopbarHTML() -> some WebUI.View {
         let sel = selectedBoardID()
         let boardName = settings.kanbanBoards.first(where: { $0.id == sel })?.name ?? "Default"
+        // The board's name only. Its add menus used to live here as client-side
+        // popovers keyed on an `.open` class; the add forms are the panel's now
+        // (server state, `addingColumn` / `addingLane`), so this bar carries no
+        // controls and no client state at all.
         return Div(class: .kbTopbar) {
             Span(class: .kbTopbarName) { Text(boardName) }
-            Div(class: .kbTopbarActions) {
-                // Add menus are chat-row-style popovers: the trigger toggles a
-                // .kb-pop client-side (overlay.js), so naming a new column or
-                // lane never shifts the board layout.
-                Div(class: .kbPopAnchor) {
-                    ArcButton("+ Column", id: "kb-addcol-menu", component: nil, class: .ghostBtn)
-                    Div(class: .kbPop) { ErasedViews([kanbanAddColumnForm()]) }
-                }
-                Div(class: .kbPopAnchor) {
-                    ArcButton("+ Row", id: "kb-addlane-menu", component: nil, class: .ghostBtn)
-                    Div(class: .kbPop) { ErasedViews([kanbanAddLaneForm()]) }
-                }
-            }
         }
     }
 
@@ -5086,19 +6107,7 @@ extension AppState {
                     ("data-component-id", "kb-addcol-name"),
                     ("autofocus", ""),
                   ])
-            Input(name: "kb-addcol-color", type: .hidden,
-                  attributes: [
-                    ("id", "kb-addcol-color"),
-                    ("class", "color-value"),
-                    ("value", AppState.palette[0]),
-                  ])
-            CatSwatches {
-                for (j, c) in AppState.palette.enumerated() {
-                    ErasedViews([ArcButton(id: nil, component: nil, class: ClassName("cat-swatch\(j == 0 ? " sel" : "")")) {}
-                        .data("color", c)
-                        .attribute("style", "background:\(c)")])
-                }
-            }
+            paletteRadios("kb-addcol-color")
             CatAddActions {
                 ArcButton("Add", class: .primaryBtn, type: .submit)
                 ArcButton("Cancel", id: "kb-addcol-cancel", component: nil, class: .ghostBtn)
@@ -5171,6 +6180,51 @@ extension AppState {
         kanbanAgentPage()
     }
 
+    /// the 2.9.0 inline-edit control for a kanban name.
+    ///
+    /// `data-inline-edit` makes the form itself the edit control: a click on the
+    /// displayed name (never on a button or link inside) enters local edit mode
+    /// and focuses the text field, Escape or the `type="button"` cancel leaves it
+    /// with no round trip, and the form's own submit both exits the mode and rides
+    /// the pane's existing `kanban` submit wire. the hidden id field is emitted
+    /// LAST so the engine's `querySelector('input, textarea')` focuses the text
+    /// field rather than the hidden one, and the text field carries the FULL name
+    /// (the display may be truncated).
+    private func kanbanRename<Display: WebUI.View>(
+        field: String,
+        inputID: String,
+        value: String,
+        idField: String,
+        idValue: String,
+        label: String,
+        @ElementBuilder display: () -> Display
+    ) -> some WebUI.View {
+        Form(method: nil) {
+            display()
+            // the field's `name` is the wire key; its `id` is what the engine's
+            // input-state memo keys on (`formScope|id-or-name`), and WITHOUT one
+            // every column's rename field collapsed onto the same key — one
+            // value, and one focus target, for all of them (T26, A16c).
+            Input(id: inputID, name: field, type: .text, value: value)
+                .addClass(.inlineEdit)
+                .aria(.label(label))
+            ArcButton(class: .iconMini, type: .submit) {
+                WebUIIcon(.check, size: .small)
+            }
+            .title("Save name")
+            ArcButton(class: .iconMini, type: .button) {
+                WebUIIcon(.x, size: .small)
+            }
+            .title("Cancel rename")
+            Input(name: idField, type: .hidden, value: idValue)
+        }
+        .behavior(InlineEdit())
+        // the pane's own wire: `handleKanban`'s submit branch reads exactly these
+        // field names, so the save path is the one the hidden form used.
+        .data("component-id", "kanban")
+        .data("event", "submit")
+    }
+
     /// One column inside a lane. The lane matters twice: which cards render,
     /// and the add-card button/form, which carries the lane so a new card
     /// lands in the lane row it was added from.
@@ -5184,14 +6238,17 @@ extension AppState {
         let describedBy: [(String, String)] = addErr == nil ? [] : [("aria-describedby", "kb-addcard-err")]
         return Div(class: .kbCol) {
             Div(class: .kbColHead) {
-                Span(class: .kbColName) { Text(col.name) }
+                // the column NAME is the rename control: clicking it enters local
+                // edit mode, so the pencil button that used to sit in the actions
+                // row is gone with the overlay editor that served it.
+                kanbanRename(field: "kb-col-name", inputID: "kb-col-name-\(cid)", value: col.name,
+                             idField: "kb-col-id", idValue: col.id,
+                             label: "Rename column") {
+                    Span(class: .kbColName) { Text(col.name) }
+                        .title("Rename column")
+                }
                 Span(class: .kbColCount) { Text("\(cards.count)") }
                 Div(class: .kbColActions) {
-                    ArcButton(id: "kb-rencol-\(cid)", component: nil, class: .iconMini) {
-                        WebUIIcon(.edit, size: .small)
-                    }
-                    .title("Rename column")
-                    .data("colid", col.id)
                     ArcButton(id: "kb-bdel-\(cid)", component: nil, class: .iconMiniDanger) {
                         WebUIIcon(.x, size: .small)
                     }
@@ -5217,8 +6274,11 @@ extension AppState {
                             ("data-component-id", "kb-addcard-name"),
                             ("class", addErr == nil ? "text-input" : "text-input input-invalid"),
                             ("aria-invalid", addErr == nil ? "false" : "true"),
-                            ("data-focus-after-patch", ""),
                           ] + describedBy)
+                        // the form lands by patch: take the caret when nothing
+                        // holds it (3.1.0 `FocusOnAppear`, the retired
+                        // retired post-patch marker consumer's job).
+                        .attribute(FocusOnAppear().attribute())
                     Span { Text(addErr ?? "") }
                         .id("kb-addcard-err")
                         .addClass(.inlineErr)
@@ -5247,14 +6307,17 @@ extension AppState {
         // Deletion is confirmed through the shared modal (`kb-del` arms
         // `pendingConfirm`); the ✕ itself never deletes.
         return Div(class: .kbCard) {
-            Div(class: .kbCardTitle) { Text(trunc(card.title, 70)) }
-                .data("cardid", card.id)
+            // the same inline-edit shape as the column head: the title is the
+            // control, the input holds the FULL title (the display truncates to
+            // 70), and the hidden `kb-card-id` rides the form's submit to the
+            // existing `kanban` wire.
+            kanbanRename(field: "kb-card-title", inputID: "kb-card-title-\(enc(card.id))", value: card.title,
+                         idField: "kb-card-id", idValue: card.id,
+                         label: "Edit card title") {
+                Div(class: .kbCardTitle) { Text(trunc(card.title, 70)) }
+                    .title("Edit title")
+            }
             Div(class: .kbCardActions) {
-                ArcButton(id: "kb-edit-\(encc)", component: nil, class: .iconMini) {
-                    WebUIIcon(.edit, size: .small)
-                }
-                .title("Edit title")
-                .data("cardid", card.id)
                 if idx > 0 {
                     ArcButton(id: "kb-movel-\(encc)", component: nil, class: .iconMini) {
                         WebUIIcon(.chevronLeft, size: .small)
@@ -5457,7 +6520,16 @@ extension AppState {
         return Group {
             PanelHead {
                 PanelTitle { Text("Logs") }
-                ArcButton(id: "log-clear", component: "log-clear", class: .iconMini) {
+                // the clear control registers in this render pass: id and handler
+                // travel with the button through `ArcButton.extraAttributes`.
+                ArcButton(
+                    id: "log-clear",
+                    class: .iconMini,
+                    extraAttributes: controlAttributes(id: "log-clear", event: .click, outcome: { _ in
+                        LogCollector.shared.clear()
+                        return .refresh
+                    })
+                ) {
                     WebUIIcon(.trash, size: .small)
                 }
                 .title("Clear logs")
@@ -5487,7 +6559,14 @@ extension AppState {
                             .aria(.pressed(active ? .yes : .no))
                     }
                 }
-                .wire("log-filter")
+                // one boundary for every chip: the level travels as `targetId`,
+                // and the registration happens in this render pass.
+                .control(id: "log-filter", perform: { event in
+                    guard let tid = event.string("targetId"), tid.hasPrefix("log-filter-") else { return .fragments([]) }
+                    let lvl = String(tid.dropFirst("log-filter-".count))
+                    await self.setLogFilter(lvl)
+                    return .refresh
+                })
                 Div(class: .logPanelNote) { Text("In-app log stream. Captured lines from this process appear here instead of the terminal.") }
             }
         }
@@ -5567,51 +6646,70 @@ extension AppState {
         // MARK: Workspace panel (right side)
 
     /// The fixed, vertically-centered rounded toggle on the far right edge.
-    /// Rendered in BOTH states — while closed it is the open handle, while
-    /// open it becomes the collapse tab (chevron flips, symmetric affordance).
+    ///
+    /// ONE shape in both states: the tab is the CLOSED-state handle, and the
+    /// sheet hides it on `#ws-panel[data-open]` (UX-30 keeps the header ✕ as
+    /// the single close control while the panel is open). That is deliberate
+    /// (A17): the open state is the engine's `data-open`, and an engine
+    /// dismissal never reaches the server — a server-rendered `hidden` would
+    /// then outlive the panel and strand the tab off-screen with no way back in.
+    /// A CSS key can only ever describe the DOM it is looking at.
+    ///
     /// The wrapper must keep its `data-component-id="workspace"` anchor across
     /// both states: a re-render that drops it makes the engine drop routing
     /// for the region (`[WebUIEngine] Patch for #ws-dock dropped routing
     /// anchor data-component-id=workspace`), which is exactly how closes
     /// used to dead-end.
     func workspaceDockHTML() -> some WebUI.View {
-        let open = workspaceOpen
-        let title = open ? "Collapse workspace" : "Open workspace"
-        // UX-30: while the panel is open, exactly ONE close control is visible
-        // — the header ✕. The dock's collapse tab used to float at the panel's
-        // mid-right edge over the file rows (two competing close affordances).
-        // When open the tab is hidden, but the anchored wrapper keeps its
-        // `data-component-id` — the engine's routing anchor is stable in both
-        // states (UX-03); when closed the dock returns as the open handle.
-        return Div(id: "ws-dock") {
+        // 2.11.0's upload zone: a drop lands in the active workspace root (an
+        // empty destination composes the bare filename) and the engine's tray
+        // reports progress. The dock keeps its `workspace` routing anchor — the
+        // collapse tab's click is what that component id serves — so its
+        // `upload-complete` is handled on `workspace` rather than a second id on
+        // one element (a second component attribute would shadow the anchor).
+        UploadZone(id: "ws-dock", destination: .folder(path: ""),
+                   component: "workspace", event: .click) {
             ArcButton(id: "w-dock", component: nil,
-                      class: ClassName(open ? "ws-dock-btn ws-dock-open" : "ws-dock-btn"),
-                      type: .button, hidden: open) {
-                if open {
-                    WebUIIcon(.chevronRight, size: .medium)
-                } else {
-                    WebUIIcon(.chevronLeft, size: .medium)
-                }
+                      class: .wsDockBtn, type: .button) {
+                WebUIIcon(.chevronLeft, size: .medium)
             }
-            .title(title)
+            .title("Open workspace")
         }
-        .wire(ComponentID("workspace"))
     }
 
     /// The right-hand workspace panel (same width as the left panel).
     func workspacePanelHTML() -> some WebUI.View {
-        // ws-enter plays the slide-in animation only on the open transition
-        // (set right after toggling open); the flag is consumed/reset here so
-        // background re-renders of an already-open panel don't re-animate.
-        let anim = wsEnterAnim ? " ws-enter" : ""
-        wsEnterAnim = false
-        // `hidden` is a CLASS on this element, not the attribute: the sheet
-        // hides the panel with `.ws-panel.hidden`, which an attribute could not
-        // win against (`.ws-panel` sets `display: flex`).
-        let cls = "ws-panel" + (workspaceOpen ? "" : " hidden") + anim
-        return Div(id: "ws-panel", class: ClassName(cls)) {
+        // the workspace ⋮ menu is a ONE-RENDER latch (A16d), the same shape as
+        // `composerPopover`/`rowMenu`: the ⋮ arms it, this render states
+        // `data-open`, and every later render states it closed. The engine's
+        // dismiss stack owns Escape and the outside click, so there is no
+        // client toggle and no `.open` class left to keep in sync.
+        let wsMenuOpen = wsMenuArmed
+        wsMenuArmed = nil
+        // The PANEL is an engine layer too (A17). Its open state is `data-open`,
+        // armed with the panel serial as the value: the value is what makes a
+        // re-open after an engine dismissal a byte-different render, and
+        // `data-dismiss` puts the panel on the dismiss stack so Escape and the
+        // click-away close it without a client handler. The sheet keys
+        // visibility, the dock's hiding and the exit transition on the
+        // attribute — `.hidden`, `.ws-enter` and `.ws-closing` are gone.
+        let panelOpen = workspaceOpen ? wsPanelSerial : nil
+        // 2.11.0's upload zone: the panel root had no routing anchor of its own
+        // (its rows, tools and tree carry `workspace`), so the zone declares
+        // `upload-complete` as its only event — a click on the panel's own
+        // background routes nowhere — and an empty destination composes the bare
+        // filename, which is the workspace root the old client drop wrote to.
+        return UploadZone(id: "ws-panel", className: ClassName(.wsPanel),
+                          destination: .folder(path: ""),
+                          component: "ws-drop", event: .custom("upload-complete")) {
             Div(class: "panel-head ws-head") {
+                // the panel head carries no upload control: 2.11.0's zone opens
+                // the picker from the panel's own surface, and the engine ignores
+                // clicks on a `button` inside it — so the old `#w-upload` was a
+                // dead control (the A9 ledger's row). The hint moves here, where
+                // it is discoverable and true (A16c).
                 PanelTitle { Text("Workspace") }
+                    .title("Upload files or drop them here")
                 Div(class: .wsTools) {
                     ArcButton(id: "w-new", component: nil, class: .iconMini) {
                         WebUIIcon(.plus, size: .small)
@@ -5621,10 +6719,6 @@ extension AppState {
                         WebUIIcon(.folder, size: .small)
                     }
                     .title("New folder")
-                    ArcButton(id: "w-upload", component: nil, class: .iconMini) {
-                        WebUIIcon(.upload, size: .small)
-                    }
-                    .title("Upload files or drop them here")
                     Div(class: .wsMenuWrap) {
                         ArcButton(id: "w-menu", component: nil, class: .iconMini) {
                             Text("\u{22EE}")   // ⋮ — Text escapes, so emit the char
@@ -5643,6 +6737,7 @@ extension AppState {
                                 Text("Show hidden files")
                             }
                         }
+                        .dismissibleOpen(wsMenuOpen)
                     }
                     .wire(ComponentID("workspace"))
                     // the header ✕ is the panel's single close control while open
@@ -5676,6 +6771,7 @@ extension AppState {
             }
             wsTreeShell(workspaceBodyHTML())
         }
+        .dismissibleOpen(panelOpen)
     }
 
     /// the `#ws-tree` element: the routing anchor every live patch keys on, with
@@ -5701,6 +6797,7 @@ extension AppState {
                 if let path = previewPath {
                     let name = URL(fileURLWithPath: path).lastPathComponent
                     let isMarkdown = path.lowercased().hasSuffix(".md")
+                    let content = previewContent
                     Div(class: .wsPreview) {
                         Div(class: .wsPreviewHead) {
                             ArcButton(id: "w-preview-back", component: nil, class: .iconMini) {
@@ -5709,17 +6806,26 @@ extension AppState {
                             .title("Back to files")
                             Span(class: .wsPreviewName) { Text(name) }
                                 .title(path + (isMarkdown ? " (markdown)" : ""))
-                            ArcButton(id: "ws-preview-copy", component: nil, class: .iconMini) {
-                                WebUIIcon(.copy, size: .small)
+                            // the copy control exists only when there is text to
+                            // copy: its value is the server-rendered file text
+                            // (A16b), so a preview with no content renders no
+                            // button rather than one that cannot do its job. The
+                            // engine's `[data-copy]` copies the attribute's text
+                            // and owns the "Copied" toast.
+                            if let content {
+                                ArcButton(id: "ws-preview-copy", component: nil, class: .iconMini,
+                                          extraAttributes: Clipboard(text: content).attribute().attributeText) {
+                                    WebUIIcon(.copy, size: .small)
+                                }
+                                .title("Copy content")
                             }
-                            .title("Copy content")
                         }
                         Div(class: .wsPreviewScroll) {
                             // UX-12: wrap text previews (pre-wrap) and render markdown
                             // for .md files — the dock is for glancing, raw markdown
                             // syntax is not readable. Code keeps `white-space: pre`
                             // (via the monospace pre-wrap body, which still wraps).
-                            if let content = previewContent {
+                            if let content {
                                 if isMarkdown {
                                     Div(class: .wsPreviewBody) {
                                         TrustedMarkup(renderMarkdown(content), from: .markdown)

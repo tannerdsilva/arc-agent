@@ -2,7 +2,8 @@
 ///
 /// Each ``ToolEntry`` bundles the metadata the LLM needs to decide whether to
 /// call the tool (name, description, parameter schema) with the Swift handler
-/// that executes the call and the environment checks that gate its availability.
+/// that executes the call and the ``ToolAvailability`` that gates whether the
+/// tool is advertised at all.
 ///
 /// - Note: ``ToolEntry`` is ``Sendable`` so it can be registered once and read
 ///   concurrently by the agent loop without additional synchronization.
@@ -16,11 +17,11 @@ public struct ToolEntry: Sendable {
     /// Names should be `snake_case` and unique within a registry.
     public let name: String
 
-    /// The toolset this tool belongs to (e.g. `"file"`, `"web"`, `"terminal"`).
+    /// The toolset this tool belongs to (e.g. `.file`, `.web`, `.terminal`).
     ///
     /// Toolsets are the grouping mechanism for enabling/disabling categories of
     /// tools at the agent level.
-    public let toolset: String
+    public let toolset: Toolset
 
     /// A human-readable description of what this tool does.
     ///
@@ -41,19 +42,19 @@ public struct ToolEntry: Sendable {
     /// tool response message.
     public let handler: ToolHandler
 
-    /// An optional closure that checks whether this tool's requirements are met
-    /// (e.g. a binary is installed, an environment variable is set).
+    /// What must be true for this tool to be advertised.
     ///
-    /// Return `true` if the tool is available, `false` otherwise. A `nil` check
-    /// function means the tool is always available (no runtime dependencies).
-    public let checkFn: ToolRequirementCheck?
+    /// Defaults to ``ToolAvailability/always``. ``ToolSchemaRenderer`` and
+    /// ``DeferredToolPolicy`` both evaluate it before a tool can reach the
+    /// model, so a `.requiresEnv` entry is absent from the prompt until its
+    /// variables are present and non-empty.
+    public let availability: ToolAvailability
 
-    /// Environment variable names this tool requires at runtime.
+    /// Whether this tool may run concurrently with siblings in one batch.
     ///
-    /// The credential pool checks these when resolving credentials. Tools with
-    /// missing required env vars are filtered out of the schema array sent to
-    /// the LLM.
-    public let requiresEnv: [String]
+    /// Defaults to `false`: the planner isolates a call unless the tool
+    /// declares its reads independent of its siblings.
+    public let parallelSafe: Bool
 
     /// Where this tool's capability may be exercised.
     ///
@@ -77,18 +78,18 @@ public struct ToolEntry: Sendable {
     ///   - description: Human-readable description for the LLM.
     ///   - schema: JSON Schema describing the tool's parameters.
     ///   - handler: Closure that executes the tool.
-    ///   - checkFn: Optional availability check. `nil` means always available.
-    ///   - requiresEnv: Environment variables this tool needs.
+    ///   - availability: What must be true for the tool to be advertised.
+    ///   - parallelSafe: Whether the tool may run concurrently with siblings.
     ///   - placement: Where the tool's capability may be exercised.
     ///   - emoji: Optional display emoji.
     public init(
         name: String,
-        toolset: String,
+        toolset: Toolset,
         description: String,
         schema: JSONSchema,
         handler: @escaping ToolHandler,
-        checkFn: ToolRequirementCheck? = nil,
-        requiresEnv: [String] = [],
+        availability: ToolAvailability = .always,
+        parallelSafe: Bool = false,
         placement: ToolPlacement = .anyCarrier,
         emoji: String? = nil
     ) {
@@ -97,8 +98,8 @@ public struct ToolEntry: Sendable {
         self.description = description
         self.schema = schema
         self.handler = handler
-        self.checkFn = checkFn
-        self.requiresEnv = requiresEnv
+        self.availability = availability
+        self.parallelSafe = parallelSafe
         self.placement = placement
         self.emoji = emoji
     }
@@ -112,11 +113,6 @@ public struct ToolEntry: Sendable {
 /// - Returns: The tool's output as a string (fed back to the LLM).
 /// - Throws: Any error that should be reported to the LLM as a tool failure.
 public typealias ToolHandler = @Sendable (sending [String: Any]) async throws -> String
-
-/// A closure that checks whether a tool's runtime requirements are met.
-///
-/// - Returns: `true` if the tool is available, `false` otherwise.
-public typealias ToolRequirementCheck = @Sendable () -> Bool
 
 // MARK: - AgentTool Conformance
 

@@ -86,6 +86,14 @@ public actor SessionRegistry {
         /// passed any, so every session saw every toolset whatever the config
         /// said.
         public let disabledToolsets: Set<String>
+        /// Individual tools removed from every hosted session
+        /// (`tools.disabledTools` in `config.json`), applied on top of the
+        /// toolset floor above. A disabled toolset still wins — see
+        /// ``ToolEnablement``'s precedence.
+        public let disabledTools: Set<String>
+        /// Individual tools pinned on (`tools.enabledTools`). Never beats a
+        /// disabled toolset, including one a profile added.
+        public let enabledTools: Set<String>
         /// Skills a hosted session may carry: the discovered skills minus
         /// `tools.disabledSkills` (`tools.allowedSkills(from:)`). Before slice 3
         /// this was hardcoded to `[]`, so daemon sessions had no skills at all.
@@ -130,6 +138,8 @@ public actor SessionRegistry {
             persistSessions: Bool = true,
             moa: MoAConfig = MoAConfig(),
             disabledToolsets: Set<String> = [],
+            disabledTools: Set<String> = [],
+            enabledTools: Set<String> = [],
             skills: [Skill] = [],
             maxIterations: Int? = nil,
             toolLoopCap: Limit? = nil,
@@ -156,6 +166,8 @@ public actor SessionRegistry {
             self.persistSessions = persistSessions
             self.moa = moa
             self.disabledToolsets = disabledToolsets
+            self.disabledTools = disabledTools
+            self.enabledTools = enabledTools
             self.skills = skills
             self.verifyOnStop = verifyOnStop
             self.skillInlineCommands = skillInlineCommands

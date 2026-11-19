@@ -225,19 +225,36 @@ extension ArcWebUITestRoot {
             #expect(config.topP == 0.5)
         }
 
-        @Test("an unparseable preset url fails closed instead of trapping")
+        @Test("a blank preset url inherits the config; an unparseable one fails closed")
         func unparseableBaseURLFailsClosed() async throws {
-            let app = plainState(workspacePath: Self.temporaryWorkspace("bad-url"))
+            // blank is "unset", not "broken": the add-configuration form submits
+            // empty optionals, and a blank must defer to `~/.arc/config.json`
+            // rather than shadow it (2026-11-17: two sources of truth).
+            var configured = AppState.RenderFixture()
+            configured.arcConfig.model.baseURL = "http://10.1.2.3:8000/v1"
+            configured.settings.workspaces = [
+                WorkspaceEntry(name: "main", path: Self.temporaryWorkspace("bad-url"))
+            ]
+            configured.settings.activeWorkspace = "main"
+            let inheriting = AppState(renderFixture: configured)
+            var blank = Self.preset
+            blank.baseURL = ""
+
+            let (_, inherited) = await inheriting.makeTurnAgent(
+                preset: blank, thinking: "medium", headless: false, sessionID: "s-plain"
+            )
+            #expect(inherited.baseURL.absoluteString == "http://10.1.2.3:8000/v1")
+
+            // a string that is present but unusable fails closed to the reserved
+            // `.invalid` tld, so the request errors out visibly instead of the
+            // key going to a different provider.
+            let app = plainState(workspacePath: Self.temporaryWorkspace("bad-url-2"))
             var bad = Self.preset
-            bad.baseURL = ""
+            bad.baseURL = "not a url"
 
             let (_, config) = await app.makeTurnAgent(
-                preset: bad,
-                thinking: "medium",
-                headless: false,
-                sessionID: "s-plain"
+                preset: bad, thinking: "medium", headless: false, sessionID: "s-plain"
             )
-
             #expect(config.baseURL.absoluteString == "https://invalid.invalid")
         }
     }

@@ -267,7 +267,17 @@ public struct OpenAICompatibleClient: LLMClient {
         }
         request.body = .bytes(body)
 
-        let response = try await httpClient.execute(request, timeout: .seconds(120))
+        let response: HTTPClientResponse
+        do {
+            response = try await httpClient.execute(request, timeout: .seconds(120))
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // name the address the turn actually tried: a bare transport error
+            // cannot be told apart from a wrong base URL (the stale-preset case
+            // that read as "the connection to the model was lost").
+            throw LLMError.networkError("\(url.absoluteString) — \(error)")
+        }
 
         // Check for error status codes
         guard (200...299).contains(response.status.code) else {
@@ -322,7 +332,14 @@ public struct OpenAICompatibleClient: LLMClient {
         }
         request.body = .bytes(body)
 
-        let response = try await httpClient.execute(request, timeout: .seconds(300))
+        let response: HTTPClientResponse
+        do {
+            response = try await httpClient.execute(request, timeout: .seconds(300))
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw LLMError.networkError("\(url.absoluteString) — \(error)")
+        }
 
         guard response.status.code == 200 else {
             let bodyData = try? await response.body.collect(upTo: 10_000)

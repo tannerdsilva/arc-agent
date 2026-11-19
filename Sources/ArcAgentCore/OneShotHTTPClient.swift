@@ -15,7 +15,20 @@ import AsyncHTTPClient
 public func withOneShotHTTPClient<T>(
     _ body: (HTTPClient) async throws -> T
 ) async throws -> T {
-    let client = HTTPClient(eventLoopGroupProvider: .singleton)
+    try await withOneShotHTTPClient(configuration: .init(), body)
+}
+
+/// The same discipline for a caller that needs client configuration (a probe
+/// bounding its own connect timeout, for instance): the client is shut down on
+/// every exit path.
+public func withOneShotHTTPClient<T>(
+    configuration: HTTPClient.Configuration,
+    _ body: (HTTPClient) async throws -> T
+) async throws -> T {
+    let client = HTTPClient(
+        eventLoopGroupProvider: .singleton,
+        configuration: configuration
+    )
     do {
         let result = try await body(client)
         try? await client.shutdown()

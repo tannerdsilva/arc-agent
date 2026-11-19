@@ -50,6 +50,18 @@ actor UploadTokenStore {
         }
     }
 
+    /// Every token currently valid, oldest first — the pages this host served
+    /// and has not evicted.
+    ///
+    /// This is the producer door's registry of "pages this host rendered": a
+    /// render token IS a render session (`RenderSessionID(rawValue:)`), so a
+    /// structural batch that arrives with no dispatch session to borrow — the
+    /// turn loop's boundaries, a background job — names each of these to
+    /// `WebUIServer.refresh(session:)`. A snapshot rather than a stream: the
+    /// caller needs one pass per push, and the set can change under it without
+    /// the caller's pass becoming wrong.
+    func snapshot() -> [String] { order }
+
     /// True when `token` is one this host served and has not evicted.
     func contains(_ token: String) -> Bool {
         !token.isEmpty && members.contains(token)
@@ -133,15 +145,39 @@ enum WorkspaceUpload {
     /// Recording happens for every page response, including the `?s=` deep
     /// link and the `/index.html` alias: whichever page the browser holds is
     /// the one that may upload.
+    ///
+    /// The provider also receives the render's `RenderIntent`. A `refresh` (a
+    /// handler answered `HandlerOutcome.refresh`) must NOT replay the load-only
+    /// side effects — opening a deep link, arming scroll-to-bottom — or every
+    /// settings toggle would scroll the chat.
+    ///
+    /// The route does not transform the bytes of a refresh render. no-webui
+    /// 3.2.0 ships the page-region fragment without its document `<head>`
+    /// (`WebUIServer.pageRegionFragment`), so the payload is head-less on the
+    /// wire and the route returns the document as rendered. The guarded strip
+    /// this route used to perform — find `<head>`/`</head>`, return the payload
+    /// unchanged when either is absent — is gone with 3.2.0. The HTTP document
+    /// is untouched and keeps its head: only the fragment drops it.
     static func pageRoute(
         _ pattern: PathPattern,
         tokens: UploadTokenStore,
-        provider: @escaping @Sendable (String?, String) async -> WebUI.HTMLDocument
+        provider: @escaping @Sendable (String?, String, RenderIntent) async -> WebUI.HTMLDocument
     ) -> Route {
-        Route.page(pattern) { request in
-            let token = request.renderToken.value
+        Route.render(pattern) { render in
+            let token = render.renderToken.value
             await tokens.record(token)
-            return await provider(request.query["s"], token)
+            let document = await provider(render.query["s"], token, render.intent)
+            // A refresh render is a PATCH PAYLOAD, never a document a browser
+            // installs: the server sends these bytes as the page region's
+            // replacement (`WebUIServer.diffFrame` → `#webui-page`), and the
+            // engine applies them as a fragment. no-webui 3.2.0 ships that
+            // fragment without its document `<head>` (`pageRegionFragment`), so
+            // this route returns the document exactly as rendered — every byte
+            // inside it is the byte the served page carried, which is what keeps
+            // the snapshot's `<body>` diff root identical to the one the page was
+            // recorded under (`RenderSnapshot`). The HTTP document is untouched
+            // and keeps its head: only the fragment drops it.
+            return HTTPResponse(document.markup)
         }
     }
 

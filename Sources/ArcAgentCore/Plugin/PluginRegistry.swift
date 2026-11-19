@@ -192,7 +192,14 @@ public struct PluginTool: Sendable {
     public let args: [String]
     /// Script relative to the plugin directory (see ``PluginManifest/Tool``).
     public let entry: String?
-    public let toolset: String
+    /// The toolset this tool claims, normalised to a catalog entry at init.
+    ///
+    /// The manifest names its toolset as text, so the init parameter stays a
+    /// `String`; the stored value is ``Toolset/init(claimed:)``, which maps a
+    /// known name to its canonical entry and a foreign one to the most
+    /// restrictive reach. A plugin's claim can therefore narrow reach, never
+    /// expand it.
+    public let toolset: Toolset
     public let requiresEnv: [String]
     /// Parsed OpenAI function-call parameter schema. Falls back to a free-form
     /// `{args: {}}` object when the manifest omits a usable schema.
@@ -218,7 +225,7 @@ public struct PluginTool: Sendable {
         self.command = command
         self.args = args
         self.entry = entry
-        self.toolset = toolset
+        self.toolset = Toolset(claimed: toolset)
         self.requiresEnv = requiresEnv
         self.schema = Self.parseSchema(from: schema)
         self.cwdOverride = cwdOverride
@@ -330,11 +337,15 @@ public struct PluginTool: Sendable {
 /// `{tool, args}` → `{result}` on stdin/stdout, cwd = plugin directory).
 extension PluginTool: AgentTool {
 
-    /// Plugin tools are available when the installation's `requires_env`
-    /// variables are set — enforced at install time by
-    /// ``MutableToolRegistry/install(pluginTool:)``, so the check closure is
-    /// always nil here.
-    public var checkFn: ToolRequirementCheck? { nil }
+    /// Plugin tools are advertised while their installation's `requires_env`
+    /// variables are present and non-empty.
+    ///
+    /// Admission is a *different* decision: `install(pluginTool:)` refuses to
+    /// admit a tool whose variables are missing, so the tool does not exist in
+    /// this process at all. Availability is what a renderer asks afterwards —
+    /// it decides whether an installed tool is advertised, and it is the shape
+    /// the schema path has always understood.
+    public var availability: ToolAvailability { .requiresEnv(requiresEnv) }
 
     public var emoji: String? { "🧩" }
 
@@ -467,6 +478,14 @@ public struct MutableToolRegistry: ToolRegistry {
     public private(set) var builtIn: CompileTimeToolRegistry
     private var pluginEntries: [String: RegisteredTool] = [:]
 
+    /// The identity of this surface's contents.
+    ///
+    /// A caller cannot watch this registry — it is a value, and the caller
+    /// holds a copy — so it compares this number instead. Bumped only when a
+    /// mutation is *accepted*: a refused install or a duplicate registration
+    /// leaves the surface byte-identical and the identity where it was.
+    public private(set) var revision: Int = 0
+
     private static let logger = Logger(label: "arc.plugins")
 
     public init(builtIn: CompileTimeToolRegistry) {
@@ -488,6 +507,7 @@ public struct MutableToolRegistry: ToolRegistry {
             throw ToolRegistryError.duplicateName(tool.name)
         }
         pluginEntries[tool.name] = RegisteredTool(tool: tool, origin: origin)
+        revision += 1
     }
 
     public func lookup(name: String) -> RegisteredTool? {
@@ -495,7 +515,12 @@ public struct MutableToolRegistry: ToolRegistry {
     }
 
     public var allTools: [RegisteredTool] {
-        builtIn.allTools + pluginEntries.values
+        // name order is a wire contract, not a preference: this array is the
+        // prompt prefix, and the runtime tier arrives in dictionary order
+        // (per-process seeded), so an unsorted append makes the schema bytes —
+        // and therefore the provider's prompt cache — differ every process.
+        // `CompileTimeToolRegistry.allTools` already sorts; one rule for both.
+        (builtIn.allTools + pluginEntries.values).sorted { $0.name < $1.name }
     }
 
     /// A copy whose named built-ins are re-pointed, leaving the runtime tier
@@ -511,6 +536,9 @@ public struct MutableToolRegistry: ToolRegistry {
     public func replacingBuiltIns(_ replacements: [any AgentTool]) -> MutableToolRegistry {
         var copy = self
         copy.builtIn = builtIn.replacing(replacements)
+        // a new surface, not the old one re-pointed: the copy's contents differ
+        // from `self`'s by at least the names it replaced.
+        copy.revision += 1
         return copy
     }
 
@@ -527,8 +555,22 @@ public struct MutableToolRegistry: ToolRegistry {
     ///   a built-in or an already-installed plugin tool — a duplicate
     ///   function name in the schema array would make the model ambiguous
     ///   and dispatch unreachable.
+    ///
+    /// ## Two decisions, not one
+    ///
+    /// Admission (here) and *advertising* (``AgentTool/availability``) are
+    /// different questions. Admission decides whether the tool exists in this
+    /// process at all; availability decides whether an installed tool is
+    /// advertised to the model. A plugin tool declares
+    /// ``ToolAvailability/requiresEnv(_:)`` from the same manifest field, so a
+    /// renderer re-checks it; that check does not replace this one, because a
+    /// tool that was never installed has no entry to render.
     @discardableResult
     public mutating func install(pluginTool: PluginTool) -> Bool {
+        // admission, not availability. an unmet requirement here means the tool
+        // is never installed; the predicate stays `== nil` on purpose —
+        // widening it to "present and non-empty" would retire plugins that
+        // install today, which is a behaviour change nobody asked for.
         for key in pluginTool.requiresEnv where ProcessInfo.processInfo.environment[key] == nil {
             return false
         }
@@ -539,21 +581,17 @@ public struct MutableToolRegistry: ToolRegistry {
         }
         pluginEntries[pluginTool.name] = RegisteredTool(
             tool: pluginTool, origin: .plugin(pluginTool.plugin))
+        revision += 1
         return true
     }
 
-    public func buildToolSchemas(enabled: Set<String>, disabled: Set<String>) -> [[String: Any]] {
-        var schemas = builtIn.buildToolSchemas(enabled: enabled, disabled: disabled)
-        for (name, entry) in pluginEntries where !disabled.contains(entry.toolset) {
-            if !enabled.isEmpty && !enabled.contains(entry.toolset) { continue }
-            schemas.append(["type": "function", "function": [
-                "name": name,
-                "description": entry.description,
-                "parameters": entry.schema.asDictionary(),
-            ]])
-        }
-        return schemas
-    }
+    // Schema rendering is deliberately NOT overridden or extended here. The one
+    // path is `ToolSchemaRenderer`, which filters `allTools` — now carrying the
+    // runtime tier in the same name order — and applies `availability` uniformly. The
+    // override that used to live here re-implemented the filter without `availability`
+    // and appended `pluginEntries` in dictionary order: two divergences (F3, F2)
+    // that existed only because a per-registry renderer could not see the plugin
+    // tier. With the renderer outside the protocol there is no seam left to drift.
 
     /// Build the full registry used by the agent: built-ins + discovered
     /// plugins (reference agent_init plugin toolset bundling). When
@@ -607,6 +645,10 @@ public struct MutableToolRegistry: ToolRegistry {
                 try registry.register(tool, origin: .source(source.name))
             }
         }
+        // the slot follows the newest surface: `make` installs into a copy of
+        // the builder's product, so the builder's fill points at a registry
+        // that has no plugins on it. fill again with the complete one.
+        registry.toolDependencies.toolSearchRegistry.set(registry)
         return registry
     }
 }

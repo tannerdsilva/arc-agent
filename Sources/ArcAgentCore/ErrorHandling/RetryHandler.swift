@@ -89,6 +89,11 @@ public func classifyError(_ error: Error) -> ErrorClass {
             return .permanent
         case .networkError:
             return .retryable
+        case .endpointUnreachable:
+            // a dead endpoint is not transient: retrying multiplies the wait
+            // (three connect attempts is how a stale address cost 32s a turn)
+            // without changing the answer. The preflight reports it by name.
+            return .permanent
         case .decodingError:
             return .permanent
         case .emptyResponse:

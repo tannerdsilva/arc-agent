@@ -55,7 +55,7 @@ extension ArcCoreTestRoot {
                 #expect(registry.allTools.contains { $0.name == name }, "missing \(name)")
             }
             let console = registry.allTools.first { $0.name == "browser_console" }
-            #expect(console?.toolset == "browser")
+            #expect(console?.toolsetName == "browser")
             let dialog = registry.allTools.first { $0.name == "browser_dialog" }
             #expect(dialog?.schema.asDictionary()["required"] as? [String] == ["action"])
         }

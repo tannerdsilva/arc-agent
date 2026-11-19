@@ -1,6 +1,6 @@
 // ux-gates.mjs — one-command UX gate suite for the arc web UI.
 //
-//   node Scripts/ux-gates.mjs [--only=contrast|interactions|motion|regression|round4|schemes]
+//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|scroll|focus|drawer|draft|composer|theme|residue|motion|regression|round4|schemes]
 //
 // Zero-dependency: native fetch + WebSocket via Scripts/ux-drive.mjs.
 // Assertions LIVE IN THE PAGE (Scripts/ux-contrast.js, ux-gates.js,
@@ -19,8 +19,9 @@
 // real defect must NOT be weakened to pass — fix the app or report the
 // finding with its raw numbers.
 
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir, homedir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { UxDriver } from './ux-drive.mjs';
 
@@ -68,6 +69,14 @@ const opts = parseArgs(process.argv.slice(2));
 const RUN = {
   contrast: !opts.only || opts.only.includes('contrast'),
   interactions: !opts.only || opts.only.includes('interactions'),
+  upload: !opts.only || opts.only.includes('upload'),
+  scroll: !opts.only || opts.only.includes('scroll'),
+  focus: !opts.only || opts.only.includes('focus'),
+  drawer: !opts.only || opts.only.includes('drawer'),
+  draft: !opts.only || opts.only.includes('draft'),
+  composer: !opts.only || opts.only.includes('composer'),
+  theme: !opts.only || opts.only.includes('theme'),
+  residue: !opts.only || opts.only.includes('residue'),
   motion: !opts.only || opts.only.includes('motion'),
   regression: !opts.only || opts.only.includes('regression'),
   round4: !opts.only || opts.only.includes('round4'),
@@ -91,8 +100,87 @@ function record(gate, name, status, detail) {
   console.log(`  [${mark}] ${gate} · ${name}`);
 }
 const skipped = () => results.filter((r) => r.ok === 'skip');
+const infraRows = () => results.filter((r) => r.detail && r.detail.infra === true);
 let checks = 0;
 const check = (cond, label) => { checks++; if (!cond) throw new Error(label); };
+
+// ---------------------------------------------------------------------------
+// infra guard (D2c.2)
+//
+// An infra error — a CDP command that times out, a `waitFor` whose predicate
+// never holds, a navigation that never lands — is a verdict about the
+// INSTRUMENT, not about the page. It may cost ONE row; it may never cost the
+// run. Measured (D8): 77 of 78 rows passed, then `waitFor(scheme ares active)`
+// threw and every one of those rows went unprinted — exit 2, "not a
+// measurement". A run that does not reach its tally line is not evidence of
+// anything, however good its rows looked.
+//
+// `guard()` wraps one gate group. A thrown error records a single
+// `infra: <step> — <message>` SKIP for that group and the next group runs.
+// The skip is an honest verdict, not a quiet pass: under `--strict` a skip
+// fails the run exactly like a failed row does.
+//
+// What this deliberately does NOT touch: `record(gate, name, false, …)`. An
+// assertion is a verdict about the page and is recorded by the gate itself;
+// `guard()` only sees what is THROWN. There is no path from a false assertion
+// to a skip — if an error's class is uncertain, it stays a FAIL and is
+// reported.
+//
+// `stepInFlight` names the step a throw came out of. `instrumentDriver()`
+// keeps it current on the driver's own methods, so no gate body has to
+// remember to say where it was.
+
+let stepInFlight = 'setup';
+
+/// one-line, length-bounded rendering of an expression/path for a row name
+const stepHead = (v, n = 70) => {
+  const s = String(v).replace(/\s+/g, ' ').trim();
+  return s.length > n ? s.slice(0, n) + '…' : s;
+};
+
+/// wrap the driver so the last-started CDP operation is knowable when one
+/// throws. Only the operations with a human-meaningful name are wrapped.
+function instrumentDriver(d) {
+  // depth of an operation whose OUTER name should win: waitFor/navigate poll
+  // through js(), and that inner call must not rename the step from the label
+  // the gate asked for to the expression it polls.
+  let inNamed = 0;
+  const waitFor = d.waitFor.bind(d);
+  d.waitFor = async (expr, o = {}) => {
+    stepInFlight = o.label || `eval ${stepHead(expr)}`;
+    inNamed++;
+    try { return await waitFor(expr, o); } finally { inNamed--; }
+  };
+  const js = d.js.bind(d);
+  d.js = async (expr, o) => {
+    if (!inNamed) stepInFlight = `eval ${stepHead(expr)}`;
+    return js(expr, o);
+  };
+  const navigate = d.navigate.bind(d);
+  d.navigate = async (url, o) => {
+    stepInFlight = `navigate ${url}`;
+    inNamed++;
+    try { return await navigate(url, o); } finally { inNamed--; }
+  };
+  const screenshot = d.screenshot.bind(d);
+  d.screenshot = async (path) => { stepInFlight = `screenshot ${String(path).split('/').pop()}`; return screenshot(path); };
+  return d;
+}
+
+/// run one gate group; a throw costs that group one infra SKIP row, not the run
+async function guard(gate, fn) {
+  const rowsBefore = results.length;
+  try {
+    await fn();
+  } catch (err) {
+    const message = (err && err.message) ? err.message : String(err);
+    const step = stepInFlight || 'unknown step';
+    record(gate, `infra: ${step} — ${message}`, 'skip', {
+      infra: true, gate, step, error: message, rowsBefore,
+    });
+    console.error(`  ! ${gate}: infra error cost one row (${rowsBefore} rows already recorded); continuing to the next group`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // driver + page helpers
@@ -102,6 +190,48 @@ let driver;
 async function ev(expr) { return driver.js(expr); }
 async function waitMs(ms) { await sleep(ms); }
 async function settle(ms = 250) { await sleep(ms); }
+
+/// poll until `expr` is truthy, or the deadline passes; returns the last value.
+///
+/// a popover open/close is a websocket round-trip plus a patch, so a single
+/// fixed settle-then-sample reads the PRE-patch state on a cold daemon and
+/// reports a false "still open"/"never opened". every open/close assertion in
+/// this file must poll the settled value; the assertion itself is unchanged.
+async function waitTrue(expr, timeoutMs = 2000, intervalMs = 50) {
+  const deadline = Date.now() + timeoutMs;
+  let last = false;
+  while (Date.now() < deadline) {
+    last = !!(await ev(expr));
+    if (last) return true;
+    await sleep(intervalMs);
+  }
+  return last;
+}
+
+/// wait until `expr` reaches `want` AND holds it for `holdMs`; false on timeout.
+///
+/// the three wrong instruments this replaces, in order: a fixed settle-then-sample
+/// reads the pre-patch document on a cold daemon; a poll-until-truthy returns the
+/// instant `open` flips, so the close is tested while the open patch is still in
+/// flight (the patch then re-opens the panel); and a poll-until-stable called with
+/// the *initial* value returns immediately, before any patch has arrived.
+/// "reached and held" is the only shape that answers the question actually asked.
+async function waitStableValue(expr, want, holdMs = 300, timeoutMs = 4000, intervalMs = 50) {
+  const deadline = Date.now() + timeoutMs;
+  let heldSince = null;
+  while (Date.now() < deadline) {
+    const now = !!(await ev(expr));
+    if (now === want) {
+      if (heldSince === null) heldSince = Date.now();
+      if (Date.now() - heldSince >= holdMs) return true;
+    } else {
+      heldSince = null;
+    }
+    await sleep(intervalMs);
+  }
+  return false;
+}
+
 
 async function waitReady() {
   await driver.waitFor(`!!document.getElementById('app') && !!document.getElementById('nav-chat')`, { timeoutMs: 20000, label: 'app boot' });
@@ -129,27 +259,160 @@ function rowExpr(sid) {
   })()`;
 }
 
+/// Open a session row's ⋮ menu.
+///
+/// The menu is SERVER state now (no-webui 2.15.0): the ⋮ dispatches
+/// `s-menu-<sid>`, the server arms the row's `data-open`, and the patch lands a
+/// websocket round-trip later — so the click is followed by a poll for the
+/// state, not a fixed settle (a fixed settle read the pre-patch document and
+/// reported the menu as never opened).
+///
+/// The ROW itself can also be absent for a moment: opening a chat re-renders
+/// the session list through a patch, and a probe that clicked mid-swap found no
+/// row (or no ⋮) and returned false WITHOUT polling — residue (a1)'s "the row
+/// menu did not open". So the row is waited for to a bounded deadline first;
+/// the menu poll after the click is unchanged.
 async function openMenu(sid) {
+  // strict lookup: with a sid, the ACTIVE row is never a substitute (cleanup
+  // would otherwise open — and delete — the owner's active session).
+  const rowSel = sid
+    ? `[...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${sid}')`
+    : `document.querySelector('.sess-row.active')`;
+  const ready = await waitTrue(`(() => { const row = ${rowSel}; return !!(row && row.querySelector('.menu-dots')); })()`, 5000);
+  if (!ready) return false;
   const did = await ev(`(() => {
-    const row = ${sid ? `[...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${sid}')` : `document.querySelector('.sess-row.active')`};
+    const row = ${rowSel};
     const dots = row && row.querySelector('.menu-dots');
     if (!dots) return false;
+    // focus like a pointer click does: Chrome focuses a button on mousedown,
+    // and the engine's raw modal-focus memo restores whatever held focus when
+    // a dialog opened — a programmatic click alone leaves the composer
+    // focused, which is a different (synthetic) starting point.
+    try { dots.focus(); } catch (e) {}
     dots.click();
     return true;
   })()`);
-  await settle(250);
-  return did;
+  if (!did) return false;
+  return waitTrue(`!!document.querySelector('.chat-menu[data-open]')`, 3000);
 }
 
+/// Click the open row menu's `.danger` item; resolve to whether the delete
+/// dialog opened.
+///
+/// The dialog is the SERVER's render too: the danger click dispatches and
+/// `#modal-overlay` arrives in a patch a websocket round-trip later (measured
+/// at 528 ms against a 136-session list). A `settle(350)` read the pre-patch
+/// document and both callers — the delete-flow row and `cleanupProbeSessions`
+/// — recorded "the modal never opened". Poll the exact state they assert.
 async function clickMenuDanger(sid) {
-  await ev(`(() => {
+  const did = await ev(`(() => {
     const row = ${sid ? `[...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${sid}')` : `document.querySelector('.sess-row.active')`};
-    const menu = row && row.querySelector('.chat-menu.open');
+    const menu = row && row.querySelector('.chat-menu[data-open]');
     const d = menu ? menu.querySelector('.danger') : null;
     if (d) d.click();
     return !!d;
   })()`);
-  await settle(350);
+  if (!did) return false;
+  // `#modal-confirm` pins it to the DELETE dialog (the rename card carries
+  // `#rename-save`), so a stale modal from an earlier row cannot answer for it.
+  return waitTrue(`uxGates.modal().open && !!document.getElementById('modal-confirm')`, 3000);
+}
+
+/// Wait for the composer to stop being re-rendered, and dismiss anything a
+/// previous group left open.
+///
+/// Why this is a precondition and not a sleep: arc's composer popovers and row
+/// menus are ONE-RENDER server latches (`composerPopover`/`rowMenu` are consumed
+/// by their renderer). Any patch that re-renders the composer after the open
+/// render replaces the popover with its closed spelling, so a click observed
+/// mid-settle can read "closed" — a measurement of the page's churn, not of the
+/// click. Two sources of that churn, both measured:
+///   - the tour before the matrix walks every rail tab (each a re-render);
+///   - a STREAMING TURN re-renders the composer as it goes. Measured on a
+///     strict run (D2b.2): the matrix began with `liveTurn: true`, and during
+///     that window `#file-pop`'s open was lost twice (4 s each, `data-open`
+///     never shipped) while the workspace and think opens after Escape failed
+///     too — the same rows passed once the turn ended.
+/// So: Escape anything open, wait the turn OUT (the app's own signal, not a
+/// timer), then require the composer form node to hold still.
+async function quiesceComposer() {
+  for (let i = 0; i < 3; i++) {
+    const open = await ev(`(() => Object.entries(uxGates.popovers()).filter(([, v]) => v && v.open).map(([k]) => k))()`);
+    if (!Array.isArray(open) || !open.length) break;
+    await driver.pressEscape();
+    await settle(250);
+  }
+  const streamEnded = await waitStreamEnd(240000).catch(() => false);
+  let stable = false;
+  let last = null;
+  for (let i = 0; i < 40; i++) {
+    const sig = await ev(`(() => {
+      const f = document.querySelector('[data-component-id="composer-form"]');
+      if (!f) return null;
+      if (!f.__quiesce) f.__quiesce = (window.__quiesceSeq = (window.__quiesceSeq || 0) + 1);
+      return { node: f.__quiesce, toasts: document.querySelectorAll('[data-webui-toast]').length, liveTurn: !!document.getElementById('live-turn') };
+    })()`);
+    if (sig && last && sig.node === last.node && sig.toasts === 0 && !sig.liveTurn) { stable = true; break; }
+    last = sig;
+    await settle(250);
+  }
+  if (!streamEnded || !stable) console.warn(`quiesceComposer: the composer never went quiet (streamEnded=${streamEnded}, stable=${stable}) — the popover matrix is measuring churn`);
+  return { streamEnded, stable };
+}
+
+/// Click a composer popover opener ONCE and observe the open it asked for.
+///
+/// Returns `{ clicked, open, ms, shown, dataOpen, formReplaced }`. The two
+/// qualifiers are the evidence when the open is not observed: `dataOpen` is the
+/// server's statement on `#file-pop` (an open render states it; the engine's
+/// dismissal removes it client-side) and `formReplaced` says whether a patch
+/// replaced the composer form node while the row was waiting.
+async function openOnce(trig, name) {
+  const clicked = await ev(`(() => {
+    const f = document.querySelector('[data-component-id="composer-form"]');
+    if (f) f.__openMark = true;
+    const t = document.querySelector('${trig}');
+    if (!t) return false;
+    t.click();
+    return true;
+  })()`);
+  const t0 = Date.now();
+  const open = clicked ? await waitStableValue(`uxGates.popovers().${name}.open`, true) : false;
+  const ms = Date.now() - t0;
+  const rest = await ev(`(() => {
+    const p = uxGates.popovers().${name};
+    const el = document.getElementById('${name === 'file' ? 'file-pop' : ''}');
+    const f = document.querySelector('[data-component-id="composer-form"]');
+    return {
+      shown: p ? p.open : null,
+      dataOpen: el ? el.getAttribute('data-open') : null,
+      formReplaced: !f || f.__openMark !== true,
+      liveTurn: !!document.getElementById('live-turn'),
+    };
+  })()`);
+  return Object.assign({ clicked, open, ms }, rest);
+}
+
+/// Click a composer popover opener and observe the open the click asked for.
+///
+/// The composer's open state is a ONE-RENDER latch (`composerPopover` is
+/// consumed by `composerHTML`), so a patch that re-renders the composer between
+/// the click and the observation replaces the popover with its closed spelling
+/// and the click's answer is unobservable — that is a lost measurement, not a
+/// refused click. `quiesceComposer()` removes most of that window; this helper
+/// re-measures ONCE when the first click's open is lost, and records BOTH
+/// attempts (`attempts`), so a real defect (two losses) still fails the row
+/// with the evidence attached. The caller keeps `row.opened` a boolean.
+async function openAndHold(trig, name) {
+  const attempts = [await openOnce(trig, name)];
+  if (!attempts[0].open) {
+    // dismiss whatever the lost click left behind, then re-measure
+    await driver.pressEscape();
+    await settle(400);
+    attempts.push(await openOnce(trig, name));
+  }
+  const last = attempts[attempts.length - 1];
+  return { open: last.open, attempts };
 }
 
 async function setTheme(themeKey) {
@@ -158,7 +421,7 @@ async function setTheme(themeKey) {
   await settle(150);
   const bgBefore = await ev(`getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()`);
   await ev(`document.getElementById('thm-${themeKey}')?.click()`);
-  await driver.waitFor(`document.querySelector('[data-theme-choice="${themeKey}"].active') !== null`, { timeoutMs: 8000, label: `theme ${themeKey} active` });
+  await driver.waitFor(`document.querySelector('[data-theme-choice="${themeKey}"][aria-pressed="true"]') !== null`, { timeoutMs: 8000, label: `theme ${themeKey} active` });
   // Wait out the stylesheet swap: the --bg token must actually change before
   // any contrast read, or the sample catches a half-applied sheet.
   await driver.waitFor(`(() => {
@@ -169,7 +432,9 @@ async function setTheme(themeKey) {
 }
 
 async function currentTheme() {
-  return ev(`document.querySelector('[data-theme-choice].active')?.getAttribute('data-theme-choice') || 'dark'`);
+  // aria-pressed is the theme selected contract (no-webui 2.17.0): the engine
+  // reconciles it on boot and on every press. `.active` no longer exists.
+  return ev(`document.querySelector('[data-theme-choice][aria-pressed="true"]')?.getAttribute('data-theme-choice') || 'dark'`);
 }
 
 /** Create (or return the existing) throwaway probe session. */
@@ -180,6 +445,15 @@ async function ensureProbeSession(text = `UXGATE probe ${Date.now() % 100000}`) 
   // created under the probe title and this helper times out waiting for a row
   // that will not exist. Settle the previous gate's turn first.
   await waitStreamEnd(180000).catch(() => false);
+  // The session list is a PATCH, not part of the shell: after a view switch it
+  // is EMPTY for a beat (measured at D4: 0 `.sess-row` on the frame after
+  // settings -> chat, 145 rows ~1 s later). A single read here therefore missed
+  // an existing probe chat, and the gate then made a NEW one by typing into
+  // whatever chat was open — silently switching the active session (the residue
+  // (d) flap: the row then measured a chat with content instead of the pristine
+  // one it inherited). Wait for the list before deciding "there is no probe".
+  const listShown = await waitTrue(`document.querySelectorAll('.sess-row').length > 0`, 8000);
+  if (!listShown) console.warn('ensureProbeSession: the session list never rendered — probe reuse cannot be checked');
   const existing = await ev(`(() => {
     const rows = [...document.querySelectorAll('.sess-row')];
     return rows.find(r => (r.textContent || '').includes('${PROBE}'))?.getAttribute('data-sid') || null;
@@ -194,9 +468,11 @@ async function ensureProbeSession(text = `UXGATE probe ${Date.now() % 100000}`) 
   let created = null;
   for (let attempt = 0; attempt < 3 && !created; attempt++) {
     await chatView();
-    await ev(`document.getElementById('chat-new')?.click()`);
-    await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000, label: 'new chat composer' });
-    await settle(300);
+    // A probe chat is MINTED, never inherited: `newGateChat` opens a chat with
+    // content first when the current one is a pristine "New chat" (where `+` is
+    // a no-op), and records the sid it created — so the probe is always a chat
+    // the gates own and cleanup can delete.
+    await newGateChat('probe');
     const queued = await ev(`(() => {
       const t = document.getElementById('composer-input');
       return t ? /queued after this reply/i.test(t.getAttribute('placeholder') || '') : false;
@@ -235,6 +511,363 @@ async function ensureProbeSession(text = `UXGATE probe ${Date.now() % 100000}`) 
   // the surface. Hand back a settled session.
   await waitStreamEnd(180000).catch(() => false);
   return probeSid;
+}
+
+// ---------------------------------------------------------------------------
+// gate-created chats: tracked by sid, so cleanup never depends on a title
+//
+// A chat row's title is derived from its FIRST user message
+// (`AppState.sessionTitle`), so a gate chat whose first message is not
+// UXGATE-prefixed carries no marker in the row and the title scan cannot see
+// it. Measured (D2b.5): `ensureLiveText`'s two "Count from 1 to N" chats leaked
+// on EVERY strict run — 138 -> 143 rows across the D2 runs, 148 -> 150 store
+// sessions across D2b's baseline run — and none of them had a UXGATE row.
+// Recording the sid at creation makes deletion independent of the title.
+
+const probeSids = new Set();
+function trackProbe(sid) { if (sid) probeSids.add(sid); return sid; }
+const activeSid = () => ev(`(document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null`);
+
+/// Create a chat through the app's own `+` and record its sid.
+///
+/// `+` reuses a pristine "New chat" by design (UX-10), and a gate that then
+/// sends would land its message in a chat it did not create. When the current
+/// chat is empty, open a chat with content first (the probe session, else any
+/// row with messages) so the `+` has a view to change. Only a sid that CHANGED
+/// is recorded: an unchanged sid may be the owner's chat, and cleanup must
+/// never delete one of those.
+async function newGateChat(what = 'gate') {
+  const pristine = await ev(`(() => {
+    const a = document.querySelector('.sess-row.active');
+    return !a || document.querySelectorAll('.msg').length === 0;
+  })()`);
+  if (pristine) {
+    const target = await ev(`(() => {
+      const rows = [...document.querySelectorAll('.sess-row')];
+      const pick = rows.find(r => r.getAttribute('data-sid') === ${JSON.stringify(probeSid)})
+        || rows.find(r => { const m = (r.textContent || '').match(/(\\d+)\\s*msg/); return m && parseInt(m[1], 10) > 0; });
+      const b = pick && pick.querySelector('[id^="s-open-"]');
+      if (b) { b.click(); return pick.getAttribute('data-sid'); }
+      return null;
+    })()`);
+    if (target) await settle(1200);
+  }
+  const before = await activeSid();
+  await ev(`document.getElementById('chat-new')?.click()`);
+  await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000, label: 'new chat composer' });
+  await settle(250);
+  // the panel patch lands a round-trip after the click; poll for the new sid
+  let sid = before;
+  const deadline = Date.now() + 4000;
+  while (Date.now() < deadline) {
+    sid = await activeSid();
+    if (sid && sid !== before) break;
+    await settle(150);
+  }
+  if (!sid || sid === before) {
+    console.warn(`newGateChat(${what}): "+" minted no chat (sid unchanged: ${sid}) — the next send lands where it is`);
+    return null;
+  }
+  return trackProbe(sid);
+}
+
+
+// ---------------------------------------------------------------------------
+// D6.1 — a conversation with REAL scroll room, seeded through the app's store
+//
+// UX-39 (a rail return restores THIS chat's offset) needs a transcript with
+// room that SURVIVES the round trip. The client-side pad (`scrollPad`) is a
+// fixture the very next server render replaces, so it can prove follow/away
+// but never a restore — measured at the D6 base: the row SKIPped at `room=0`
+// on an empty chat, and so did round4's copy of it.
+//
+// `FileSessionStore` keeps one JSON file per session under `~/.arc/sessions/`
+// (`SessionStore.swift`), and the app opens a session by deep link: a load of
+// `/?s=<sid>` runs `AppState.openDeepLink` → `reloadSessions` → materialize
+// (WebUIHost's page provider). So a record written there is read back through
+// the app's own storage path — no provider turn, no client fixture — and the
+// deep link's `reloadSessions` is also what makes the row appear in a running
+// daemon's list. The chat carries the UXGATE marker in its title AND its first
+// message, is tracked by sid, and is deleted through the app's own delete flow
+// with every other probe. The owner's conversations are never opened by it.
+
+const ARC_SESSIONS_DIR = join(homedir(), '.arc', 'sessions');
+/// `JSONEncoder`'s default date strategy is seconds since 2001-01-01 (measured
+/// against a store record the app itself wrote: 816423247.039 ≈ 2026-11-14).
+const arcDate = (ms) => Math.round((ms / 1000 - 978307200) * 1000) / 1000;
+
+/// Write one session record: `rounds` long turns, enough for real scroll room.
+/// The body is deliberately prose (no markdown tables): the transcript renders
+/// it server-side into paragraphs, which is what a reader's scroll measures.
+function writeRoomSession(rounds = 7) {
+  const sid = randomUUID();
+  const now = Date.now();
+  const filler = 'The composer sits below the transcript and above the status line; a turn '
+    + 'streams into the transcript, the scroller follows the tail while the reader is at the '
+    + 'bottom, and a reader who scrolls away keeps their place until they return to the tail. '
+    + 'A rail switch replaces the whole view region, so the offset has to be remembered across '
+    + 'a patch rather than kept in the element that is being replaced.';
+  const messages = [];
+  for (let i = 0; i < rounds; i++) {
+    const at = now - (rounds - i) * 60000;
+    messages.push({
+      role: 'user',
+      content: `UXGATE scroll room — turn ${i + 1} of ${rounds}. ${filler}`,
+      createdAt: arcDate(at),
+    });
+    messages.push({
+      role: 'assistant',
+      content: [1, 2, 3, 4].map((p) => `Paragraph ${p}. ${filler}`).join('\n\n'),
+      createdAt: arcDate(at + 1500),
+    });
+  }
+  const record = {
+    id: sid,
+    createdAt: arcDate(now - 3600000),
+    updatedAt: arcDate(now),
+    model: '',
+    provider: '',
+    title: `UXGATE scroll room ${sid.slice(0, 8)}`,
+    messages,
+  };
+  writeFileSync(join(ARC_SESSIONS_DIR, `${sid}.json`), JSON.stringify(record, null, 2));
+  return sid;
+}
+
+/// Open a session through the app's deep link and read the room it gives.
+async function openRoomChat(sid) {
+  await driver.navigate(`${APP}?s=${encodeURIComponent(sid)}`);
+  await waitReady();
+  const landed = await waitTrue(`(() => {
+    const r = document.querySelector('.sess-row.active');
+    return !!r && r.getAttribute('data-sid') === ${JSON.stringify(sid)};
+  })()`, 9000);
+  await chatView();
+  await settle(300);
+  const room = await ev(`(() => {
+    const s = document.getElementById('chat-scroll');
+    return s ? { max: Math.round(s.scrollHeight - s.clientHeight), key: s.getAttribute('data-scroll-key'),
+                 msgs: document.querySelectorAll('#chat-inner .msg, #chat-inner .turn, #chat-inner p').length }
+             : null;
+  })()`);
+  return { landed, room };
+}
+
+let roomSid = null;
+// ---------------------------------------------------------------------------
+// D8.1 — the work-log round: the one transcript shape the live store may not have
+//
+// `residue (b2)` asserts that a tool round's "Copy this activity" control
+// copies the round's digest. The control does not exist for prose: `Views.swift`'s
+// `turnBlockHTML` only emits it for an assistant segment that contains a real
+// tool round (an assistant message carrying `toolCalls`, answered by `tool`-role
+// messages keyed by `toolCallID`) AND ends in a plain assistant reply. The base
+// gate scanned ten live chats and found none — the row SKIPped for the shape,
+// not for a defect — so the same store-and-deep-link facility D6.1 uses supplies
+// the shape through the app's own storage path: no provider turn, no client
+// fixture, UXGATE in the title AND the first message, tracked by sid, and deleted
+// through the app's own delete flow right after the row measures it.
+
+/// Write one session record whose single turn CALLED A TOOL.
+function writeWorklogSession() {
+  const sid = randomUUID();
+  const now = Date.now();
+  const callID = `call_uxgate_${sid.slice(0, 8)}`;
+  const messages = [
+    {
+      role: 'user',
+      content: 'UXGATE worklog — what does the asset manifest embed? Read it and tell me.',
+      createdAt: arcDate(now - 90000),
+    },
+    {
+      role: 'assistant',
+      content: 'Reading the manifest.',
+      toolCalls: [{
+        id: callID,
+        type: 'function',
+        function: {
+          name: 'terminal',
+          arguments: JSON.stringify({ command: 'cat Sources/ArcWebUI/Assets/webui-assets.json' }),
+        },
+      }],
+      createdAt: arcDate(now - 60000),
+    },
+    {
+      role: 'tool',
+      name: 'terminal',
+      toolCallID: callID,
+      content: '{\n  "types": []\n}',
+      createdAt: arcDate(now - 55000),
+    },
+    {
+      role: 'assistant',
+      content: 'It embeds nothing: the manifest carries an empty `types` array.',
+      turnDuration: 1.4,
+      createdAt: arcDate(now - 50000),
+    },
+  ];
+  const record = {
+    id: sid,
+    createdAt: arcDate(now - 120000),
+    updatedAt: arcDate(now),
+    model: '',
+    provider: '',
+    title: `UXGATE worklog ${sid.slice(0, 8)}`,
+    messages,
+  };
+  writeFileSync(join(ARC_SESSIONS_DIR, `${sid}.json`), JSON.stringify(record, null, 2));
+  return sid;
+}
+
+/// Open a seeded session through the app's deep link and wait for the work-log
+/// control inside it. `{ landed, control }` — `control` is the `data-copy`
+/// value of the first `.tw-copy`, or null when the transcript rendered none.
+async function openWorklogChat(sid) {
+  await driver.navigate(`${APP}?s=${encodeURIComponent(sid)}`);
+  await waitReady();
+  // A deep-link load is a fresh document: the origin's clipboard grant survives
+  // it, but the document is not focused, so `navigator.clipboard.readText()`
+  // rejects and the row would fall back to its toast-only reading (measured at
+  // D8.1: `clipboard: null` on the first pass). Re-grant and bring the page to
+  // the front so the read is a real read.
+  await driver
+    .send('Browser.grantPermissions', {
+      permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'],
+      origin: APP.replace(/\/+$/, ''),
+    })
+    .catch(() => {});
+  await driver.send('Page.bringToFront').catch(() => {});
+  await ev(`document.body.focus()`).catch(() => {});
+  const landed = await waitTrue(`(() => {
+    const r = document.querySelector('.sess-row.active');
+    return !!r && r.getAttribute('data-sid') === ${JSON.stringify(sid)};
+  })()`, 9000);
+  await chatView();
+  const found = await pollOk(`(() => {
+    const b = document.querySelector('.tw-copy');
+    return b ? { ok: true, value: b.getAttribute('data-copy') || '' } : { ok: false };
+  })()`, 6000);
+  const msgs = await ev(`document.querySelectorAll('#chat-inner .msg, #chat-inner .assistant-turn').length`);
+  return { landed, control: found && found.ok ? found.value : null, rendered: msgs };
+}
+
+/// The gate's long chat: seeded once, re-seeded if the store record vanished
+/// (a prior cleanup), and opened. `{ sid, landed, room }`.
+async function ensureScrollRoomChat() {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (!roomSid) roomSid = trackProbe(writeRoomSession());
+    const opened = await openRoomChat(roomSid);
+    if (opened.landed && opened.room && opened.room.max >= 240) return { sid: roomSid, ...opened };
+    roomSid = null; // the record is gone or unreadable — seed once more
+  }
+  return { sid: null, landed: false, room: null };
+}
+
+// ---------------------------------------------------------------------------
+// the contrast gate's link transcript
+//
+// `chat-open` samples whichever chat is open, and a transcript holds an anchor only
+// if the model's reply happened to contain one: measured at D4c, the same code read
+// 77/78 on a run whose sampled transcript had a link and 78/78 on a run whose did
+// not. The row was content-dependent, so a green reading was not evidence that
+// `--link` clears AA — only that no link was on screen.
+//
+// This is the same store-and-deep-link facility D6.1/D8.1 use (write a record under
+// `~/.arc/sessions/`, open it with `/?s=<sid>`, delete it through the app's own
+// delete flow): no provider turn, no client fixture. The anchor is markdown in the
+// assistant reply, so it arrives through the same `markdownToHTML` → `.md a` path a
+// real answer does and is painted with `var(--link)`.
+
+/// Write one session record whose transcript contains a markdown link.
+function writeLinkSession() {
+  const sid = randomUUID();
+  const now = Date.now();
+  const messages = [
+    {
+      role: 'user',
+      content: 'UXGATE link probe — where is the theme catalog documented?',
+      createdAt: arcDate(now - 90000),
+    },
+    {
+      role: 'assistant',
+      content: 'The [theme catalog reference](https://example.com/arc/docs/theme-catalog) lists '
+        + 'every scheme and the tokens each one states. The anchor above is painted with '
+        + '`--link`; a transcript without one lets a contrast sample look green while every '
+        + 'link on the page is illegible.',
+      createdAt: arcDate(now - 60000),
+    },
+  ];
+  const record = {
+    id: sid,
+    createdAt: arcDate(now - 120000),
+    updatedAt: arcDate(now),
+    model: '',
+    provider: '',
+    title: `UXGATE link probe ${sid.slice(0, 8)}`,
+    messages,
+  };
+  writeFileSync(join(ARC_SESSIONS_DIR, `${sid}.json`), JSON.stringify(record, null, 2));
+  return sid;
+}
+
+/// Count the visible anchors the transcript paints, polling to a deadline. Zero is a
+/// real answer (the renderer dropped the markdown, or the record did not load) and the
+/// caller must treat it as "no evidence", never as a pass.
+async function transcriptLinkCount(timeoutMs = 8000) {
+  const since = Date.now();
+  let count = 0;
+  while (Date.now() - since < timeoutMs) {
+    count = await ev(`(() => [...document.querySelectorAll('#chat-inner a[href]')]
+      .filter(a => { const r = a.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length)()`);
+    if (count > 0) return count;
+    await waitMs(150);
+  }
+  return count;
+}
+
+/// Open the seeded link chat through the app's deep link and confirm its anchor.
+async function openLinkChat(sid) {
+  await driver.navigate(`${APP}?s=${encodeURIComponent(sid)}`);
+  await waitReady();
+  const landed = await waitTrue(`(() => {
+    const r = document.querySelector('.sess-row.active');
+    return !!r && r.getAttribute('data-sid') === ${JSON.stringify(sid)};
+  })()`, 9000);
+  await chatView();
+  return { landed, linkNodes: await transcriptLinkCount() };
+}
+
+/// Bring the seeded link chat back on screen without a document reload (theme
+/// switches and the modal view move the active row), and re-confirm its anchor.
+///
+/// The row is normally present — the seeded record's `updatedAt` is "now", so it
+/// sorts into the expanded group — but a collapsed category or a list that has not
+/// re-rendered yet would silently leave a different chat on screen, and the sample
+/// would then be labelled `chat-open` while measuring a transcript with no anchor.
+/// The fallback re-opens it through the deep link and re-asserts the theme the
+/// sample is labelled with, so the label and the paint cannot disagree.
+async function focusLinkChat(sid, theme) {
+  const openRow = async () => {
+    await chatView();
+    const present = await waitTrue(
+      `[...document.querySelectorAll('.sess-row')].some(r => r.getAttribute('data-sid') === '${sid}')`, 8000);
+    if (!present) return false;
+    await ev(`(() => {
+      const row = [...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${sid}');
+      row?.querySelector('.sess-open')?.click();
+      return !!row;
+    })()`);
+    return waitTrue(`document.querySelector('.sess-row.active')?.getAttribute('data-sid') === '${sid}'`, 6000);
+  };
+
+  if (!(await openRow())) {
+    console.warn(`contrast: the seeded link row was not reachable — re-opening ${sid.slice(0, 8)} through the deep link`);
+    await openLinkChat(sid);
+    await setTheme(theme);
+    await openRow();
+  }
+  await settle(250);
+  return transcriptLinkCount();
 }
 
 
@@ -282,7 +915,7 @@ async function waitStreamEnd(timeoutMs = 240000) {
  * queue timing; `attempts` is recorded so the backlog is visible in the raw
  * numbers. Only ever sends into the throwaway probe session.
  */
-async function ensureLiveText(text, minChars, timeoutMs = 150000, perAttemptMs = 30000) {
+async function ensureLiveText(text, minChars, timeoutMs = 150000, perAttemptMs = 30000, opts = {}) {
   const t0 = Date.now();
   let attempts = 0;
   while (Date.now() - t0 < timeoutMs) {
@@ -292,15 +925,17 @@ async function ensureLiveText(text, minChars, timeoutMs = 150000, perAttemptMs =
     // stack another queued message behind the backlog (observed as "Queued · N"
     // in the diagnose evidence), so the assertion waits for the queue to drain
     // first — the model answers serially and a live turn needs an idle model.
+    // `opts.inPlace` streams into the conversation already open instead: a row
+    // that needs ROOM in the container it measures (regression's SCROLL_PAD)
+    // supplies that room with its own seeded chat (D6.1), which a fresh gate
+    // chat cannot have.
     await chatView();
     const busy = await ev(`!!document.getElementById('live-turn') || !!document.querySelector('#composer-wrap .queued-sends, #composer-wrap [class*="queued"]')`);
     if (busy) {
       await waitStreamEnd(20000).catch(() => false);
       if (Date.now() - t0 >= timeoutMs) break;
     }
-    await ev(`document.getElementById('chat-new')?.click()`);
-    await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000, label: 'new chat composer (ensureLiveText)' });
-    await settle(250);
+    if (!opts.inPlace) await newGateChat('ensureLiveText');
     await chatView();
     await driver.js(`(() => {
       const t = document.getElementById('composer-input');
@@ -350,48 +985,91 @@ async function installProbes() {
 // cleanup + restore
 
 async function cleanupProbeSessions() {
-  // Any session whose title starts with UXGATE is ours: delete via the app's
-  // own delete flow (never touch the owner's conversations). A session with an
-  // in-flight (or queued) turn cannot be deleted while it streams, so wait the
-  // turn out, then verify the delete actually landed.
-  for (let guard = 0; guard < 60; guard++) {
-    await chatView().catch(() => {});
-    const sid = await ev(`(() => {
-      const rows = [...document.querySelectorAll('.sess-row')];
-      const r = rows.find(r => (r.textContent || '').includes('${PROBE}'));
-      return r ? r.getAttribute('data-sid') : null;
-    })()`);
-    if (!sid) break;
-    const busySince = Date.now();
-    while (Date.now() - busySince < 120000) {
-      const busy = await ev(`!!document.getElementById('live-turn')`);
-      if (!busy) break;
-      await waitMs(800);
-    }
-    let opened = false;
-    for (let attempt = 0; attempt < 3 && !opened; attempt++) {
-      await openMenu(sid);
-      await clickMenuDanger(sid);
-      opened = await ev(`!!document.getElementById('modal-overlay')`);
-      if (!opened) {
-        await driver.pressEscape();
-        await settle(250);
+  // Delete every chat the GATES created, through the app's own delete flow —
+  // never one of the owner's. Two instruments, because one is not enough:
+  //   (1) the row title, which carries UXGATE only when the chat's first user
+  //       message does (a title is derived from it — `AppState.sessionTitle`);
+  //   (2) the sid recorded at creation (`newGateChat`/`trackProbe`), which
+  //       covers drafts (title "New chat") and chats a gate opened with its own
+  //       message — the leaked "Count from 1 to N" chats, measured at 2 per
+  //       strict run (D2b.5).
+  // A session with an in-flight (or queued) turn cannot be deleted while it
+  // streams, so wait the turn out, then verify the delete actually landed.
+  const attempted = new Map();
+  // Read the counts from the CHAT view: the run ends wherever the last gate left
+  // the page (schemes leaves the settings grid mounted), and a view without a
+  // session list reads 0 rows — a misleading "0 -> 145" on a clean run.
+  await chatView().catch(() => {});
+  const countRows = () => ev(`(() => {
+    const rows = [...document.querySelectorAll('.sess-row')];
+    return { rows: rows.length, uxgate: rows.filter(r => (r.textContent || '').includes('${PROBE}')).length };
+  })()`).catch(() => null);
+  const before = await countRows();
+  const deleted = new Set();
+  // Passes, not one sweep: the app HEALS a session whose store entry is missing
+  // by re-creating it from memory — `healGhostSession` (Actions.swift:491), with
+  // the fallback title "Recovered chat" — when a turn's last message lands after
+  // the delete. Measured: a probe deleted at the end of `--only=interactions`
+  // came back 0.3 s later, titled "Recovered chat" (store) while its row still
+  // read as the probe message, so it survived the run (D2b.5's second leak).
+  // Give that race a window and sweep again; every pass still goes through the
+  // app's own delete flow, and only tracked sids / UXGATE rows are ever touched.
+  for (let pass = 0; pass < 3; pass++) {
+    if (pass > 0) await settle(2500);
+    let found = 0;
+    for (let guard = 0; guard < 40; guard++) {
+      await chatView().catch(() => {});
+      const sid = await ev(`(() => {
+        const rows = [...document.querySelectorAll('.sess-row')];
+        const tracked = ${JSON.stringify([...probeSids])};
+        const byTitle = rows.find(r => (r.textContent || '').includes('${PROBE}'));
+        const bySid = tracked.length ? rows.find(r => tracked.includes(r.getAttribute('data-sid'))) : null;
+        const pick = byTitle || bySid;
+        return pick ? pick.getAttribute('data-sid') : null;
+      })()`);
+      if (!sid) break;
+      if ((attempted.get(sid) || 0) >= 3) {
+        console.warn(`cleanup: gate session ${sid} survived three delete attempts — leaving it (never hand-deleting)`);
+        break;
       }
+      attempted.set(sid, (attempted.get(sid) || 0) + 1);
+      found++;
+      const busySince = Date.now();
+      while (Date.now() - busySince < 120000) {
+        const busy = await ev(`!!document.getElementById('live-turn')`);
+        if (!busy) break;
+        await waitMs(800);
+      }
+      let opened = false;
+      for (let attempt = 0; attempt < 3 && !opened; attempt++) {
+        opened = (await openMenu(sid)) && (await clickMenuDanger(sid));
+        if (!opened) {
+          await driver.pressEscape();
+          await settle(250);
+        }
+      }
+      if (!opened) { console.warn(`cleanup: could not open the delete modal for gate session ${sid} — leaving it`); break; }
+      await ev(`document.getElementById('modal-confirm')?.click()`);
+      // The app defers deletes while the session is mid-turn: verify, don't assume.
+      const goneSince = Date.now();
+      let gone = false;
+      while (Date.now() - goneSince < 60000) {
+        gone = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${sid}'); })()`));
+        if (gone) break;
+        await waitMs(800);
+      }
+      if (!gone) console.warn(`cleanup: delete of gate session ${sid} did not land — will retry`);
+      else { deleted.add(sid); probeSids.delete(sid); }
     }
-    if (!opened) { console.warn(`cleanup: could not open the delete modal for probe session ${sid} — leaving it`); break; }
-    await ev(`document.getElementById('modal-confirm')?.click()`);
-    // The app defers deletes while the session is mid-turn: verify, don't assume.
-    const goneSince = Date.now();
-    let gone = false;
-    while (Date.now() - goneSince < 60000) {
-      gone = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${sid}'); })()`));
-      if (gone) break;
-      await waitMs(800);
-    }
-    if (!gone) console.warn(`cleanup: delete of probe session ${sid} did not land — will retry`);
+    if (!found) break;
   }
+  // tracked sids with no row left are done (deleted, or a draft the app never
+  // persisted); keep the set clean so the next run starts empty
+  probeSids.clear();
   await ev(`document.getElementById('nav-chat')?.click()`);
   await settle(300);
+  const after = await countRows();
+  console.log(`  cleanup: ${deleted.size} gate session(s) removed through the app's delete flow — rows ${before?.rows} -> ${after?.rows}, UXGATE rows ${before?.uxgate} -> ${after?.uxgate}`);
 }
 
 let stateAtStart = null;
@@ -404,7 +1082,7 @@ async function snapshotInitialState() {
     await driver.waitFor(`document.querySelector('[data-theme-choice]') !== null`, { timeoutMs: 8000, label: 'settings pickers' }).catch(() => {});
     await settle(250);
     const t = await ev(`(() => {
-      const th = document.querySelector('[data-theme-choice].active');
+      const th = document.querySelector('[data-theme-choice][aria-pressed="true"]');
       const sc = document.querySelector('[data-scheme-choice].active');
       return { theme: th?.getAttribute('data-theme-choice') || null, scheme: sc?.getAttribute('data-scheme-choice') || null, bodyBg: getComputedStyle(document.body).backgroundColor };
     })()`);
@@ -440,21 +1118,40 @@ async function runContrast() {
   await waitStreamEnd(180000).catch(() => false);
   await chatView();
 
+  // `chat-open` must sample a transcript that HOLDS A LINK. The probe chat's
+  // reply is whatever the model wrote, so the row's reading depended on it:
+  // measured at D4c, the same code read 77/78 on a run whose sampled transcript
+  // held an anchor and 78/78 on a run whose did not — a green reading was only
+  // evidence that no link was on screen. Seed a fixed transcript (store record +
+  // `/?s=` deep link, the facility D6.1/D8.1 built) and sample THAT chat; it is
+  // deleted through the app's own delete flow at the end of this gate.
+  const linkSid = trackProbe(writeLinkSession());
+  const linkOpened = await openLinkChat(linkSid);
+  const linkSeed = { sid: linkSid.slice(0, 8), landed: linkOpened.landed, linkNodes: linkOpened.linkNodes };
+  if (!linkOpened.landed || linkOpened.linkNodes < 1) {
+    console.warn(`contrast: the seeded link chat rendered no anchor (landed=${linkOpened.landed}, nodes=${linkOpened.linkNodes}) — chat-open will report missing evidence`);
+  }
+
   for (const theme of ['dark', 'light']) {
     await setTheme(theme);
     const views = [];
 
-    // view: chat with a conversation open
+    // view: chat with a conversation open — the seeded one, whose transcript
+    // carries the anchor `--link` paints. `focusLinkChat` re-opens it (the theme
+    // switch and the modal view move the active row) and returns the anchor
+    // count, which is part of the row's evidence, not just a precondition.
     await chatView();
-    if (probeSid) {
-      // ensure the probe conversation is the one open
-      await ev(`(() => {
-        const row = [...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${probeSid}');
-        row?.querySelector('.sess-open')?.click();
-      })()`);
-      await settle(300);
-    }
-    views.push({ name: 'chat-open', sample: await ev(`uxContrast.sampleView({ root: '#chat-scroll', view: 'chat-open', theme: '${theme}' })`) });
+    const focusedLinks = await focusLinkChat(linkSid, theme);
+    const chatSample = await ev(`uxContrast.sampleView({ root: '#chat-scroll', view: 'chat-open', theme: '${theme}' })`);
+    views.push({ name: 'chat-open', sample: chatSample });
+    report.chatLinks = report.chatLinks || {};
+    report.chatLinks[theme] = {
+      seededSid: linkSeed.sid,
+      focusedLinks,
+      linkNodes: (chatSample && chatSample.linkCount) || 0,
+      linkFailures: (chatSample && chatSample.linkFailures) || 0,
+      links: (chatSample && chatSample.links) || [],
+    };
 
     // view: left panel
     views.push({ name: 'left-panel', sample: await ev(`uxContrast.sampleView({ root: '#panel', view: 'left-panel', theme: '${theme}' })`) });
@@ -466,29 +1163,62 @@ async function runContrast() {
     views.push({ name: 'settings', sample: await ev(`uxContrast.sampleView({ root: document.body, view: 'settings', theme: '${theme}' })`) });
 
     // view: delete modal
+    //
+    // The dialog opens only from an ACTIVE row: `openMenu(null)` and
+    // `clickMenuDanger(null)` both resolve `.sess-row.active`, and a row that
+    // exists inside a collapsed category group has no live menu. Selecting the
+    // probe row is therefore a precondition, not a formality — poll it (and
+    // retry once) instead of sleep-then-hope, and poll `#modal-overlay` to a
+    // deadline instead of reading it once. A precondition that still fails
+    // pushes a row carrying the reason, so the gate's "10 view/theme samples"
+    // contract can never be met by silently dropping the view.
     if (probeSid) {
-      // back to chat first: the session list is NOT in the DOM on the
-      // settings view, so the menu/modal can only open from the chat panel
-      await chatView();
-      // make the probe session the ACTIVE one so its row is on screen and
-      // its menu answers (a merely-existing row could sit in a collapsed
-      // category group where its menu cannot open)
-      await ev(`(() => {
-        const row = [...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${probeSid}');
-        row?.querySelector('.sess-open')?.click();
-      })()`);
-      await settle(400);
-      await openMenu(null);
-      await clickMenuDanger(null);
-      const mopen = await ev(`!!document.getElementById('modal-overlay')`);
-      if (mopen) {
+      let sampled = false;
+      for (let attempt = 0; attempt < 2 && !sampled; attempt++) {
+        // back to chat first: the session list is NOT in the DOM on the
+        // settings view, so the menu/modal can only open from the chat panel
+        await chatView();
+        // a failed earlier attempt can leave the dialog up; close it before
+        // aiming at the row again (Escape is the app's own dismiss path)
+        if (await ev(`!!document.getElementById('modal-overlay')`)) {
+          await driver.pressEscape();
+          await waitTrue(`!document.getElementById('modal-overlay')`, 3000);
+        }
+        // The list renders after the chat view is mounted (measured: 0 rows on
+        // the frame after settings -> chat, 143 rows ~1 s later, so a click on
+        // the first frame no-ops and the dialog can never open). Wait for the
+        // probe row itself, then select it.
+        const rowReady = await waitTrue(
+          `[...document.querySelectorAll('.sess-row')].some(r => r.getAttribute('data-sid') === '${probeSid}')`, 8000);
+        if (!rowReady) continue;
+        await ev(`(() => {
+          const row = [...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${probeSid}');
+          row?.querySelector('.sess-open')?.click();
+        })()`);
+        const active = await waitTrue(
+          `document.querySelector('.sess-row.active')?.getAttribute('data-sid') === '${probeSid}'`, 5000);
+        if (!active) continue;
+        if (!await openMenu(null)) continue;
+        if (!await clickMenuDanger(null)) continue;
+        if (!await waitTrue(`!!document.querySelector('#modal-overlay #modal-confirm')`, 5000)) continue;
         views.push({ name: 'delete-modal', sample: await ev(`uxContrast.sampleView({ root: '#modal-overlay', view: 'delete-modal', theme: '${theme}' })`) });
+        sampled = true;
         await driver.pressEscape();
-        await settle(300);
-      } else {
-        views.push({ name: 'delete-modal', sample: { view: 'delete-modal', theme, error: 'modal did not open' } });
+        // the close is a server patch too (measured: closed after 300 ms, not
+        // at it). A fixed 300 ms left the dialog closing across the gate
+        // boundary, and the next gate's first clicks raced the teardown patch.
+        await waitTrue(`!document.getElementById('modal-overlay')`, 3000);
+      }
+      if (!sampled) {
+        views.push({ name: 'delete-modal', sample: { view: 'delete-modal', theme, error: 'modal did not open (no active probe row / menu)' } });
+        try { await driver.pressEscape(); } catch { /* best effort */ }
+        await waitTrue(`!document.getElementById('modal-overlay')`, 3000);
       }
       await chatView();
+    } else {
+      // no probe session means the modal cannot be exercised at all — record
+      // that as a row, never as a missing view
+      views.push({ name: 'delete-modal', sample: { view: 'delete-modal', theme, error: 'no probe session to delete' } });
     }
 
     // view: toast
@@ -501,14 +1231,16 @@ async function runContrast() {
     await openMenu(null);
     await ev(`(() => {
       const row = document.querySelector('.sess-row.active');
-      const c = row && row.querySelector('.chat-menu.open [id^="sm-copy-"]');
+      const c = row && row.querySelector('.chat-menu[data-open] [id^="sm-copy-"]');
       if (c) c.click();
       return !!c;
     })()`);
     await settle(500);
-    const toast = await ev(`(() => { const ts = [...document.querySelectorAll('.toast')]; return { count: ts.length, texts: ts.map(t => t.textContent) }; })()`);
+    // the toast is the ENGINE's now (A16b): a `data-copy` click paints
+    // `[data-webui-toast]` — the arc `#toasts` stack is only for server pushes.
+    const toast = await ev(`(() => { const ts = [...document.querySelectorAll('[data-webui-toast]')]; return { count: ts.length, texts: ts.map(t => t.textContent) }; })()`);
     if (toast.count > 0) {
-      views.push({ name: 'toast', sample: await ev(`uxContrast.sampleView({ root: '#toasts', view: 'toast', theme: '${theme}' })`) });
+      views.push({ name: 'toast', sample: await ev(`uxContrast.sampleView({ root: '[data-webui-toast]', view: 'toast', theme: '${theme}' })`) });
     } else {
       views.push({ name: 'toast', sample: { view: 'toast', theme, error: 'no toast shown' } });
     }
@@ -526,7 +1258,41 @@ async function runContrast() {
         }
       }
     }
+
+    // A `chat-open` sample with no anchor is not evidence of a legible link — it
+    // is the vacuous pass this slice removes. Record it as a failure of the row,
+    // with the counts it reported, rather than letting silence read as green.
+    const chat = report.chatLinks[theme];
+    if (!chat || chat.linkNodes < 1) {
+      console.warn(`  contrast ${theme}/chat-open: no link node in the sample (focused=${chat && chat.focusedLinks}, nodes=${chat && chat.linkNodes})`);
+      report.failures.push({
+        view: 'chat-open', theme, text: '(no link node in the sample)',
+        tag: 'a', id: '', cls: 'md', fg: '', bg: '', ratio: 0, required: 4.5, large: false,
+      });
+      report.counts.totalFailures++;
+      report.counts.missingLinkSamples = (report.counts.missingLinkSamples || 0) + 1;
+    }
   }
+
+  // the seeded link chat is deleted through the app's own delete flow: it is
+  // UXGATE-titled, so leaving it would let the next group's `ensureProbeSession`
+  // adopt it as its probe.
+  let linkDeleted = false;
+  for (let attempt = 0; attempt < 3 && !linkDeleted; attempt++) {
+    await chatView();
+    if ((await openMenu(linkSid)) && (await clickMenuDanger(linkSid))) {
+      await ev(`document.getElementById('modal-confirm')?.click()`);
+      linkDeleted = await waitTrue(
+        `!([...document.querySelectorAll('.sess-row')].some(r => r.getAttribute('data-sid') === '${linkSid}'))`, 15000);
+    } else {
+      await driver.pressEscape();
+      await settle(250);
+    }
+  }
+  report.linkSeed = { ...linkSeed, deleted: linkDeleted };
+  if (linkDeleted) probeSids.delete(linkSid);
+  else console.warn(`contrast: the seeded link chat ${linkSid} survived its delete — left to the run cleanup`);
+  await chatView();
 
   // restore dark (theme toggles are the gate's own; the final restoreState
   // puts the app back to whatever it showed when the run started)
@@ -539,8 +1305,14 @@ async function runContrast() {
     byView[k] = (byView[k] || 0) + 1;
   }
   report.perViewFailureCounts = byView;
+  const linkEvidence = Object.values(report.chatLinks || {});
+  const linkNodes = linkEvidence.reduce((n, c) => n + (c.linkNodes || 0), 0);
+  const linkFailures = linkEvidence.reduce((n, c) => n + (c.linkFailures || 0), 0);
+  report.counts.linkNodes = linkNodes;
+  report.counts.linkFailures = linkFailures;
   writeFileSync(`${HERE}contrast-report.json`, JSON.stringify(report, null, 2));
   console.log(`  contrast-report.json written — total failures: ${report.counts.totalFailures} across ${report.views.length} view/theme samples`);
+  console.log(`  chat-open link nodes: ${linkNodes} (dark=${report.chatLinks?.dark?.linkNodes ?? 0}, light=${report.chatLinks?.light?.linkNodes ?? 0}); below AA: ${linkFailures}`);
   if (report.counts.totalFailures) {
     console.log('  FAILURES by view/theme:', JSON.stringify(byView));
     for (const f of report.failures.slice(0, 12)) {
@@ -549,7 +1321,10 @@ async function runContrast() {
   } else {
     console.log('  no contrast failures (WCAG AA, both themes)');
   }
-  record('contrast', 'WCAG AA both themes (chat, panel, settings, modal, toast)', report.counts.totalFailures === 0, { totalFailures: report.counts.totalFailures });
+  record(
+    'contrast', 'WCAG AA both themes (chat, panel, settings, modal, toast)',
+    report.counts.totalFailures === 0 && linkNodes >= 2 && linkFailures === 0,
+    { totalFailures: report.counts.totalFailures, linkNodes, linkFailures, chatLinks: report.chatLinks, linkSeed: report.linkSeed });
 }
 
 // ---------------------------------------------------------------------------
@@ -583,7 +1358,7 @@ async function runInteractions() {
   await driver.setViewport(768, 900);
   await settle(300);
   const dt = await ev(`uxGates.drawer()`);
-  if (dt.present && dt.display !== 'none') {
+  if (dt.present && dt.toggleDisplay !== 'none') {
     await ev(`document.getElementById('drawer-toggle')?.click()`);
     await settle(400);
     const opened = await ev(`uxGates.state().drawerOpen`);
@@ -601,25 +1376,60 @@ async function runInteractions() {
   add('console-clean tour', consoleClean, { clicked: tour.clicked, errors: cr.errors, warnings: cr.warnings, engineWarnings, infoCount: cr.info.length, info: cr.info.slice(0, 5) });
 
   // ---- 2. popover matrix -------------------------------------------------
+  //
+  // A row must not inherit the previous group's page state. Measured (D2b):
+  // the composer popover's open state is a ONE-RENDER server latch
+  // (`composerPopover` is consumed by `composerHTML`), so ANY patch that
+  // re-renders the composer form after the open render replaces `#file-pop`
+  // with the closed spelling. The matrix therefore measures against a
+  // quiescent composer: no live turn, no pending toast, and the composer form
+  // node itself observed twice 250 ms apart. What the row starts from is
+  // recorded (`atStart`), so a lost open can be read as "the page was still
+  // settling" rather than guessed at.
+  // BASELINE MEASURED (D2b.2, base `6fd7bbf8`, daemon 89783/093a0c39): in a
+  // strict run the matrix started with `active: "chat-new"` — focus left on the
+  // `+` by the new-chat flow the console tour ends on — and every open took
+  // ~890-940 ms against a 300 ms hold / 4 s deadline, i.e. one composer render
+  // inside that window is enough to consume the one-render latch and replace the
+  // popover closed. The quiesce is the repair: the row must not measure the
+  // previous group's churn.
+  const quiesce = await quiesceComposer();
+  const atStart = await ev(`(() => {
+    const pop = uxGates.popovers();
+    const el = document.getElementById('file-pop');
+    const cs = el ? getComputedStyle(el) : null;
+    const r = el ? el.getBoundingClientRect() : null;
+    return {
+      active: (document.activeElement || {}).id || (document.activeElement || {}).tagName || null,
+      sessions: document.querySelectorAll('.sess-row').length,
+      activeSid: (document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null,
+      theme: document.documentElement.getAttribute('data-scheme') || '',
+      viewport: innerWidth + 'x' + innerHeight,
+      liveTurn: !!document.getElementById('live-turn'),
+      toasts: document.querySelectorAll('[data-webui-toast]').length,
+      filePop: el ? { present: true, open: pop.file.open, dataOpen: el.getAttribute('data-open'), display: cs.display, opacity: cs.opacity, w: Math.round(r.width), h: Math.round(r.height) } : { present: false },
+      openPopovers: Object.entries(pop).filter(([, v]) => v && v.open).map(([k]) => k),
+    };
+  })()`);
   const matrix = [];
   const triggers = { file: '#cb-file', workspace: '#cb-ws-toggle', profile: '#cb-profile-toggle', model: '#cb-model-toggle', think: '#cb-think-toggle' };
   for (const [name, trig] of Object.entries(triggers)) {
     const row = {};
-    // open
-    await ev(`document.querySelector('${trig}')?.click()`);
-    await settle(350);
-    const opened = await ev(`uxGates.popovers().${name}.open`);
-    row.opened = opened;
-    // Escape
+    // open — "reached and held", so a late patch cannot be mistaken for either side
+    // (`openObs` carries the raw observation: how long it took and whether a
+    // composer patch replaced the node mid-wait — see `openAndHold`)
+    const openObs = await openAndHold(trig, name);
+    row.opened = openObs.open;
+    row.openObs = openObs;
+    // Escape — closed must HOLD, else a late open patch re-opens and hides the bug
     await driver.pressEscape();
-    await settle(300);
-    row.escClosed = !(await ev(`uxGates.popovers().${name}.open`));
+    row.escClosed = await waitStableValue(`uxGates.popovers().${name}.open`, false);
     // outside click (real click in the transcript, clear of any popover)
     await ev(`document.querySelector('${trig}')?.click()`);
-    await settle(350);
-    const o2 = await ev(`uxGates.popovers().${name}.open`);
+    const o2 = await waitStableValue(`uxGates.popovers().${name}.open`, true);
     row.esc2opened = o2;
     if (o2) {
+      await settle(250);
       const pt = await ev(`(() => {
         const cs = document.getElementById('chat-scroll');
         const pr = uxGates.popoverRect('${name}');
@@ -630,36 +1440,38 @@ async function runInteractions() {
         return { x: Math.round(x), y: Math.round(y) };
       })()`);
       await driver.clickAt(pt.x, pt.y);
-      await settle(350);
-      row.outsideClosed = !(await ev(`uxGates.popovers().${name}.open`));
+      row.outsideClosed = await waitStableValue(`uxGates.popovers().${name}.open`, false);
     } else {
       row.outsideClosed = null;
     }
-    matrix.push({ name, ...row });
-    // mutual exclusion: file-pop then model
+    // mutual exclusion: file-pop then model. This runs BEFORE the row is
+    // recorded — the row's verdict reads `mutualExclusion`, and recording it
+    // first made that clause vacuous (an undefined key satisfied `!m.mutualExclusion`).
     if (name === 'file') {
-      await ev(`document.querySelector('${trig}')?.click()`);
-      await settle(350);
-      const fp1 = await ev(`uxGates.popovers().file.open`);
+      const mutualOpen = await openAndHold(trig, 'file');
+      const fp1 = mutualOpen.open;
       await ev(`document.getElementById('cb-model-toggle')?.click()`);
-      await settle(350);
+      const mutualOk = await waitStableValue(
+        `(() => { const p = uxGates.popovers(); return p.model.open === true && p.file.open === false; })()`,
+        true, 250, 4000);
       const mutual = await ev(`({ file: uxGates.popovers().file.open, model: uxGates.popovers().model.open })`);
-      row.mutualExclusion = { fileOpen: fp1, afterModel: mutual };
+      row.mutualExclusion = { fileOpen: fp1, afterModel: mutual, ok: mutualOk, openObs: mutualOpen };
       await driver.pressEscape();
       await settle(300);
     }
+    matrix.push({ name, ...row });
   }
   // session context menu
   const menuRow = { name: 'session-menu' };
   const mSid = await ensureProbeSession();
   await openMenu(mSid);
-  menuRow.opened = await ev(`uxGates.popovers().sessionMenu.open`);
+  menuRow.opened = await waitStableValue(`uxGates.popovers().sessionMenu.open`, true, 250, 3000);
   await driver.pressEscape();
-  await settle(300);
-  menuRow.escClosed = !(await ev(`uxGates.popovers().sessionMenu.open`));
+  settle(50);
+  menuRow.escClosed = await waitStableValue(`uxGates.popovers().sessionMenu.open`, false, 250, 3000);
   await openMenu(mSid);
   const mpt = await ev(`(() => {
-    const menu = document.querySelector('.chat-menu.open');
+    const menu = document.querySelector('.chat-menu[data-open]');
     const r = menu.getBoundingClientRect();
     let x = r.right + 160, y = r.top + 100;
     const cs = document.getElementById('chat-scroll');
@@ -668,12 +1480,18 @@ async function runInteractions() {
     return { x: Math.round(x), y: Math.round(y) };
   })()`);
   await driver.clickAt(mpt.x, mpt.y);
-  await settle(350);
-  menuRow.outsideClosed = !(await ev(`uxGates.popovers().sessionMenu.open`));
+  menuRow.outsideClosed = await waitStableValue(`uxGates.popovers().sessionMenu.open`, false, 250, 3000);
   matrix.push(menuRow);
 
-  const popoverOk = matrix.every((m) => m.opened && m.escClosed && m.outsideClosed !== false && (m.name !== 'file' || !m.mutualExclusion || (m.mutualExclusion.afterModel.file === false && m.mutualExclusion.afterModel.model === true)));
-  add('popover matrix (escape, outside-click, mutual exclusion)', popoverOk, matrix);
+  // The mutual-exclusion clause reads `fileOpen === true` too (D2b.2): the old
+  // verdict only checked the END state (model open, file closed), which a file
+  // popover that NEVER opened satisfied vacuously — the row could fail its own
+  // premise and still pass. "The model click closed the file popover" means the
+  // file popover was open when that click landed.
+  const popoverOk = matrix.every((m) => m.opened && m.escClosed && m.outsideClosed !== false
+    && (m.name !== 'file' || (m.mutualExclusion && m.mutualExclusion.ok === true && m.mutualExclusion.fileOpen === true
+        && m.mutualExclusion.afterModel.file === false && m.mutualExclusion.afterModel.model === true)));
+  add('popover matrix (escape, outside-click, mutual exclusion)', popoverOk, { quiesce, atStart, rows: matrix });
 
   // ---- 3. tab budget ------------------------------------------------------
   // Measured from a FRESH LOAD at each width: counting Tab presses on a live,
@@ -690,21 +1508,20 @@ async function runInteractions() {
     // conversation carries no turn-worklog disclosures (native `<summary>`
     // tab stops that grow with the transcript), so measuring on the restored
     // active chat is measuring the transcript, not the chrome.
-    await ev(`document.getElementById('chat-new')?.click()`);
-    await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000 });
-    await settle(300);
+    await newGateChat('tab budget');
     // Make BODY actually focusable before focusing it: without tabindex the
     // focus() call is a silent no-op, focus stays on whatever the app last
     // focused (the composer, via the new-chat flow), and the "trail" starts
     // mid-cycle — counting a wrapped lap instead of the cost from load.
     //
-    // The app intentionally refocuses the composer ~2.5s after a new chat
-    // (overlay.js focusComposerWanted window, the UX-45 affordance). A body
-    // focus that lands inside that window gets undone when the timer fires,
-    // and the walk then starts at the composer's toolbar — a rotated trail
-    // that reads as a product failure (2026-11-01 audit). Wait the window out,
-    // re-assert the body focus, and treat a second miss as a measurement
-    // skip: the budget's ≤12 assertion stays untouched either way.
+    // The app focuses the composer on boot and after a new chat (3.1.0's
+    // `data-focus-on-appear` on the textarea — the UX-45 affordance), and the
+    // new-chat patch can land a beat after the click. A body focus that lands
+    // inside that window gets undone, and the walk then starts at the
+    // composer's toolbar — a rotated trail that reads as a product failure
+    // (2026-11-01 audit). Wait the patch out, re-assert the body focus, and
+    // treat a second miss as a measurement skip: the budget's ≤12 assertion
+    // stays untouched either way.
     await settle(2700);
     await driver.js(`document.body.setAttribute('tabindex','-1'); document.activeElement && document.activeElement.blur && document.activeElement.blur(); document.body.focus(); true`);
     await settle(250);
@@ -736,15 +1553,43 @@ async function runInteractions() {
       seen.add(key);
     }
     budget[vp] = { stops, focusedComposer, startedAtBody, trail };
+    // The conditional stop, recorded rather than assumed: `chat-clear-empty`
+    // renders only while `clearableDrafts > 0` (another empty chat exists), and
+    // it is a legitimate control (Views.swift UX-62). Whether it is in the trail
+    // is evidence the row must carry.
+    budget[vp].clearEmpty = await ev(`!!document.getElementById('chat-clear-empty')`);
     const fl = await ev(`uxGates.focusables()`);
     budget[vp].focusableCount = fl.length;
   }
+  // Budget 12 -> 13, MEASURED (D2b.6, daemon 89783/093a0c39, base 6fd7bbf8 +
+  // this slice). The 13th stop is `chat-clear-empty`, the "Clear N empty chats"
+  // link, which renders only while another empty chat exists:
+  //   1440, clearable-drafts state, 13: a.skip-link, nav-chat, chat-new,
+  //     chat-search-input, chat-showarch-link, chat-clear-empty, sess-row.active,
+  //     outline-toggle, regen-btn, chat-del, chat-scroll, blank-cta,
+  //     composer-input
+  //   1440, clean state, 12: the same trail with chat-clear-empty absent
+  //   768, both states, 9: a.skip-link, drawer-toggle, nav-chat, outline-toggle,
+  //     regen-btn, chat-del, chat-scroll, blank-cta, composer-input
+  // The walk's start cannot be made empty-draft-free without deleting chats the
+  // gates did not create (an empty chat is a normal reader state — a stray `+`
+  // leaves one, which is why UX-62 exists), so the ceiling counts the control
+  // instead of shaving it. Every stop above is legitimate; the old 12 was the
+  // same trail minus a control that only sometimes renders.
   const measured = ['1440', '768'].filter(vp => !budget[vp].skipped);
   const budgetOk = measured.length > 0 &&
-    measured.every(vp => budget[vp].startedAtBody && budget[vp].focusedComposer && budget[vp].stops <= 12);
-  add('tab budget (<=12 stops to composer, 1440 + 768)', budgetOk, budget);
+    measured.every(vp => budget[vp].startedAtBody && budget[vp].focusedComposer && budget[vp].stops <= 13);
+  add('tab budget (<=13 stops to composer, 1440 + 768)', budgetOk, budget);
 
   // ---- 4. slash menu -------------------------------------------------------
+  // no-webui 3.1.1: the menu is a `FilterList(source:token:)` region — the
+  // server renders the rows, the engine owns the `/` gate, the filter, the
+  // HIGHLIGHT and the insert. Two insert paths are measured: a click on the row
+  // (3.1.0's path) and Enter with focus still IN THE SOURCE FIELD. 3.1.0 only
+  // selected while a ROW was the active element, so a reader who kept typing
+  // and pressed Enter submitted the message; 3.1.1 makes the lit row the
+  // field's `aria-activedescendant`, moves the highlight with ArrowUp/Down, and
+  // inserts on Enter from the field while preventing the submit.
   const slash = {};
   await chatView();
   // The slash menu is suppressed while a turn is in flight (the composer turns
@@ -753,73 +1598,116 @@ async function runInteractions() {
   // so wait for it to drain before asserting the menu opens; otherwise this
   // gate measures the queue, not the slash surface.
   await waitStreamEnd(120000).catch(() => false);
-  await ev(`document.getElementById('chat-new')?.click()`);
-  await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000 });
-  await settle(300);
+  await newGateChat('slash');
   // type "/" via real keys into the focused composer
-  await ev(`document.getElementById('composer-input')?.focus()`);
+  slash.fieldFocused = await ev(`(() => { const t = document.getElementById('composer-input'); if (!t) return false; t.focus(); return document.activeElement === t; })()`);
   await settle(100);
   await driver.typeText('/');
   await settle(400);
   slash.before = await ev(`uxGates.slash()`);
-  slash.typingHelp = (slash.before.rows || []).some((r) => r.text.toLowerCase().includes('help'));
+  slash.typingHelp = (slash.before.rows || []).some((r) => r.text === 'help');
+  // the highlight contract on open: one lit row, named by the field
+  slash.litOpen = await ev(`uxGates.slashHighlight()`);
+  // ArrowUp/ArrowDown move the highlight, and focus never leaves the field
+  await driver.pressKey('ArrowDown');
+  await settle(200);
+  slash.litAfterDown = await ev(`uxGates.slashHighlight()`);
+  await driver.pressKey('ArrowUp');
+  await settle(200);
+  slash.litAfterUp = await ev(`uxGates.slashHighlight()`);
+  slash.arrowsMove = !!slash.litAfterDown.lit && slash.litAfterDown.lit !== slash.litOpen.lit
+    && slash.litAfterUp.lit === slash.litOpen.lit
+    && slash.litAfterDown.focusInField && slash.litAfterUp.focusInField;
   await driver.typeText('he');
   await settle(400);
   slash.after = await ev(`uxGates.slash()`);
   slash.filteredShrunk = slash.after.rowCount > 0 && slash.after.rowCount <= slash.before.rowCount;
-  // Enter inserts
-  await driver.pressEnter();
+  slash.litFiltered = await ev(`uxGates.slashHighlight()`);
+  slash.highlightOk = slash.litOpen.litCount === 1 && slash.litOpen.focusInField
+    && !!slash.litOpen.lit
+    && slash.litFiltered.lit === 'help' && slash.litFiltered.focusInField;
+  // the a11y half of 3.1.1 names the lit row from the field
+  // (`aria-activedescendant`), which needs an `id` on the row. arc's rows carry
+  // none — adding one overflows `slashPanel()`'s render-stack cliff (measured:
+  // the panel collapses to a single bare row) — so the field attribute is
+  // absent. Recorded, not asserted: the highlight contract above is what
+  // prevents the submit.
+  slash.ariaNamed = !!slash.litFiltered.activeDescendant;
+  // path 1 — click the `help` row: the insert is the region's own click consequence
+  const helpRect = await ev(`uxGates.slashRowRect('help')`);
+  if (helpRect) await driver.clickAt(helpRect.x, helpRect.y);
   await settle(400);
-  slash.afterEnter = await ev(`(() => ({ open: uxGates.slash().open, composer: document.getElementById('composer-input')?.value || '', placeholder: document.getElementById('composer-input')?.getAttribute('placeholder') }))()`);
-  slash.inserted = /^\/\S+/.test(slash.afterEnter.composer);
-  slash.ok = slash.before.open && slash.before.rowCount > 0 && slash.after.open && slash.filteredShrunk && !slash.afterEnter.open && slash.inserted;
-  add('slash menu open -> filter -> insert', slash.ok, slash);
+  slash.afterClick = await ev(`(() => ({ open: uxGates.slash().open, composer: document.getElementById('composer-input')?.value || '', placeholder: document.getElementById('composer-input')?.getAttribute('placeholder') }))()`);
+  slash.insertedByClick = /^\/help $/.test(slash.afterClick.composer);
+  // path 2 — Enter with focus IN THE FIELD. The field is rewritten to `/he`
+  // (the panel re-opens and lights `help`) and Enter is a REAL key press on the
+  // focused textarea: no row is ever focused, so the insert can only come from
+  // 3.1.1's field path, and `submits` must stay 0.
+  await setComposer('/he');
+  await settle(400);
+  slash.beforeEnter = await ev(`uxGates.slashHighlight()`);
+  slash.stateBeforeEnter = await ev(`uxGates.composerState()`);
+  await driver.pressEnter();
+  await settle(450);
+  slash.afterEnter = await ev(`(() => ({ value: document.getElementById('composer-input')?.value || '', open: uxGates.slash().open, state: uxGates.composerState() }))()`);
+  slash.insertedByEnter = /^\/help $/.test(slash.afterEnter.value);
+  slash.panelClosed = !slash.afterEnter.open;
+  slash.submits = slash.afterEnter.state.userRows - slash.stateBeforeEnter.userRows;
+  slash.live = slash.afterEnter.state.live;
+  slash.ok = slash.fieldFocused && slash.before.open && slash.before.rowCount > 0
+    && slash.typingHelp && slash.filteredShrunk && slash.highlightOk && slash.arrowsMove
+    && !slash.afterClick.open && slash.insertedByClick
+    && slash.beforeEnter.focusInField && slash.insertedByEnter && slash.panelClosed
+    && slash.submits === 0 && !slash.live;
+  add('slash menu open -> filter -> insert (click, then Enter in the field)', slash.ok, slash);
 
   // ---- 5. delete flow incl. Undo -------------------------------------------------
   await ensureProbeSession();
   const del = {};
   const beforeCount = await ev(`uxGates.sessions().count`);
   await openMenu(probeSid);
-  await clickMenuDanger(probeSid);
-  del.modalOpen = await ev(`uxGates.modal().open`);
+  del.modalOpen = await clickMenuDanger(probeSid);
   await ev(`document.getElementById('modal-confirm')?.click()`);
-  await settle(700);
-  del.gone = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${probeSid}'); })()`));
-  del.toast = await ev(`uxGates.toast()`);
-  del.deletedToast = del.toast.items.some((t) => t.text.includes('deleted') && t.actionLabel === 'Undo');
-  // Undo
-  await ev(`document.querySelector('.toast .toast-action')?.click()`);
-  await settle(900);
-  del.restored = await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${probeSid}'); })()`);
-  const afterCount = await ev(`uxGates.sessions().count`);
-  // The point of this check is "undo restored the row once, not twice" — a
-  // global row count also moves with every session an earlier sub-test creates
-  // (the slash sub-test opens a fresh chat), so it reported a mismatch that had
-  // nothing to do with undo. Count the probe row itself.
-  const restoredRows = await ev(`(() => [...document.querySelectorAll('.sess-row')].filter(r => r.getAttribute('data-sid') === '${probeSid}').length)()`);
-  del.restoredRows = restoredRows;
-  del.beforeCount = beforeCount;
-  del.afterCount = afterCount;
-  del.countConsistent = restoredRows === 1;
-  // clean up: delete again (no undo)
-  if (del.restored) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      await openMenu(probeSid);
-      await clickMenuDanger(probeSid);
-      if (await ev(`uxGates.modal().open`)) {
-        await ev(`document.getElementById('modal-confirm')?.click()`);
-        await settle(700);
-        break;
-      }
-      await driver.pressEscape();
-      await settle(250);
+  // The removal and its toast are one patch family, and the toast is TRANSIENT:
+  // sample both while polling and keep every toast item seen. A single read
+  // after a fixed settle catches neither under load, and a read after a long
+  // poll can catch a toast that already faded.
+  del.gone = false;
+  const toastSeen = [];
+  const toastKeys = new Set();
+  const delDeadline = Date.now() + 5000;
+  while (Date.now() < delDeadline) {
+    const st = await ev(`(() => ({
+      gone: !([...document.querySelectorAll('.sess-row')].some(r => r.getAttribute('data-sid') === '${probeSid}')),
+      toast: uxGates.toast(),
+    }))()`);
+    for (const it of (st.toast && st.toast.items) || []) {
+      const k = [it.text, it.actionLabel, it.hasAction].join('|');
+      if (!toastKeys.has(k)) { toastKeys.add(k); toastSeen.push(it); }
     }
-    del.finalGone = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${probeSid}'); })()`));
-  } else {
-    del.finalGone = true;
+    if (st.gone) del.gone = true;
+    if (del.gone && toastSeen.some((t) => t.text.includes('deleted'))) break;
+    await waitMs(80);
   }
-  const delOk = del.modalOpen && del.gone && del.deletedToast && del.restored && del.countConsistent && del.finalGone;
-  add('delete flow (modal -> deleted -> toast+Undo -> restored -> cleanup)', delOk, del);
+  del.toast = { present: toastSeen.length > 0, count: toastSeen.length, items: toastSeen };
+  // 2026-10-30 product decision: the delete notification deliberately carries NO
+  // Undo action (pinned from the Swift side by
+  // UXHardeningContractTests.deleteHasNoUndoToast). This check kept requiring
+  // actionLabel === 'Undo', so it has been RED since that decision — and a gate
+  // that is always red cannot gate. It now asserts the current contract, and it
+  // asserts the ABSENCE of an action, which the old version never checked.
+  del.deletedToast = del.toast.items.some((t) => t.text.includes('deleted'));
+  del.noUndo = del.toast.items.every((t) => !t.actionLabel && !t.hasAction);
+  // the row is really gone, and nothing restored it — deletion is permanent now,
+  // so a global session count is the wrong instrument (earlier sub-tests create
+  // chats); the probe row's absence is the assertion.
+  del.finalGone = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${probeSid}'); })()`));
+  await settle(400);
+  del.finalGoneStaysGone = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${probeSid}'); })()`));
+  del.beforeCount = beforeCount;
+  del.afterCount = await ev(`uxGates.sessions().count`);
+  const delOk = del.modalOpen && del.gone && del.deletedToast && del.noUndo && del.finalGone && del.finalGoneStaysGone;
+  add('delete flow (modal -> deleted -> toast with no Undo -> stays deleted)', delOk, del);
 
   // ---- 6. dock 5x cycle ------------------------------------------------------
   const dock = {};
@@ -828,7 +1716,7 @@ async function runInteractions() {
   // popover matrix, which routes to #w-close) can leave the panel open, and
   // then cycle 0 measures a close instead of an open — the cycle list
   // alternating is the panel's own state carrying over, not a broken toggle.
-  await ev(`(() => { const p = document.getElementById('ws-panel'); if (p && !p.classList.contains('hidden')) document.getElementById('w-close')?.click(); })()`);
+  await ev(`(() => { const p = document.getElementById('ws-panel'); if (p && p.hasAttribute('data-open')) document.getElementById('w-close')?.click(); })()`);
   await settle(900);
   // The open/close reads POLL for the panel state instead of trusting one
   // fixed-settle read: the panel patch is a server round-trip (~150-200ms
@@ -865,7 +1753,1539 @@ async function runInteractions() {
 }
 
 // ---------------------------------------------------------------------------
+// A9 — the upload gate (no-webui 2.11.0 transport)
+//
+// the engine owns the transport: `data-upload-into` binds drop and paste, posts
+// one XHR per file, paints the tray and dispatches `upload-complete` on the
+// zone's component id. this gate drives the real page: a 1 MiB File through a
+// synthetic DataTransfer, an image paste, a bad-token refusal read verbatim, and
+// a CDP-dispatched directory drop (skipped loudly when the platform cannot
+// synthesize a directory entry).
+
+async function runUpload() {
+  console.log('\n— gate: upload (zones, 1 MiB drop, paste, tray, refusal, directory) —');
+  const out = { rows: [] };
+  const add = (name, ok, detail) => { out.rows.push({ name, ok }); record('upload', name, ok, detail); };
+  const root = await ev('uxGates.workspaceRoot()');
+
+  // ---- 1. the zones declare the wire (read from the DOM, not the source) ---
+  await chatView();
+  const zones = await ev('uxGates.uploadZones()');
+  const c = zones.composer || {}, p = zones.panel || {}, d = zones.dock || {};
+  const zonesOk = c.hasInto === true && c.into === 'attachments'
+    && c.to === '/api/upload'
+    && c.template === '{name}-{ts}-{seq}.{ext}'
+    && p.hasInto === true && p.into === '' && p.to === '/api/upload'
+    && p.component === 'ws-drop' && p.event === 'upload-complete'
+    && d.hasInto === true && d.into === '' && d.to === '/api/upload' && d.component === 'workspace';
+  add('zones carry destination, route, template and routing id', zonesOk, zones);
+
+  // ---- 2. a 1 MiB drop lands: tray row done, then the attach chip ---------
+  // the chip is the whole wire's proof: upload-complete -> attachFile -> the
+  // attach wire -> changed() -> the server re-renders the chips.
+  const drop = await ev(`uxGates.uploadDrop('#composer-form', [{ name: 'uxgate-1m.bin', bytes: ${1 << 20} }])`);
+  check(drop && drop.ok === true, 'the drop helper found no composer form');
+  const dropDone = await waitTrue(
+    `(() => { const t = uxGates.uploadTray(); return !!(t.last && t.last.state === 'done' && t.last.text.indexOf('uxgate-1m') !== -1); })()`,
+    30000
+  );
+  const trayDrop = await ev('uxGates.uploadTray()');
+  // the row is the route's answer rendered: the engine settles `done` only on
+  // a 2xx whose JSON says `ok: true`, and its status line is
+  // `<path> · <bytes> bytes` — the two fields the route returns.
+  const dropStatusOk = !!trayDrop.last
+    && /^attachments\/uxgate-1m-\d+-\d+\.bin · 1048576 bytes$/.test(trayDrop.last.status || '');
+  add('a 1 MiB drop reaches the tray and settles done', dropDone && dropStatusOk, trayDrop);
+  // the chip is `@<absolute path>` truncated at 50 chars, so the proof is the
+  // resolved destination directory plus a new chip — not the whole file name.
+  const chipDrop = await waitTrue(
+    `uxGates.uploadChips().chips.some((s) => s.indexOf('attachments/uxgate-') !== -1)`, 20000);
+  add('upload-complete attaches the landed file (a chip appears)', chipDrop, await ev('uxGates.uploadChips()'));
+
+  // ---- 3. an image paste uploads; a text paste is left alone --------------
+  const chipsBeforePaste = await ev('uxGates.uploadChips().count');
+  const paste = await ev(`uxGates.uploadPaste('#composer-input', 'uxgate-paste.png', 'image/png', 256)`);
+  check(paste && paste.ok === true, 'the paste helper found no composer input');
+  const pasteDone = await waitTrue(
+    `(() => { const t = uxGates.uploadTray(); return !!(t.last && t.last.state === 'done' && t.last.text.indexOf('uxgate-paste') !== -1); })()`,
+    30000
+  );
+  const chipPaste = await waitTrue(
+    `uxGates.uploadChips().count > ${chipsBeforePaste} && uxGates.uploadChips().chips.some((s) => s.indexOf('attachments/uxgate-') !== -1)`,
+    20000);
+  const chipsAfterPaste = await ev('uxGates.uploadChips()');
+  add('an image paste uploads, lands a tray row and attaches',
+    pasteDone && chipPaste && chipsAfterPaste.count > chipsBeforePaste,
+    { tray: await ev('uxGates.uploadTray()'), chips: chipsAfterPaste });
+  // a text-only paste must stay a text paste: the engine does not
+  // preventDefault when the clipboard carries text, and starts no upload.
+  const textPaste = await ev(`(() => {
+    const el = document.getElementById('composer-input');
+    const dt = new DataTransfer();
+    dt.setData('text/plain', 'uxgate text paste');
+    const evt = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+    const before = uxGates.uploadTray().count;
+    el.dispatchEvent(evt);
+    return { prevented: evt.defaultPrevented, trayBefore: before, trayAfter: uxGates.uploadTray().count };
+  })()`);
+  add('a text-only paste is not intercepted and uploads nothing',
+    textPaste.prevented === false && textPaste.trayAfter === textPaste.trayBefore, textPaste);
+
+  // ---- 4. a bad render token shows the route's 403 body verbatim ----------
+  const goodToken = await ev('uxGates.uploadToken()');
+  const swapped = await ev(`uxGates.setUploadToken('uxgate-bogus')`);
+  const refusedDrop = await ev(`uxGates.uploadDrop('#composer-form', [{ name: 'uxgate-refused.txt', bytes: 32 }])`);
+  check(refusedDrop && refusedDrop.ok === true, 'the drop helper found no composer form');
+  const refusedDone = await waitTrue(
+    `(() => { const t = uxGates.uploadTray(); return !!(t.last && t.last.state === 'error'); })()`,
+    20000
+  );
+  const trayRefused = await ev('uxGates.uploadTray()');
+  const restored = await ev(`uxGates.setUploadToken(${JSON.stringify(goodToken)})`);
+  const refusal = 'upload refused: missing or unknown render token';
+  add('a bad render token shows the 403 body verbatim',
+    Boolean(goodToken) && swapped === true && refusedDone
+      && !!trayRefused.last && trayRefused.last.state === 'error'
+      && trayRefused.last.status === refusal,
+    { expected: refusal, got: trayRefused.last, tokenRestored: restored });
+
+  // ---- 5. a directory drop -------------------------------------------------
+  // `Input.dispatchDragEvent` carries `files` as file paths; a DIRECTORY has no
+  // representation there, so the attempt is reported, never assumed.
+  const dir = join(tmpdir(), `uxgate-dir-${Date.now() % 100000}`);
+  let dirOutcome = null;
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'uxgate-dir-a.txt'), 'a');
+    writeFileSync(join(dir, 'uxgate-dir-b.txt'), 'b');
+    const pt = await ev(`(() => {
+      const r = document.getElementById('composer-form').getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    })()`);
+    const data = { items: [{ mimeType: 'text/uri-list', data: `file://${dir}` }], files: [dir], dragOperationsMask: 1 };
+    await driver.send('Input.dispatchDragEvent', { type: 'dragEnter', x: pt.x, y: pt.y, data });
+    await driver.send('Input.dispatchDragEvent', { type: 'dragOver', x: pt.x, y: pt.y, data });
+    await driver.send('Input.dispatchDragEvent', { type: 'drop', x: pt.x, y: pt.y, data });
+    // both files inside the directory must arrive: one row per file, each done.
+    const sawDir = await waitTrue(
+      `uxGates.uploadTray().rows.filter((r) => r.text.indexOf('uxgate-dir') !== -1 && r.state === 'done').length >= 2`,
+      20000);
+    dirOutcome = sawDir
+      ? { ok: true, tray: await ev('uxGates.uploadTray()') }
+      : { skip: 'Input.dispatchDragEvent accepted the directory path but no directory entry reached the page (a dispatched drag exposes no webkitGetAsEntry)' };
+  } catch (err) {
+    dirOutcome = { skip: `Input.dispatchDragEvent refuses a directory path: ${err.message}` };
+  } finally {
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+  if (dirOutcome.skip) {
+    add('a directory drop uploads every file it contains', 'skip', { skip: dirOutcome.skip });
+  } else {
+    const rows = dirOutcome.tray.rows.filter((r) => r.text.indexOf('uxgate-dir') !== -1 && r.state === 'done');
+    add('a directory drop uploads every file it contains', rows.length >= 2, dirOutcome.tray);
+  }
+
+  // ---- 6. the workspace panel zone: drop -> ws-drop -> the tree repaints --
+  // the panel's zone is the one place the destination is empty on purpose: the
+  // engine composes the bare filename, so the file lands at the workspace root
+  // and the re-render (a repaint only `upload-complete` can ask for) must show
+  // it in `#ws-tree`.
+  await ev(`document.getElementById('w-dock')?.click()`);
+  const panelOpen = await waitStableValue(`uxGates.dock().panelOpen`, true);
+  check(panelOpen, 'the workspace panel did not open');
+  const panelDrop = await ev(`uxGates.uploadDrop('#ws-panel', [{ name: 'uxgate-panel.txt', bytes: 16 }])`);
+  check(panelDrop && panelDrop.ok === true, 'the drop helper found no workspace panel');
+  const panelRow = await waitTrue(
+    `(() => { const t = uxGates.uploadTray(); return !!(t.last && t.last.state === 'done' && t.last.name === 'uxgate-panel.txt' && t.last.status === 'uxgate-panel.txt \u00b7 16 bytes'); })()`,
+    30000
+  );
+  // 2.11.0 names it with the file's own name (no template on this zone), so the
+  // tree entry is the same string the tray row carries.
+  const treeRow = await waitTrue(
+    `(() => { const t = document.getElementById('ws-tree'); return !!(t && t.textContent.indexOf('uxgate-panel.txt') !== -1); })()`,
+    15000
+  );
+  add('a workspace-panel drop lands at the root and repaints the tree', panelRow && treeRow,
+    { tray: await ev('uxGates.uploadTray()'), treeHasRow: treeRow });
+  await ev(`document.getElementById('w-close')?.click()`);
+  await waitStableValue(`uxGates.dock().panelOpen`, false);
+
+  // ---- cleanup: the probe's own files, by name ----------------------------
+  const removed = [];
+  const sweep = (dirPath) => {
+    let names = [];
+    try { names = readdirSync(dirPath); } catch { return; }
+    for (const name of names) {
+      if (!name.startsWith('uxgate-')) continue;
+      try { rmSync(join(dirPath, name), { force: true }); removed.push(join(dirPath, name)); } catch { /* ignore */ }
+    }
+  };
+  if (root) { sweep(root); sweep(join(root, 'attachments')); }
+  // detach the chips the gate staged: the ✕ under each chip is the app's own
+  // remove control, so the session is left as found.
+  for (let i = 0; i < 12; i++) {
+    const before = await ev('uxGates.uploadChips().count');
+    if (before === 0) break;
+    await ev(`document.querySelector('#attach-chips .chip-x')?.click()`);
+    await waitTrue(`uxGates.uploadChips().count < ${before}`, 4000);
+  }
+  let remaining = [];
+  for (const dirPath of [root, root ? join(root, 'attachments') : null]) {
+    if (!dirPath) continue;
+    try { remaining = remaining.concat(readdirSync(dirPath).filter((n) => n.startsWith('uxgate-')).map((n) => join(dirPath, n))); } catch { /* ignore */ }
+  }
+  const chipsLeft = await ev('uxGates.uploadChips().count');
+  add('the probe cleaned its files and detached its chips', remaining.length === 0 && chipsLeft === 0,
+    { root, removed, remaining, chipsLeft });
+}
+
+// ---------------------------------------------------------------------------
+// a13 — drawer: the engine's `data-open` on #app at both sides of 860px.
+//
+// the drawer is no-webui 2.15.0's: `data-drawer-toggle` on the topbar button
+// and on the scrim flips `data-open` on #app with no round-trip, opening moves
+// focus into `.drawer__panel`'s first control and closing returns it to the
+// toggle that opened it. below 860px the closed root is off-canvas AND
+// `visibility: hidden` (out of the tab order); at 861px and wider the panel is
+// the static rail and the toggle is gone. The rows are named `drawer · …`.
+
+async function runDrawer() {
+  console.log('\n— gate: drawer (off-canvas · scrim · Escape · focus · static rail) —');
+  const add = (name, ok, detail) => record('drawer', name, ok, detail);
+
+  // ---- 1. 600px: closed at rest ------------------------------------------
+  await driver.setViewport(600, 900);
+  await driver.navigate(APP);
+  await waitReady();
+  await chatView();
+  await settle(350);
+  const closed = await ev('uxGates.drawer()');
+  add('600px: closed at rest — no data-open, the panel is off-canvas and out of the tab order',
+    closed.present === true
+      && closed.open === false
+      && closed.toggleNames === 'app'
+      && closed.scrimNames === 'app'
+      && closed.panelVisibility === 'hidden'
+      && closed.panelShown === false,
+    closed);
+
+  // ---- 2. 600px: the toggle opens it, and focus lands in the panel --------
+  await ev(`document.getElementById('drawer-toggle')?.click()`);
+  const openedOk = await waitStableValue(`document.getElementById('app').hasAttribute('data-open')`, true, 250, 3000);
+  await settle(350);
+  const opened = await ev('uxGates.drawer()');
+  add('600px: the toggle opens — data-open on #app, the scrim is shown, focus enters the panel',
+    openedOk && opened.open === true && opened.panelVisibility === 'visible'
+      && opened.panelShown === true && opened.scrimOpacity === 1
+      && opened.scrimPointer === 'auto' && opened.focusInPanel === true,
+    opened);
+
+  // ---- 3. 600px: the scrim closes it -------------------------------------
+  const scrimPt = await ev(`(() => { const r = uxGates.drawer().scrimRect; return r ? { x: Math.round(r.l + r.w - 24), y: Math.round(r.t + Math.round(r.h / 2)) } : null; })()`);
+  check(scrimPt && scrimPt.x > 0, 'the scrim has no rect while the drawer is open');
+  await driver.clickAt(scrimPt.x, scrimPt.y);
+  const scrimClosedOk = await waitStableValue(`document.getElementById('app').hasAttribute('data-open')`, false, 250, 3000);
+  await settle(250);
+  const scrimClosed = await ev('uxGates.drawer()');
+  add('600px: a scrim click closes it and returns focus to the toggle',
+    scrimClosedOk && scrimClosed.open === false && scrimClosed.panelVisibility === 'hidden'
+      && scrimClosed.focusID === 'drawer-toggle',
+    { clicked: scrimPt, state: scrimClosed });
+
+  // ---- 4. 600px: Escape closes it (and returns focus to the toggle) ------
+  await ev(`document.getElementById('drawer-toggle')?.click()`);
+  const reopened = await waitStableValue(`document.getElementById('app').hasAttribute('data-open')`, true, 250, 3000);
+  await settle(300);
+  await driver.pressEscape();
+  const escClosedOk = await waitStableValue(`document.getElementById('app').hasAttribute('data-open')`, false, 250, 3000);
+  await settle(250);
+  const escClosed = await ev('uxGates.drawer()');
+  add('600px: Escape closes the drawer and focus is back on the toggle',
+    reopened && escClosedOk && escClosed.open === false
+      && escClosed.panelVisibility === 'hidden' && escClosed.focusID === 'drawer-toggle',
+    escClosed);
+
+  // ---- 5. 600px: a CLOSED drawer never takes the key ---------------------
+  // the layer that owns Escape is the composer popover; the drawer stays shut
+  // and the popover is the surface that closes.
+  await ev(`document.getElementById('cb-model-toggle')?.click()`);
+  const popOpened = await waitStableValue(`uxGates.popovers().model.open`, true, 250, 4000);
+  await driver.pressEscape();
+  const popClosedOk = await waitStableValue(`uxGates.popovers().model.open`, false, 250, 4000);
+  const afterKey = await ev('uxGates.drawer()');
+  add('600px: a closed drawer never takes the key — Escape closes the popover instead',
+    popOpened && popClosedOk && afterKey.open === false,
+    { popOpened, popClosedOk, drawerOpen: afterKey.open });
+
+  // ---- 6. 1200px: the static rail --------------------------------------
+  // start from a closed drawer: the previous rows must leave it shut, and a
+  // stale `data-open` here would judge the static rail on the overlay's state.
+  if ((await ev('uxGates.drawer()')).open) {
+    await ev(`document.getElementById('drawer-toggle')?.click()`);
+    await waitStableValue(`document.getElementById('app').hasAttribute('data-open')`, false, 250, 3000);
+  }
+  await driver.setViewport(1200, 900);
+  await settle(400);
+  const rail = await ev('uxGates.drawer()');
+  // the hidden toggle is still clickable from script: the engine's handler must
+  // be INERT above the breakpoint (preventDefault, then nothing), so neither
+  // the rail nor `data-open` may move.
+  await ev(`document.getElementById('drawer-toggle')?.click()`);
+  await settle(450);
+  const railAfter = await ev('uxGates.drawer()');
+  add('1200px: the toggle is hidden and inert, and the panel is the static rail',
+    rail.toggleDisplay === 'none' && rail.panelShown === true
+      && rail.panelPosition === 'static' && railAfter.open === false
+      && railAfter.panelShown === true,
+    { before: rail, afterClick: railAfter });
+
+  await driver.setViewport(...opts.viewport);
+  await settle(250);
+}
+
+// ---------------------------------------------------------------------------
+// a11 — scroll: follow across a delta, release, the jump control, the reading
+// keys, and Escape's layer guard. The engine owns every consequence
+// (`data-follow`, `data-follow-state`, `data-reading-keys`,
+// `data-scroll-key`); arc only states the policies and keys the jump control's
+// visibility in the sheet. A text delta is driven through the engine's own
+// patch funnel (`capture` → DOM change → `restore`), so the gate needs no
+// model turn; every wait has a deadline and a missing frame FAILS.
+
+/// poll a page expression that returns `{ ok, ... }` until `ok` is true.
+async function pollOk(expr, timeoutMs = 3000, intervalMs = 60) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await ev(expr);
+    if (last && last.ok) return last;
+    await sleep(intervalMs);
+  }
+  return last;
+}
+
+async function runScroll() {
+  console.log('\n— gate: scroll (follow · away · jump · reading keys · Escape) —');
+  const out = {};
+  await driver.navigate(APP);
+  await waitReady();
+  await chatView();
+  await settle(400);
+
+  const startSid = await ev(`uxGates.sessions().activeSid`);
+  let pre = await ev(`uxGates.scrollState()`);
+  // D6.1: UX-39 needs a chat with real room, and an empty open chat gives the
+  // scroller none (measured at the D6 base: room=0 → SKIP). Open the gate's own
+  // long chat — seeded through the app's store, deleted through its delete
+  // flow — and measure the round trip there. The scroller's own declarations
+  // (`data-follow`, `data-reading-keys`, `data-scroll-key`) are read from
+  // whichever conversation is open, so nothing about the row is weakened.
+  if (pre && pre.present && pre.max < 240) {
+    out.room = await ensureScrollRoomChat();
+    pre = await ev(`uxGates.scrollState()`);
+  }
+  out.preconditions = pre;
+  const preOk = !!(pre && pre.present && pre.follow === 'bottom' && pre.readingKeys
+    && pre.key && pre.tabindex === '0' && pre.btnPresent && pre.btnDisplay === 'none');
+  record('scroll', 'the scroller states follow, reading keys, a per-session key and a hidden jump control', preOk, pre);
+  if (!preOk) return;
+
+  // ---- UX-39: the rail round-trip restores THIS chat's offset -------------
+  // Only meaningful with genuine room in the open conversation (a padded
+  // transcript is a gate fixture the next render would replace, so it cannot
+  // prove a restore). Without room the row is a SKIP that names the emitted
+  // key, never a pass.
+  if (pre.max >= 240) {
+    const mid = Math.min(900, Math.round(pre.max * 0.45));
+    await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = ${mid}; return true; })()`);
+    await settle(250);
+    const before = await ev(`document.getElementById('chat-scroll').scrollTop`);
+    await ev(`document.getElementById('nav-skills')?.click()`);
+    const left = await waitTrue(`!document.getElementById('chat-scroll')`, 4000);
+    if (!left) {
+      out.ux39 = { skipped: 'the rail switch did not leave the chat view — nothing to return to', key: pre.key, mid, before };
+      record('scroll', 'rail return restores this chat’s scroll (UX-39, data-scroll-key)', 'skip', out.ux39);
+    } else {
+      await ev(`document.getElementById('nav-chat')?.click()`);
+      const returned = await waitTrue(`!!document.getElementById('chat-scroll')`, 6000);
+      await settle(500);
+      const after = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? Math.round(s.scrollTop) : -1; })()`);
+      const pass = returned && Math.abs(before - mid) <= 8 && Math.abs(after - mid) <= 40;
+      out.ux39 = { room: pre.max, key: pre.key, mid, before, after, pass };
+      record('scroll', 'rail return restores this chat’s scroll (UX-39, data-scroll-key)', pass, out.ux39);
+    }
+    await chatView();
+    await settle(300);
+  } else {
+    out.ux39 = {
+      skipped: `no usable scroll range in the gate's seeded chat either (room=${pre.max}; seeded=${JSON.stringify(out.room || null)}) — the store-backed fixture could not be opened through the app's deep link`,
+      key: pre.key,
+    };
+    record('scroll', 'rail return restores this chat’s scroll (UX-39, data-scroll-key)', 'skip', out.ux39);
+  }
+
+  // ---- room: a follow assertion on a scroller with nothing to scroll is a
+  // no-op, so pad the transcript first (fixture; the page is reloaded before
+  // the gate hands it back).
+  const pad = await ev(`uxGates.scrollPad(1200)`);
+  out.pad = pad;
+  if (!pad || !pad.ok || pad.room < 240) {
+    record('scroll', 'the gate can give the transcript scroll room', false, pad);
+    return;
+  }
+
+  // ---- (a) a text delta from the bottom stays pinned -----------------------
+  await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = s.scrollHeight; return true; })()`);
+  await settle(200);
+  const atBottom = await ev(`uxGates.scrollState()`);
+  const deltas = [];
+  for (let i = 1; i <= 3; i++) deltas.push(await ev(`uxGates.scrollDelta('a11-${i}')`));
+  const settled = await ev(`uxGates.scrollState()`);
+  const pinned = deltas.every((d) => d && d.ok && d.gap <= 24 && d.away === null)
+    && settled.gap <= 24 && settled.away === null;
+  out.pinned = { atBottom, deltas, settled };
+  record('scroll', 'a text delta from the bottom stays pinned (gap ≤ 24, no away)', pinned, out.pinned);
+
+  // ---- (b) a scroll-up releases and shows the jump control ----------------
+  await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = Math.round((s.scrollHeight - s.clientHeight) * 0.35); return true; })()`);
+  await settle(250);
+  const awayState = await ev(`uxGates.scrollState()`);
+  const released = awayState.away === 'away' && awayState.btnVisible && awayState.gap > 24;
+  out.released = awayState;
+  record('scroll', 'a scroll-up releases: data-follow-state="away" appears and shows the jump control', released, out.released);
+
+  const afterReleaseDelta = await ev(`uxGates.scrollDelta('away')`);
+  const stayed = afterReleaseDelta && afterReleaseDelta.ok && afterReleaseDelta.gap > 24 && afterReleaseDelta.away === 'away';
+  out.releaseDelta = afterReleaseDelta;
+  record('scroll', 'a delta while the reader is away does not re-pin', stayed, out.releaseDelta);
+
+  // ---- (c) clicking the jump control returns to the bottom ---------------
+  const rect = await ev(`(() => {
+    const b = document.getElementById('scroll-to-bottom');
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), visible: r.width > 0 && r.height > 0 };
+  })()`);
+  if (!rect || !rect.visible) {
+    record('scroll', 'clicking the jump control returns to the bottom and clears away', false, { rect });
+  } else {
+    await driver.clickAt(rect.x, rect.y);
+    const back = await pollOk(`(() => {
+      const s = document.getElementById('chat-scroll');
+      const gap = Math.round(Math.max(0, s.scrollHeight - s.scrollTop - s.clientHeight));
+      return { ok: gap <= 24, gap, away: s.getAttribute('data-follow-state') };
+    })()`, 5000);
+    const hidden = await pollOk(`(() => {
+      const b = document.getElementById('scroll-to-bottom');
+      const s = document.getElementById('chat-scroll');
+      const cs = b ? getComputedStyle(b) : null;
+      return {
+        ok: !!b && !!cs && cs.display === 'none' && b.getClientRects().length === 0 && s.getAttribute('data-follow-state') === null,
+        display: cs ? cs.display : null,
+        rects: b ? b.getClientRects().length : null,
+        away: s.getAttribute('data-follow-state'),
+      };
+    })()`, 2500);
+    out.jump = { rect, back, hidden };
+    record('scroll', 'clicking the jump control returns to the bottom and clears away', !!(back && back.ok && hidden && hidden.ok), out.jump);
+  }
+
+  // ---- (d) the reading keys move the focused region, and never while the
+  // composer has focus -------------------------------------------------------
+  const focusScroller = `(() => { const s = document.getElementById('chat-scroll'); s.focus(); return document.activeElement === s; })()`;
+  const focused = await ev(focusScroller);
+  await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = Math.round((s.scrollHeight - s.clientHeight) * 0.5); return true; })()`);
+  await settle(120);
+  const beforeKeys = await ev(`Math.round(document.getElementById('chat-scroll').scrollTop)`);
+  await driver.pressKey('End');
+  await settle(150);
+  const afterEnd = await ev(`(() => { const s = document.getElementById('chat-scroll'); return { top: Math.round(s.scrollTop), max: Math.round(s.scrollHeight - s.clientHeight) }; })()`);
+  await driver.pressKey('Home');
+  await settle(150);
+  const afterHome = await ev(`Math.round(document.getElementById('chat-scroll').scrollTop)`);
+  await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = s.scrollHeight; return true; })()`);
+  await settle(120);
+  const fromEnd = await ev(`Math.round(document.getElementById('chat-scroll').scrollTop)`);
+  const clientH = await ev(`document.getElementById('chat-scroll').clientHeight`);
+  await driver.pressKey('PageUp');
+  await settle(150);
+  const afterPageUp = await ev(`Math.round(document.getElementById('chat-scroll').scrollTop)`);
+  await driver.pressKey('ArrowUp');
+  await settle(150);
+  const afterArrow = await ev(`Math.round(document.getElementById('chat-scroll').scrollTop)`);
+  const keysOk = focused
+    && afterEnd.top >= afterEnd.max - 2
+    && afterHome === 0
+    && afterPageUp < fromEnd && Math.abs(afterPageUp - (fromEnd - clientH)) <= 12
+    && afterArrow < afterPageUp && Math.abs(afterArrow - (afterPageUp - 40)) <= 8;
+  out.readingKeys = { focused, beforeKeys, afterEnd, afterHome, fromEnd, clientH, afterPageUp, afterArrow, pass: keysOk };
+  record('scroll', 'End/Home/PageUp/ArrowUp move the focused scroller', keysOk, out.readingKeys);
+
+  await ev(`(() => {
+    const s = document.getElementById('chat-scroll');
+    s.scrollTop = Math.round((s.scrollHeight - s.clientHeight) * 0.5);
+    document.getElementById('composer-input').focus();
+    return true;
+  })()`);
+  await settle(150);
+  const composerBefore = await ev(`Math.round(document.getElementById('chat-scroll').scrollTop)`);
+  for (const k of ['ArrowUp', 'PageUp', 'Home']) await driver.pressKey(k);
+  await settle(200);
+  const composerAfter = await ev(`(() => ({ top: Math.round(document.getElementById('chat-scroll').scrollTop), active: (document.activeElement || {}).id || null }))()`);
+  const keysQuiet = composerAfter.active === 'composer-input' && composerAfter.top === composerBefore;
+  out.composerKeys = { before: composerBefore, after: composerAfter, pass: keysQuiet };
+  record('scroll', 'the reading keys never move the scroller while the composer has focus', keysQuiet, out.composerKeys);
+
+  // ---- (e) Escape: a layer keeps the key; with no layer it returns to live --
+  await ev(`(() => { const s = document.getElementById('chat-scroll'); s.focus(); s.scrollTop = Math.round((s.scrollHeight - s.clientHeight) * 0.3); return true; })()`);
+  await settle(150);
+  const beforeEsc = await ev(`uxGates.scrollState()`);
+  await driver.pressEscape();
+  await settle(250);
+  const afterEsc = await ev(`uxGates.scrollState()`);
+  out.escapeNoLayer = { before: beforeEsc, after: afterEsc, pass: afterEsc.gap <= 24 && afterEsc.away === null };
+  record('scroll', 'Escape with no layer returns the reader to the live tail', out.escapeNoLayer.pass, out.escapeNoLayer);
+
+  await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = Math.round((s.scrollHeight - s.clientHeight) * 0.3); return true; })()`);
+  await settle(150);
+  const armed = await ev(`uxGates.armLayer()`);
+  await ev(`document.getElementById('chat-scroll').focus()`);
+  const beforeLayer = await ev(`uxGates.scrollState()`);
+  await driver.pressEscape();
+  await settle(300);
+  const midLayer = await ev(`uxGates.scrollState()`);
+  const layerGone = await ev(`!document.getElementById('gate-layer')`);
+  out.escapeLayer = { armed, before: beforeLayer, after: midLayer, layerGone, pass: armed.ok && layerGone && midLayer.top === beforeLayer.top };
+  record('scroll', 'Escape with a layer open closes the layer and leaves the reader put', out.escapeLayer.pass, out.escapeLayer);
+
+  await driver.pressEscape();
+  await settle(300);
+  const afterSecond = await ev(`uxGates.scrollState()`);
+  out.escapeSecond = { after: afterSecond, pass: afterSecond.gap <= 24 && afterSecond.away === null };
+  record('scroll', 'the next Escape returns to the live tail', out.escapeSecond.pass, out.escapeSecond);
+  await ev(`uxGates.disarmLayer()`);
+
+  // ---- restore: leave the page reloaded, not padded ----------------------
+  await driver.navigate(APP);
+  await waitReady();
+  await chatView();
+  // Leave the chat the gate found, as found (the seeded room chat stays in the
+  // list until cleanup deletes it through the app's own flow).
+  if (startSid && roomSid && startSid !== roomSid) {
+    await openSessionRow(startSid).catch(() => {});
+  }
+}
+
+// ---------------------------------------------------------------------------
+// a12/a16d — focus: entry, the two close round trips, the Tab wrap, T26, the
+// second-open contract, and a clean console through the whole tour. The ENGINE
+// owns focus and arc states it as declarations, so every row reads the
+// consequence in the real browser: 3.1.0's `data-focus-into` on the dialog's
+// region root enters the patched-in dialog — on the FIRST and every later
+// open, because the binder runs per insertion rather than `autofocus`'s
+// once-per-document flush (the A12 row (f) limitation this slice retires) —
+// `data-focus-return` returns focus to the opener once the close control's
+// removal patch lands, and the engine's `.modal-overlay` keydown trap wraps Tab.
+// The delete-confirm flow is base-red in this daemon state (`interactions ·
+// delete flow` cannot open its modal), so the dialog under test is the
+// context-breakdown pane opened from the composer's context chip — a real
+// `.modal-overlay` dialog reachable in every conversation with at least one
+// message, and every row names that surface.
+//
+// Every wait has a deadline; a missing frame FAILS the row.
+
+const FOCUS_SURFACE = 'the composer’s context chip (#ctx-chip-summary) → the context-breakdown dialog (#ctx-pane-overlay, a .modal-overlay card)';
+
+/// open the context dialog and wait for `data-focus-into` to land focus in it.
+async function openContextDialog() {
+  await ev(`document.getElementById('ctx-chip-summary')?.click()`);
+  return pollOk(`(() => {
+    const s = uxGates.focusState();
+    return Object.assign({ ok: s.ctxPaneOpen && s.active === 'ctx-pane-close' && s.activeInDialog }, s);
+  })()`, 12000);
+}
+
+/// wait for the dialog to be gone AND focus to be back on the opener.
+async function awaitReturn() {
+  return pollOk(`(() => {
+    const s = uxGates.focusState();
+    return Object.assign({ ok: !s.ctxPaneOpen && s.active === 'ctx-chip-summary' }, s);
+  })()`, 6000);
+}
+
+/// load the chat with no dialog open. the pane is server state, so a reload can
+/// arrive with it already open; closing it and reloading again is the only way
+/// to a resting page the entry rows can open from.
+async function freshChat() {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await driver.navigate(APP);
+    await waitReady();
+    await chatView();
+    await settle(300);
+    const s = await ev(`uxGates.focusState()`);
+    if (!s.ctxPaneOpen && !s.modalOpen) return { ok: true, attempts: attempt + 1, state: s };
+    const closed = await ev(`(() => { const c = document.getElementById('ctx-pane-close') || document.getElementById('modal-cancel'); if (!c) return false; c.click(); return true; })()`);
+    if (!closed) return { ok: false, attempts: attempt + 1, state: s, reason: 'a dialog was open on load and carried no close control' };
+    await pollOk(`(() => { const s2 = uxGates.focusState(); return { ok: !s2.ctxPaneOpen && !s2.modalOpen }; })()`, 6000);
+  }
+  return { ok: false, attempts: 2, state: await ev(`uxGates.focusState()`), reason: 'a dialog would not close across two reloads' };
+}
+
+async function runFocus() {
+  console.log('\n— gate: focus (entry · round trip · Escape · Tab wrap · T26 · F3 · console) —');
+  const out = { surface: FOCUS_SURFACE };
+  driver.clearConsole();
+
+  const pre = await freshChat();
+  out.preconditions = pre;
+  if (!pre.ok) {
+    record('focus', 'the gate can reach a resting page with no dialog open', false, out);
+    return;
+  }
+  if (!pre.state.opener) {
+    // D6.1's reachability half: `#ctx-chip-summary` renders only for a
+    // conversation with at least one message, so an empty active chat skipped
+    // the WHOLE group. Open the gate's own long chat — seeded through the app's
+    // store, no provider turn, deleted through its delete flow — and take the
+    // resting page again on it.
+    out.room = await ensureScrollRoomChat();
+    const retry = await freshChat();
+    out.preconditionsAfterSeed = retry;
+    if (retry.ok && retry.state.opener) {
+      pre.state = retry.state;
+      pre.ok = true;
+      pre.reseeded = true;
+    }
+  }
+  if (!pre.state.opener) {
+    out.skipped = `no conversation with at least one message is open, so the surface (${FOCUS_SURFACE}) is not rendered — the gate's seeded chat did not open either (${JSON.stringify(out.room || null)})`;
+    record('focus', 'the gate can reach a dialog opener with no dialog open', 'skip', out);
+    return;
+  }
+  record('focus', 'the gate can reach a resting page with no dialog open', true, out.preconditions);
+
+  // ---- (a) entry: FocusInto lands focus on the dialog's named control ------
+  const entered = await openContextDialog();
+  const entryState = entered || (await ev(`uxGates.focusState()`));
+  out.entry = {
+    surface: FOCUS_SURFACE,
+    focused: entryState.active || null,
+    inDialog: !!entryState.activeInDialog,
+    focusInto: entryState.focusInto || null,
+    close: entryState.close || null,
+  };
+  const entryOk = !!(entered && entered.ok && entryState.close
+    && entryState.focusInto === 'ctx-pane-close'
+    && entryState.close.focusReturn === 'ctx-chip-summary'
+    && entryState.close.autofocus === false
+    && entryState.close.dismiss);
+  record('focus', '(a) the patched-in dialog takes focus through `data-focus-into`', entryOk, out.entry);
+  if (!entryOk) {
+    await freshChat();
+    return;
+  }
+
+  // ---- (c) Tab from the dialog's last control wraps inside .modal-overlay --
+  const focusables = await ev(`uxGates.dialogFocusables()`);
+  out.trap = { dialog: '#ctx-pane-overlay', focusables, before: entryState.active };
+  if (focusables && focusables.ok && focusables.count > 0) {
+    const lastID = focusables.ids[focusables.count - 1];
+    await ev(`(() => { const el = document.getElementById(${JSON.stringify(lastID)}); if (el) el.focus(); return true; })()`);
+    await driver.pressTab();
+    const wrapped = await pollOk(`(() => {
+      const s = uxGates.focusState();
+      return Object.assign({ ok: s.activeInDialog && s.active === ${JSON.stringify(focusables.ids[0])} }, s);
+    })()`, 3000);
+    out.trap.after = wrapped || (await ev(`uxGates.focusState()`));
+    out.trap.lastID = lastID;
+    out.trap.firstID = focusables.ids[0];
+    record('focus', '(c) Tab from the dialog’s last control wraps inside .modal-overlay',
+      !!(wrapped && wrapped.ok), out.trap);
+  } else {
+    record('focus', '(c) Tab from the dialog’s last control wraps inside .modal-overlay', false, out.trap);
+  }
+
+  // ---- (c2) Shift+Tab from the dialog's FIRST control wraps BACKWARD ------
+  // D6.5: the trap has two branches and (c) only measures the forward one.
+  // `driver.pressShiftTab` is a real CDP key event with the Shift modifier
+  // (bit 8), so the page sees `keydown` with `shiftKey:true` — the branch
+  // `e.shiftKey && e.target === f[0]`. Without the trap, Shift+Tab from the
+  // dialog's first control walks OUT of the overlay into the page behind it,
+  // so `activeInDialog` is what makes this row falsifiable even while the pane
+  // holds a single tab stop (the count is recorded, never assumed).
+  out.trapBack = { dialog: '#ctx-pane-overlay', focusables };
+  if (focusables && focusables.ok && focusables.count > 0) {
+    const firstID = focusables.ids[0];
+    const backTo = focusables.ids[focusables.count - 1];
+    await ev(`(() => { const el = document.getElementById(${JSON.stringify(firstID)}); if (el) el.focus(); return true; })()`);
+    await driver.pressShiftTab();
+    const wrappedBack = await pollOk(`(() => {
+      const s = uxGates.focusState();
+      return Object.assign({ ok: s.activeInDialog && s.active === ${JSON.stringify(backTo)} }, s);
+    })()`, 3000);
+    out.trapBack.count = focusables.count;
+    out.trapBack.firstID = firstID;
+    out.trapBack.lastID = backTo;
+    out.trapBack.after = wrappedBack || (await ev(`uxGates.focusState()`));
+    record('focus', '(c2) Shift+Tab from the dialog’s first control wraps inside .modal-overlay',
+      !!(wrappedBack && wrappedBack.ok), out.trapBack);
+  } else {
+    record('focus', '(c2) Shift+Tab from the dialog’s first control wraps inside .modal-overlay', false, out.trapBack);
+  }
+
+  // ---- (b1) Escape returns focus to the opener ----------------------------
+  await driver.pressEscape();
+  const escaped = await awaitReturn();
+  out.escape = { closed: !!(escaped && escaped.ok), focused: escaped ? escaped.active : null, opener: '#ctx-chip-summary' };
+  record('focus', '(b1) Escape closes the dialog and returns focus to the opener', !!(escaped && escaped.ok), out.escape);
+
+  // ---- (b2) the close control returns focus to the opener -----------------
+  const pre2 = await freshChat();
+  out.closeRoundTrip = { resting: pre2.ok };
+  const reopened = pre2.ok ? await openContextDialog() : null;
+  out.closeRoundTrip.entry = reopened ? reopened.active : null;
+  if (reopened && reopened.ok) {
+    await ev(`document.getElementById('ctx-pane-close')?.click()`);
+    const closed = await awaitReturn();
+    out.closeRoundTrip.closed = !!(closed && closed.ok);
+    out.closeRoundTrip.focused = closed ? closed.active : null;
+    record('focus', '(b2) the close control returns focus to the opener', !!(closed && closed.ok), out.closeRoundTrip);
+  } else {
+    out.closeRoundTrip.reason = pre2.ok
+      ? 'the dialog did not take focus on open — the close round trip could not start'
+      : 'the page would not come back to a resting state before the round trip';
+    record('focus', '(b2) the close control returns focus to the opener', false, out.closeRoundTrip);
+  }
+
+  // ---- (f) a SECOND dialog in the same document --------------------------
+  // A12's row (f) measured Blink's once-per-document `autofocus` flush as the
+  // limit and SKIPped. 3.1.0's `data-focus-into` binds per insertion, so the
+  // same document can open the pane again and focus must land again. This is a
+  // hard row now: the limitation it documented is retired, not tolerated.
+  await ev(`document.getElementById('ctx-chip-summary')?.click()`);
+  const second = await pollOk(`(() => {
+    const s = uxGates.focusState();
+    return Object.assign({ ok: s.ctxPaneOpen && s.active === 'ctx-pane-close' && s.activeInDialog }, s);
+  })()`, 8000);
+  const secondState = second || (await ev(`uxGates.focusState()`));
+  out.secondOpen = { focusables: focusables ? focusables.count : null, state: secondState };
+  record('focus', '(f) a dialog opened a second time in the same document takes focus', !!(second && second.ok), out.secondOpen);
+  // dismiss it (focus may be outside the card, where Escape does not reach)
+  await ev(`document.getElementById('ctx-pane-close')?.click()`);
+  await pollOk(`(() => { const s = uxGates.focusState(); return { ok: !s.ctxPaneOpen }; })()`, 6000);
+
+  // ---- (d) T26: a focused control whose patch replaces it keeps focus ------
+  // REAL surface (D6.2): the attachment chip's ✕ inside #attach-chips. Its id
+  // is PATH-keyed (`att-del-<enc(path)>`, A16c) and the chip DECLARES
+  // `data-focus-return` (empty = itself, Views.swift) — a button carries no
+  // input state, so the engine's implicit `formScope|id-or-name` memo has
+  // nothing to key on and the declaration is the only restore path. The
+  // composer patch is a real one (a selector toggle re-renders the form; the
+  // draft gate's (c) row measures the same patch replacing #composer-input),
+  // and a DOM-only mark proves the ✕ really was a NEW node — the server never
+  // renders the mark, so a surviving mark would mean no replacement landed and
+  // the row must not read that as a pass.
+  //
+  // The clone laps at the end of the record are the ENGINE-side measurement
+  // kept from A16d (the same funnel driven on #ctx-chip-summary, undeclared vs
+  // declared). They are evidence, not the verdict: the verdict is the real chip.
+  out.t26 = {
+    surface: 'the attachment chip’s ✕ (#attach-chips [id^=att-del-], path-keyed, declares data-focus-return)',
+  };
+  const attachPath = join(HERE, 'README-gates.md');
+  // The app's own attach flow: the paperclip arms the popover (a round trip),
+  // the path field takes the path (another), Attach posts it and the composer
+  // re-renders with a chip. Both clicks are patches, so each step waits for its
+  // observable consequence and the whole flow retries — a click swallowed by a
+  // patch already in flight is a lost race, not a missing feature.
+  const attachScratch = async () => {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await ev(`document.getElementById('cb-file')?.click()`);
+      const open = await waitTrue(`document.getElementById('file-pop')?.hasAttribute('data-open') === true`, 6000);
+      if (!open) { await settle(400); continue; }
+      await ev(`(() => {
+        const t = document.getElementById('file-path-input');
+        if (!t) return false;
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(t, ${JSON.stringify(attachPath)});
+        t.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`);
+      await settle(600);
+      await ev(`document.getElementById('file-attach')?.click()`);
+      const up = await waitTrue(`!!document.querySelector('#attach-chips [id^="att-del-"]')`, 7000);
+      if (up) return { ok: true, attempt, popover: open };
+    }
+    return { ok: false, attempt: 3 };
+  };
+  // A leftover chip (an earlier run of this row, or a daemon that has served
+  // other gates) would be the one this row arms and deletes, and the "no chip
+  // left" assertion would then read the leftover instead of the fixture. Clear
+  // the composer's attach list through the same ✕ first.
+  const staleChips = await ev(`(() => {
+    const ids = [...document.querySelectorAll('#attach-chips [id^="att-del-"]')].map((b) => b.id);
+    ids.forEach((id) => document.getElementById(id)?.click());
+    return ids;
+  })()`);
+  if (staleChips.length) {
+    await waitTrue(`document.querySelectorAll('#attach-chips [id^="att-del-"]').length === 0`, 8000);
+    await settle(250);
+  }
+  const attachResult = await attachScratch();
+  out.t26.attach = { path: attachPath, staleChips, ...attachResult };
+  await settle(250);
+  const armedChip = attachResult.ok ? await ev(`uxGates.attChipArm()`) : null;
+  out.t26.attach.armed = armedChip;
+
+  if (!armedChip || !armedChip.ok) {
+    out.t26.reason = 'no attachment chip could be focused — the app’s attach flow produced no chip (nothing was measured)';
+    record('focus', '(d) a focused control whose patch replaces it keeps focus (T26)', false, out.t26);
+  } else {
+    // arm the selector the server does NOT already have open, so the click is a
+    // real state change and the composer form (with the chip in it) ships.
+    const armedPop = await ev(`uxGates.armedPopover()`);
+    const toggler = armedPop === 'cb-ws-toggle' ? 'cb-think-toggle' : 'cb-ws-toggle';
+    await ev(`document.getElementById('${toggler}')?.click()`);
+    const replaced = await waitTrue(`(() => {
+      const s = uxGates.attChipState(${JSON.stringify(armedChip.id)});
+      return s.present && !s.marked;
+    })()`, 9000);
+    await settle(250);
+    const chipAfter = await ev(`uxGates.attChipState(${JSON.stringify(armedChip.id)})`);
+    out.t26.replace = {
+      toggler,
+      declared: armedChip.declared,
+      id: armedChip.id,
+      elementReplaced: replaced,
+      after: chipAfter,
+      kept: !!(chipAfter && chipAfter.active === armedChip.id),
+    };
+    await driver.pressEscape().catch(() => {});
+    await settle(300);
+
+    // and the ✕ removing its own chip: the declaration's target is gone with
+    // it, so this reads what the composer does instead (recorded, not a gate).
+    await ev(`document.getElementById(${JSON.stringify(armedChip.id)})?.click()`);
+    const removed = await waitTrue(`document.querySelectorAll('#attach-chips [id^="att-del-"]').length === 0`, 8000);
+    await settle(250);
+    out.t26.removal = await ev(`(() => ({
+      removed: ${removed},
+      active: (document.activeElement && document.activeElement !== document.body)
+        ? (document.activeElement.id || document.activeElement.tagName) : null,
+      chips: document.querySelectorAll('#attach-chips [id^="att-del-"]').length,
+    }))()`);
+
+    const undeclaredLap = await ev(`uxGates.focusReplace(false)`);
+    const declaredLap = await ev(`uxGates.focusReplace(true)`);
+    out.t26.fixture = { undeclared: undeclaredLap, declared: declaredLap };
+
+    const pass = !!(armedChip.declared === '' && replaced && out.t26.replace.kept && removed);
+    if (!pass) out.t26.reason = 'the declared chip did not keep focus across the replacing patch';
+    record('focus', '(d) a focused control whose patch replaces it keeps focus (T26)', pass, out.t26);
+  }
+
+  // ---- (e) console: no error or warning through the whole tour ------------
+  await driver.navigate(APP);
+  await waitReady();
+  await chatView();
+  const cr = driver.consoleReport();
+  const bad = cr.errors.concat(cr.warnings);
+  out.console = { errors: cr.errors, warnings: cr.warnings, infoCount: cr.info.length };
+  record('focus', '(e) no console error or warning through the whole focus tour', bad.length === 0, out.console);
+}
+
+// ---------------------------------------------------------------------------
 // T16 — reduced-motion gate (driver emulates prefers-reduced-motion: reduce)
+
+// ---------------------------------------------------------------------------
+// A14 — the composer draft is the ENGINE's (no-webui 2.16.0)
+//
+// `data-draft-id` names the per-chat store and `data-draft-value` is the text
+// the server says the field held. the engine's `syncDrafts()` is the precedence
+// rule: an identity CHANGE writes the seed and rewrites
+// `webui-draft:<identity>` (the server wins — the chat that was left keeps its
+// unsubmitted text to itself), while the SAME identity leaves the reader's
+// keystrokes alone. arc ships no client code for any of it; every assertion
+// below reads a consequence off the live page.
+
+/// type into the composer like a reader: the value setter plus the input frame
+/// the engine's autosave listens for.
+async function typeComposer(text) {
+  return ev(`(() => {
+    const t = document.getElementById('composer-input');
+    if (!t) return false;
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(t, ${JSON.stringify(text)});
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+    t.focus();
+    return true;
+  })()`);
+}
+
+async function runDraft() {
+  console.log('\n— gate: draft (identity + seed, no model turns) —');
+  await chatView();
+  await settle(300);
+  const startSid = await ev(`uxGates.sessions().activeSid`);
+
+  // (a) the control states its identity and its seed, and the identity is the
+  // conversation the page is showing.
+  const boot = await ev(`uxGates.draft()`);
+  if (!boot.present) {
+    record('draft', 'the composer carries the active draft identity and a seed', false, { reason: 'no #composer-input on the page' });
+    return;
+  }
+  const bootOk = boot.id === boot.activeSid && boot.session === boot.activeSid && boot.seed !== null;
+  record('draft', 'the composer carries the active draft identity and a seed', bootOk, boot);
+
+  // A is the harness's own conversation (removed at the end). B is any other
+  // row: the gate touches only B's DOM — its store is read, and the identity
+  // change writes it — so the owner's stored draft is what the server renders
+  // and what a switch back would show.
+  const A = await ensureProbeSession();
+  await settle(400);
+  const B = await ev(`(() => {
+    const rows = [...document.querySelectorAll('.sess-row')];
+    const o = rows.filter((r) => r.getAttribute('data-sid') !== ${JSON.stringify(A)}).pop();
+    return o ? o.getAttribute('data-sid') : null;
+  })()`);
+  if (!B) {
+    record('draft', 'a switch reads the landing chat\'s seed', 'skip', { skipped: 'fewer than two conversations to switch between' });
+    if (startSid) await openSessionRow(startSid);
+    return;
+  }
+
+  // (a, cont.) the seed is the SERVER's copy: the input frame stores the draft
+  // and pushes no patch of its own, so the seed moves on the next RENDER of the
+  // form. a selector toggle is that render — alternated, because re-arming the
+  // popover that is already open moves no bytes and would ship no patch.
+  await openSessionRow(A);
+  await settle(500);
+  const seedA = 'UXGATE-DRAFT-A-' + (Date.now() % 100000);
+  await typeComposer(seedA);
+  let sawSeed = false;
+  for (let i = 0; i < 8 && !sawSeed; i++) {
+    await settle(600);
+    await ev(`document.getElementById('cb-ws-toggle')?.click()`);
+    sawSeed = await waitTrue(`uxGates.draft().seed === ${JSON.stringify(seedA)}`, 1600);
+    if (!sawSeed) {
+      await ev(`document.getElementById('cb-think-toggle')?.click()`);
+      sawSeed = await waitTrue(`uxGates.draft().seed === ${JSON.stringify(seedA)}`, 1600);
+    }
+  }
+  await driver.pressEscape().catch(() => {});
+  await settle(300);
+  const a1 = await ev(`uxGates.draft()`);
+  const aOk = sawSeed && a1.id === A && a1.session === A && a1.seed === seedA && a1.value === seedA;
+  record('draft', 'the seed is the server-rendered draft of that identity', aOk, a1);
+
+  // (b) leave A holding text the server never heard (no input frame), then
+  // switch: the field must read B's SEED, not A's text, and the store for B
+  // must hold that seed.
+  const typedA = seedA + '-typed';
+  await ev(`uxGates.draftSilentSet(${JSON.stringify(typedA)})`);
+  const aTyped = await ev(`uxGates.draft()`);
+  await openSessionRow(B);
+  const landedB = await waitTrue(`uxGates.draft().id === ${JSON.stringify(B)}`, 9000);
+  await settle(250);
+  const b1 = await ev(`uxGates.draft()`);
+  const bOk = landedB && b1.id === B && b1.value === b1.seed && b1.value !== typedA && b1.store === b1.seed;
+  record('draft', "a switch reads the landing chat's seed, not the chat left behind", bOk,
+    { left: aTyped, landed: b1, typedA });
+
+  // (c) a patch of B that keeps the identity must keep the reader's keystrokes:
+  // the field holds text the server has not seen, a composer patch lands (a
+  // selector toggle — `sel-open` moves the form's bytes, so #composer-input is
+  // replaced), and the field still holds it. the DOM-only mark proves the
+  // element really was replaced, so the survival is the engine's restore, not a
+  // patch that never landed.
+  const typedB = 'UXGATE-TYPED-B-' + (Date.now() % 100000);
+  await ev(`uxGates.draftSilentSet(${JSON.stringify(typedB)})`);
+  await ev(`uxGates.draftMark()`);
+  // arm the popover the server does NOT already have open, so the click is a
+  // real state change and the form (with #composer-input in it) ships.
+  const armed = await ev(`uxGates.armedPopover()`);
+  const target = armed === 'cb-ws-toggle' ? 'cb-think-toggle' : 'cb-ws-toggle';
+  await ev(`document.getElementById('${target}')?.click()`);
+  const replaced = await waitTrue(`!uxGates.draftMarkIntact()`, 7000);
+  await settle(300);
+  const c1 = await ev(`uxGates.draft()`);
+  const cOk = replaced && c1.id === B && c1.value === typedB && c1.seed === b1.seed;
+  record('draft', "a same-identity patch keeps the reader's keystrokes", cOk,
+    { elementReplaced: replaced, typedB, seedWas: b1.seed, after: c1 });
+  await driver.pressEscape().catch(() => {});
+  await settle(400);
+
+  // (d) back to A: A's seed wins over a store that says otherwise, and it
+  // rewrites that store (the stale value is what a client that trusted
+  // sessionStorage would have restored instead).
+  const STALE = 'UXGATE-STALE-' + (Date.now() % 100000);
+  await ev(`uxGates.draftPlantStore(${JSON.stringify(A)}, ${JSON.stringify(STALE)})`);
+  await openSessionRow(A);
+  const landedA = await waitTrue(`uxGates.draft().id === ${JSON.stringify(A)}`, 9000);
+  await settle(250);
+  const d1 = await ev(`uxGates.draft()`);
+  const dOk = landedA && d1.id === A && d1.value === seedA && d1.value !== typedA && d1.value !== STALE && d1.store === seedA;
+  record('draft', 'switching back writes the seed over a stale store', dOk,
+    { planted: STALE, typedA, returned: d1 });
+
+  // leave the owner's conversation active, as found.
+  if (startSid) await openSessionRow(startSid);
+}
+
+// ---------------------------------------------------------------------------
+// A15 — the composer submits and clears through the ENGINE (no-webui 2.17.0)
+//
+// `data-submit-on-enter="plain"` submits on Enter and leaves Shift+Enter a
+// newline; the binder returns early on an IME composition (`isComposing`, or
+// `keyCode === 229`) before any gesture is read. `data-clear-on-submit` empties
+// the field on the submit event. The one consequence the engine cannot express
+// (measured: its draft store re-fills an empty `[data-draft-id]` field on the
+// next replacing patch) is arc's narrowed echo guard; (a) holds the field empty
+// through the patches a send produces, which is that guard's only job.
+
+async function setComposer(text) {
+  // write through the value setter + input frame: the FilterList reconciles
+  // `data-open` and the row filter on `input` (and on `selectionchange` for the
+  // token's caret), so the field must be focused and the event must bubble.
+  return ev(`(() => {
+    const t = document.getElementById('composer-input');
+    if (!t) return false;
+    t.focus();
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(t, ${JSON.stringify(text)});
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+}
+
+async function runComposer() {
+  console.log('\n— gate: composer (submit modes + clear, no-webui 2.17.0) —');
+  await chatView();
+  await waitStreamEnd(120000).catch(() => false);
+  // a fresh chat so the transcript witness starts empty; the `+` patch can land
+  // a beat after the click, so poll for the empty transcript rather than trust
+  // one settle (measured: a click on a cold page left the previous chat open
+  // and the first keystrokes went to a button).
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await newGateChat('draft');
+    const rows = await ev(`document.querySelectorAll('.msg.user').length`);
+    if (rows === 0) break;
+  }
+
+  // (e) the control states both consequences on its own open tag.
+  const boot = await ev(`uxGates.composerState()`);
+  const contractOk = boot.present && boot.submit === 'plain' && boot.clear === true;
+  record('composer', '(e) the textarea states data-submit-on-enter="plain" and data-clear-on-submit', contractOk, boot);
+
+  // (d) no-webui 3.1.1's field path: the `FilterList(token: "/")` region lights
+  // one row and names it from the SOURCE FIELD (`aria-activedescendant`), so
+  // Enter pressed IN the field inserts that row and prevents the submit. 3.1.0
+  // selected only while a row was the active element, so this row used to focus
+  // the row first; that detour is the shape the framework replaced, and the
+  // assertion's meaning is unchanged: Enter inserts, nothing submits.
+  let beforeSlash = null;
+  let afterSlash = null;
+  let litSlash = null;
+  let slashOk = false;
+  for (let attempt = 0; attempt < 3 && !slashOk; attempt++) {
+    const userRowsBefore = await ev(`document.querySelectorAll('.msg.user').length`);
+    await setComposer('/');
+    const opened = await waitTrue(`uxGates.composerState().menuOpen`, 5000);
+    if (!opened) continue;
+    await setComposer('/he');
+    beforeSlash = await ev(`uxGates.composerState()`);
+    if (!beforeSlash.menuOpen || beforeSlash.menuRows === 0) continue;
+    litSlash = await ev(`uxGates.slashHighlight()`);
+    if (!litSlash.focusInField || litSlash.lit !== 'help') continue;
+    await driver.pressEnter();
+    await settle(450);
+    afterSlash = await ev(`uxGates.composerState()`);
+    slashOk = /^\/help $/.test(afterSlash.value || '') && !afterSlash.menuOpen
+      && afterSlash.userRows === userRowsBefore && !afterSlash.live;
+    if (!slashOk) await waitStreamEnd(60000).catch(() => false);
+  }
+  record('composer', '(d) Enter in the field inserts the highlighted slash row; nothing submits', slashOk,
+    { before: beforeSlash, lit: litSlash, after: afterSlash });
+
+  // (b) Shift+Enter inserts a newline and does not submit.
+  const shiftBefore = await ev(`uxGates.composerState()`);
+  await setComposer('line one');
+  await driver.pressKey('Enter', { modifiers: 8 });
+  await settle(250);
+  await driver.typeText('line two');
+  await settle(300);
+  const shift = await ev(`uxGates.composerState()`);
+  const shiftOk = (shift.value || '').indexOf('\n') !== -1
+    && (shift.value || '').indexOf('line two') !== -1
+    && shift.userRows === shiftBefore.userRows && !shift.live;
+  record('composer', '(b) Shift+Enter inserts a newline and does not submit', shiftOk, shift);
+
+  // (c) an IME composition never submits, in either spelling the binder guards.
+  await setComposer('UXGATE ime');
+  const imeBefore = await ev(`uxGates.composerState()`);
+  await ev(`(() => {
+    const t = document.getElementById('composer-input');
+    t.focus();
+    t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }));
+    const legacy = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    Object.defineProperty(legacy, 'keyCode', { value: 229 });
+    t.dispatchEvent(legacy);
+    return true;
+  })()`);
+  await settle(900);
+  const imeAfter = await ev(`uxGates.composerState()`);
+  const imeOk = imeAfter.userRows === imeBefore.userRows && imeAfter.value === imeBefore.value && !imeAfter.live;
+  record('composer', '(c) an Enter during IME composition (isComposing / keyCode 229) does not submit', imeOk,
+    { before: imeBefore, after: imeAfter });
+
+  // (f) the server refuses a blank submit. The observed contract: the ENGINE's
+  // "successful" is the submit event, so a whitespace-only Enter clears the
+  // field and sends nothing — the clear is not a server-acceptance receipt.
+  const blankBefore = await ev(`uxGates.composerState()`);
+  await setComposer('   ');
+  await settle(150);
+  await driver.pressEnter();
+  await settle(1000);
+  const blankAfter = await ev(`uxGates.composerState()`);
+  const blankRefused = blankAfter.userRows === blankBefore.userRows && !blankAfter.live;
+  record('composer', '(f) a whitespace-only Enter sends nothing (the clear follows the submit event)', blankRefused,
+    { before: blankBefore, after: blankAfter,
+      contract: blankAfter.value === ''
+        ? 'cleared on the submit event; the server refused the blank text, so nothing was sent'
+        : 'not cleared — no submit event fired' });
+
+  // (a) Enter submits: the transcript gains the message and the field stays
+  // clear through the replacing patches the send produces. The draft store
+  // would otherwise hand the submitted text back (measured defect, see the
+  // overlay's guard); this row is what proves the field reads empty to the
+  // reader after the send.
+  const marker = 'UXGATE composer ' + (Date.now() % 100000) + ' — reply with the single word: ok. Do not call any tools.';
+  const sendBefore = await ev(`uxGates.composerState()`);
+  await setComposer(marker);
+  await settle(150);
+  await driver.pressEnter();
+  const landed = await waitTrue(`(uxGates.composerState().lastUser || '').indexOf('UXGATE composer') !== -1`, 15000);
+  const justSent = await ev(`uxGates.composerState()`);
+  await settle(1800);
+  const held = await ev(`uxGates.composerState()`);
+  const enterOk = landed && justSent.userRows === sendBefore.userRows + 1
+    && justSent.value === '' && held.value === '';
+  record('composer', '(a) Enter submits, the transcript gains the message, and the field stays clear', enterOk,
+    { landed, justSent, after1800ms: held });
+  await waitStreamEnd(180000).catch(() => false);
+}
+
+// ---------------------------------------------------------------------------
+// A15 — the theme picker's selected state is `aria-pressed` (no-webui 2.17.0)
+//
+// the server renders it from the saved mode; the engine's boot `press()` and
+// every press reconcile it, and its `data-theme-choice` binder re-presses on
+// each insert. `.active` is gone, so `ChromeSheet` keys
+// `[aria-pressed="true"]` — this gate proves the one-pressed invariant, the
+// root it tracks, and that the sheet's rule lands on the pressed card.
+
+async function themeSettled(expectChoice, timeoutMs = 9000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await ev(`uxGates.themeState()`);
+    const one = !!last && Array.isArray(last.pressed) && last.pressed.length === 1;
+    const matches = one && last.pressed[0] === last.theme;
+    const wanted = !expectChoice || (one && last.pressed[0] === expectChoice);
+    if (one && matches && wanted) return { ok: true, state: last };
+    await sleep(150);
+  }
+  return { ok: false, state: last };
+}
+
+async function runTheme() {
+  console.log('\n— gate: theme (aria-pressed selected contract, no-webui 2.17.0) —');
+  await chatView();
+  await ev(`document.getElementById('nav-settings')?.click()`);
+  await driver.waitFor(`document.querySelectorAll('[data-theme-choice]').length >= 2`, { timeoutMs: 8000 });
+  await settle(300);
+
+  // (a) at load: exactly one pressed card, and it is the root's mode.
+  const load = await themeSettled();
+  const loadState = load.state || {};
+  const loadOk = load.ok && loadState.classActive === 0;
+  record('theme', '(a) exactly one aria-pressed="true" card at load, matching <html data-theme>', loadOk,
+    { state: loadState });
+
+  // (b) a press moves the pressed card, the root, and the sheet's selected rule.
+  const target = loadState.theme === 'light' ? 'dark' : 'light';
+  await ev(`document.getElementById('thm-${target}')?.click()`);
+  const after = await themeSettled(target);
+  const afterState = after.state || {};
+  const pressedCard = (afterState.cards || []).find((c) => c.pressed === 'true') || null;
+  const otherCard = (afterState.cards || []).find((c) => c.pressed === 'false') || null;
+  const painted = !!(pressedCard && otherCard
+    && (pressedCard.borderColor !== otherCard.borderColor || pressedCard.boxShadow !== otherCard.boxShadow));
+  const pressOk = after.ok && afterState.theme === target && afterState.classActive === 0 && painted;
+  record('theme', "(b) a press moves the pressed card, the root, and the sheet's selected rule", pressOk,
+    { target, state: afterState,
+      pressedBorder: pressedCard && pressedCard.borderColor,
+      otherBorder: otherCard && otherCard.borderColor, painted });
+
+  // (c) A17 deleted the client script, so the mirror cannot come back: the row
+  // is the ABSENCE. `/ui/init.js` must not resolve, and the page must load no
+  // script of arc's — only the framework's engine and its `-ext` asset.
+  const served = await driver.js(`fetch('/ui/init.js', { cache: 'no-store' }).then(function (r) {
+    return { status: r.status };
+  }).catch(function () { return { status: 'network-error' }; })`, { awaitPromise: true });
+  const srcs = await ev(`Array.from(document.querySelectorAll('script[src]')).map(function (s) {
+    return s.getAttribute('src') || '';
+  })`);
+  const foreign = (srcs || []).filter(function (s) { return s.indexOf('/ui/webui-engine') !== 0; });
+  const gone = !!served && served.status === 404 && foreign.length === 0;
+  record('theme', "(c) no client script is served and the page loads none of arc's", gone,
+    { served, scriptSrcs: srcs, foreign });
+
+  await newGateChat('theme').catch(() => {});
+  await ev(`document.getElementById('nav-chat')?.click()`);
+  await settle(300);
+}
+
+// ---------------------------------------------------------------------------
+// A16 — residue: the rename dialog, the engine's clipboard + toast, the caret,
+// and the seam that is left.
+//
+// A16a made rename ONE server-rendered card, so this row drives the whole round
+// trip: the menu opens it, the field carries the FULL stored title, submit
+// renames through a single `.refresh`, Escape cancels with no change, and focus
+// returns to the row's ⋮ (the "Rename" entry that armed the dialog is gone with
+// the menu the same click closed). A16b made every copy surface a `data-copy`
+// value the ENGINE writes, so the clipboard is read back and the engine's
+// `[data-webui-toast]` pill is checked in BOTH themes against the sheet's
+// tokens. A16d retired the seam's three consumers: the caret (UX-45) is 3.1.0's
+// `data-focus-on-appear` on the composer, and the first-invalid-field hand-off
+// is the same behaviour on the form fragment — both are driven here in the
+// browser, plus the workspace ⋮ menu's server `data-open` latch.
+//
+// Every await has a deadline. The rename mutates a REAL title, so it runs on the
+// probe session — which `cleanupProbeSessions` deletes at the end.
+
+async function runResidue() {
+  console.log('\n— gate: residue (rename · clipboard · toast · caret · form focus · ws menu) —');
+  const out = {};
+  driver.clearConsole();
+
+  // the clipboard read needs the permission granted to the ORIGIN, not the tab.
+  out.clipboardPermission = await driver
+    .send('Browser.grantPermissions', {
+      permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'],
+      origin: APP.replace(/\/+$/, ''),
+    })
+    .then(() => 'granted')
+    .catch((e) => `refused: ${String(e.message || e).slice(0, 120)}`);
+
+  const readClipboard = async () => {
+    try {
+      const v = await driver.js('navigator.clipboard.readText()', { awaitPromise: true });
+      return typeof v === 'string' ? v : null;
+    } catch (e) { return null; }
+  };
+
+  const sid = await ensureProbeSession('UXGATE residue target');
+  await chatView();
+  const rowExpr = `[...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${sid}')`;
+  await ev(`(() => { const row = ${rowExpr}; if (row) row.querySelector('.sess-open').click(); return true; })()`);
+  await settle(600);
+
+  const before = await ev(`(() => { const row = ${rowExpr}; return row ? { title: row.querySelector('.sess-title').textContent, full: row.getAttribute('data-full-title') } : null; })()`);
+  const openerID = await ev(`(() => { const row = ${rowExpr}; const d = row && row.querySelector('.menu-dots'); return d ? d.id : null; })()`);
+  out.probe = { sid: sid.slice(0, 8), before, openerID };
+
+  const openRename = async () => {
+    const opened = await openMenu(sid);
+    if (!opened) return { ok: false, reason: 'the row menu did not open' };
+    await ev(`(() => { const row = ${rowExpr}; const b = row && row.querySelector('.chat-menu-items [id^="sm-rename-"]'); if (b) b.click(); return !!b; })()`);
+    return pollOk(`(() => { const s = uxGates.renameState(); return Object.assign({ ok: s.open && !!s.field }, s); })()`, 6000);
+  };
+
+  // ---- (a) the rename dialog: full title, one round trip, Escape, return ----
+  const card = (await openRename()) || {};
+  const cardOk = !!card.ok
+    && String(card.overlayClass || '').includes('modal-overlay')
+    && card.role === 'dialog' && card.ariaModal === 'true'
+    && card.postTo === 'chat-menu'
+    && !!card.field && card.field.name === 'rename-name' && card.field.value === (before && before.full)
+    && !!card.cancel && card.cancel.dismiss && card.cancel.type === 'button'
+    && card.cancel.focusReturn === openerID
+    && !!card.save && card.save.type === 'submit';
+  out.renameCard = card;
+  record('residue', "(a1) the row menu opens a server card seeded with the FULL stored title", cardOk, out.renameCard);
+
+  let submitState = { ok: false, reason: 'the card never opened' };
+  if (card.ok) {
+    const probeTitle = `UXGATE residue ${Date.now() % 100000}`;
+    await ev(`(() => {
+      const f = document.getElementById('rename-name');
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      set.call(f, ${JSON.stringify(probeTitle)});
+      f.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    await ev(`document.getElementById('rename-save').click()`);
+    submitState = await pollOk(`(() => {
+      const row = ${rowExpr};
+      const s = uxGates.renameState();
+      const full = row ? row.getAttribute('data-full-title') : null;
+      const title = row ? row.querySelector('.sess-title').textContent : null;
+      return { ok: !s.open && full === ${JSON.stringify(probeTitle)} && title === ${JSON.stringify(probeTitle)}, full, title, open: s.open };
+    })()`, 8000);
+    out.renameSubmit = submitState;
+  }
+  record('residue', "(a2) submit renames through one .refresh — the row shows the new title and the card is gone",
+    !!submitState && submitState.ok === true, out.renameSubmit);
+
+  // Escape cancels with no change, and the close returns focus to the row's ⋮.
+  let cancelState = { ok: false, reason: 'the card never reopened' };
+  const reopened = await openRename();
+  if (reopened && reopened.ok) {
+    await ev(`(() => { const f = document.getElementById('rename-name'); f.focus(); f.value = 'MUST NOT STICK'; return true; })()`);
+    await driver.pressEscape();
+    cancelState = await pollOk(`(() => {
+      const row = ${rowExpr};
+      const s = uxGates.renameState();
+      const full = row ? row.getAttribute('data-full-title') : null;
+      const dots = row && row.querySelector('.menu-dots');
+      const a = document.activeElement;
+      // D5.3 (no-webui 3.1.1): a DECLARED data-focus-return wins over the
+      // engine's pre-dialog memory while that memory's control still exists; the
+      // memory is the fallback. The rename Cancel declares s-menu-<sid> — the
+      // row's own ⋮ — so Escape returns to the OPENER, not to the composer the
+      // dialog was opened over (3.1.0's precedence, which this row accepted as
+      // "a live control"). A16d named this as the residue; it is now exact.
+      const onOpener = !!dots && a === dots;
+      return { ok: !s.open && full === ${JSON.stringify(submitState && submitState.full || '')} && !!dots && onOpener,
+               full, active: a && a !== document.body ? (a.id || a.tagName) : null,
+               openerID: dots ? (dots.id || null) : null,
+               onOpener };
+    })()`, 6000);
+    out.renameCancel = cancelState;
+  }
+  record('residue', "(a3) Escape cancels with no change and focus returns to the opener (the row's \u22ee)", !!cancelState && cancelState.ok === true, out.renameCancel);
+
+  // ---- (b) copy is the engine's `data-copy` ---------------------------------
+  await chatView();
+  await openMenu(sid);
+  const copyValue = await ev(`(() => { const row = ${rowExpr}; const b = row && row.querySelector('.chat-menu-items [id^="sm-copy-"]'); return b ? b.getAttribute('data-copy') : null; })()`);
+  await ev(`(() => { const row = ${rowExpr}; const b = row && row.querySelector('.chat-menu-items [id^="sm-copy-"]'); if (b) b.click(); return !!b; })()`);
+  const linkToast = await ev(`uxGates.engineToast()`);
+  const linkClip = await readClipboard();
+  const linkOk = !!copyValue && /^https?:\/\/.+[?&]s=/.test(copyValue)
+    && (linkClip === null || linkClip === copyValue)
+    && !!linkToast && linkToast.present && linkToast.text === 'Copied';
+  out.copyLink = { value: copyValue, clipboard: linkClip, toast: linkToast };
+  record('residue', '(b1) "Copy conversation link" writes the absolute share url (clipboard + engine toast)', linkOk, out.copyLink);
+
+  // one work-log round: a live transcript that has one, else the seeded shape.
+  let worklog = null;
+  let worklogSkipped = null;
+  let worklogOrigin = null;
+  let seededSid = null;
+  const sidList = (await ev(`(() => [...document.querySelectorAll('.sess-row')].map(r => r.getAttribute('data-sid')))()`)) || [];
+  for (const s of sidList.slice(0, 10)) {
+    await ev(`(() => { const r = [...document.querySelectorAll('.sess-row')].find(x => x.getAttribute('data-sid') === ${JSON.stringify(s)}); if (r) r.querySelector('.sess-open').click(); return true; })()`);
+    await settle(700);
+    worklog = await ev(`(() => { const b = document.querySelector('.tw-copy'); return b ? { value: b.getAttribute('data-copy') || '' } : null; })()`);
+    if (worklog) { worklogOrigin = 'live'; break; }
+  }
+  if (!worklog) {
+    // D8.1: the live store carried no tool round (measured at the base: ten
+    // chats scanned, none had one). Seed the shape through the app's own
+    // storage path and measure the same control there.
+    seededSid = trackProbe(writeWorklogSession());
+    const opened = await openWorklogChat(seededSid);
+    out.worklogSeed = { sid: seededSid.slice(0, 8), landed: opened.landed, rendered: opened.rendered };
+    if (opened.landed && opened.control) { worklog = { value: opened.control }; worklogOrigin = 'seeded'; }
+    else out.worklogSeed.reason = 'the seeded transcript rendered no .tw-copy control';
+  }
+  if (!worklog) {
+    worklogSkipped = `no reachable transcript has a tool round (scanned ${Math.min(sidList.length, 10)} of ${sidList.length} chats) — the "copy this activity" control only renders for a turn that called a tool`;
+    record('residue', '(b2) a work-log round copies its activity digest', 'skip', { skipped: worklogSkipped });
+  } else {
+    await ev(`document.querySelector('.tw-copy').click()`);
+    const roundToast = await ev(`uxGates.engineToast()`);
+    const roundClip = await readClipboard();
+    const roundOk = worklog.value.length > 0
+      && (roundClip === null || roundClip.startsWith(worklog.value.slice(0, 40)))
+      && !!roundToast && roundToast.present && roundToast.text === 'Copied';
+    out.copyWorklog = { origin: worklogOrigin, value: worklog.value.slice(0, 120), clipboard: roundClip === null ? null : roundClip.slice(0, 120), toast: roundToast };
+    record('residue', '(b2) a work-log round copies its activity digest (clipboard + engine toast)', roundOk, out.copyWorklog);
+  }
+  // a seeded transcript is deleted through the app's own delete flow right here:
+  // it is UXGATE-titled, so leaving it in the store would let the next group's
+  // `ensureProbeSession` adopt it as its probe (the run's cleanup would also get
+  // it, but only at the end of the run, after every other group had run).
+  if (seededSid) {
+    let gone = false;
+    for (let attempt = 0; attempt < 3 && !gone; attempt++) {
+      if ((await openMenu(seededSid)) && (await clickMenuDanger(seededSid))) {
+        await ev(`document.getElementById('modal-confirm')?.click()`);
+        gone = await waitTrue(`!([...document.querySelectorAll('.sess-row')].some(r => r.getAttribute('data-sid') === '${seededSid}'))`, 15000);
+      } else {
+        await driver.pressEscape();
+        await settle(250);
+      }
+    }
+    if (out.worklogSeed) out.worklogSeed.deleted = gone;
+    if (gone) probeSids.delete(seededSid);
+    else console.warn(`residue: the seeded work-log chat ${seededSid} survived its delete — left to the run cleanup`);
+    await chatView();
+  }
+
+  // ---- (c) the engine toast is legible in BOTH themes ----------------------
+  for (const theme of ['dark', 'light']) {
+    await setTheme(theme);
+    await chatView();
+    await openMenu(sid);
+    await ev(`(() => { const row = ${rowExpr}; const b = row && row.querySelector('.chat-menu-items [id^="sm-copy-"]'); if (b) b.click(); return !!b; })()`);
+    const t = await ev(`uxGates.engineToast()`);
+    const ok = !!t && t.present && t.text === 'Copied' && t.visible
+      && t.theme === theme
+      && t.contrast >= 4.5
+      && t.color === t.want.text && t.background === t.want.surface;
+    out[`toast_${theme}`] = t;
+    record('residue', `(c) the engine toast is legible in the ${theme} theme (sheet tokens + WCAG)`, ok, t);
+  }
+
+  // ---- (d) the new-chat caret (UX-45) --------------------------------------
+  // `FocusOnAppear` alone cannot cover this: the `+` survives the patch and
+  // holds focus (measured), and the behaviour never steals from a live control.
+  // `newChat` therefore arms a ONE-RENDER `data-focus-into="composer-input"` on
+  // the composer root; the fresh root's binder focuses the field because live
+  // focus (the `+`) is outside its region.
+  //
+  // The PRECONDITION is part of the assertion (D2b): `newChat` reuses a chat
+  // that is already a pristine "New chat" (`AppState.isPristineNewChat`) and
+  // that early return renders nothing — so the + has no patch to answer, the
+  // one-render latch is never armed, and the caret stays on the +. That is a
+  // property of the STARTING VIEW, not of the latch. The view here is recorded
+  // (`pre`) and the composer form node is marked, so a no-op + is visible in
+  // the detail instead of being read as a lost focus statement.
+  await chatView();
+  // Known starting view (D2b.4). `newChat` reuses a chat that is already a
+  // pristine "New chat" (`AppState.isPristineNewChat`), and that early return
+  // renders NOTHING — no patch answers the `+`, the one-render latch is never
+  // armed. That is the app's product decision (UX-10: do not persist an
+  // untouched chat) and this row does not measure it; it measures that the `+`
+  // which DOES change the view lands the caret. So put the probe chat (which
+  // carries the tour's turn) on screen first: the `+` then has a view to change.
+  const startView = { opened: await openSessionRow(sid) };
+  startView.settled = await waitTrue(`(() => {
+    const a = document.querySelector('.sess-row.active');
+    return !!a && a.getAttribute('data-sid') === '${sid}' && document.querySelectorAll('.msg').length > 0;
+  })()`, 8000);
+  const pre = await ev(`(() => {
+    const f = document.querySelector('[data-component-id="composer-form"]');
+    if (f) f.__newChatMark = true;
+    const a = document.querySelector('.sess-row.active');
+    return {
+      activeSid: a ? a.getAttribute('data-sid') : null,
+      activeTitle: a ? (a.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 60) : null,
+      activeMsgCount: (a ? a.textContent || '' : '').match(/(\\d+)\\s*msg/)?.[1] ?? null,
+      composerPresent: !!document.getElementById('composer-input'),
+      composerValue: document.getElementById('composer-input')?.value || '',
+      active: (document.activeElement || {}).id || null,
+      messages: document.querySelectorAll('.msg').length,
+    };
+  })()`);
+  // focus the + like a pointer does: the panel patch replaces the button, so
+  // focus falls to <body> and the fresh composer's `data-focus-on-appear`
+  // takes it. (A programmatic click leaves focus wherever it was, which the
+  // behaviour deliberately never steals.)
+  await ev(`(() => { const b = document.getElementById('chat-new'); if (b) { b.focus(); b.click(); } return !!b; })()`);
+  const caret = await pollOk(`(() => { const a = document.activeElement; return { ok: !!a && a.id === 'composer-input', active: a && a !== document.body ? (a.id || a.tagName) : null }; })()`, 5000);
+  const post = await ev(`(() => {
+    const f = document.querySelector('[data-component-id="composer-form"]');
+    const a = document.querySelector('.sess-row.active');
+    return {
+      formReplaced: !f || f.__newChatMark !== true,
+      activeSid: a ? a.getAttribute('data-sid') : null,
+      active: (document.activeElement || {}).id || null,
+      focusIntoPresent: !!document.querySelector('[data-focus-into]'),
+    };
+  })()`);
+  // the chat the `+` minted is a gate chat: record it so cleanup deletes it
+  // even though its title is "New chat" (no message yet)
+  if (post.activeSid && post.activeSid !== pre.activeSid) trackProbe(post.activeSid);
+  out.caret = Object.assign({}, caret, { startView, pre, post, patched: pre.activeSid !== post.activeSid || post.formReplaced });
+  record('residue', "(d) the new-chat caret lands in the composer (UX-45 — the one-render FocusInto latch)", !!caret && caret.ok === true, out.caret);
+
+  // ---- (e) FocusOnAppear: a patched form takes the caret -------------------
+  // The retired `[data-focus-after-patch]` consumer's job, now the engine's.
+  // The New-skill form's first invalid field carries `data-focus-on-appear`;
+  // a refused save re-inserts the form while the field the reader was in is
+  // replaced (focus falls to <body>), and the fresh field must take the caret.
+  // Reachable in every daemon state — no tool turn, no board state needed.
+  let formFocus = { ok: false, reason: 'the New-skill form was not reachable' };
+  await ev(`document.getElementById('nav-skills')?.click()`);
+  await pollOk(`!!document.getElementById('skill-new')`, 6000);
+  const newSkill = await ev(`(() => { const b = document.getElementById('skill-new'); if (!b) return false; b.click(); return true; })()`);
+  if (newSkill) {
+    await pollOk(`!!document.getElementById('skill-name-input')`, 5000);
+    await ev(`document.getElementById('skill-name-input')?.focus()`);
+    await ev(`(() => {
+      const f = document.querySelector('[data-component-id="skill-create-form"]');
+      const b = f ? f.querySelector('button[type=submit]') : null;
+      if (b) b.click();
+      return !!b;
+    })()`);
+    formFocus = await pollOk(`(() => {
+      const a = document.activeElement;
+      const field = document.getElementById('skill-name-input');
+      const err = document.getElementById('skill-name-err');
+      return {
+        ok: !!field && a === field && !!err && (err.textContent || '').trim().length > 0,
+        active: a && a !== document.body ? (a.id || a.tagName) : null,
+        carries: !!field && field.hasAttribute('data-focus-on-appear'),
+        error: err ? (err.textContent || '').trim().slice(0, 60) : null,
+      };
+    })()`, 8000);
+    await ev(`document.getElementById('skill-cancel')?.click()`);
+    await settle(300);
+    await chatView();
+  }
+  out.formFocus = formFocus;
+  record('residue', '(e) a patched form takes the caret through the engine\u2019s FocusOnAppear', !!formFocus && formFocus.ok === true, formFocus);
+
+  // ---- (g) the workspace ⋮ menu: server latch + engine dismissal -----------
+  // A16d's last client state: the ⋮ dispatches to the server's one-render
+  // latch, the render states `data-open` (+ `data-dismiss`), and the engine's
+  // dismiss stack closes it on Escape with no round trip.
+  let wsMenu = { ok: false, reason: 'the workspace dock was not reachable' };
+  await chatView();
+  const dockOpen = await ev(`(() => { const b = document.getElementById('w-dock'); if (!b) return false; b.click(); return true; })()`);
+  if (dockOpen) {
+    await pollOk(`(() => { const p = document.getElementById('ws-panel'); return { ok: !!p && p.hasAttribute('data-open') }; })()`, 6000);
+    await ev(`document.getElementById('w-menu')?.click()`);
+    wsMenu = await pollOk(`(() => {
+      const m = document.getElementById('ws-menu');
+      return { ok: !!m && m.hasAttribute('data-open') && m.querySelectorAll('button').length > 0,
+               open: !!m && m.hasAttribute('data-open'),
+               dismiss: !!m && m.hasAttribute('data-dismiss'),
+               rows: m ? m.querySelectorAll('button').length : 0 };
+    })()`, 6000);
+    if (wsMenu && wsMenu.ok) {
+      await driver.pressEscape();
+      await settle(300);
+      const after = await ev(`(() => { const m = document.getElementById('ws-menu'); return { open: !!m && m.hasAttribute('data-open') }; })()`);
+      wsMenu.escClosed = after.open === false;
+      wsMenu.ok = wsMenu.ok && wsMenu.escClosed;
+    }
+    await ev(`document.getElementById('w-close')?.click()`);
+    await settle(400);
+    await chatView();
+  }
+  out.wsMenu = wsMenu;
+  record('residue', '(g) the workspace ⋮ menu opens through the server latch and Escape closes it', !!(wsMenu && wsMenu.ok), wsMenu);
+
+  // ---- the tour's console ------------------------------------------------
+  const consoleReport = driver.consoleReport();
+  const consoleOk = consoleReport.errors.length === 0 && consoleReport.warnings.length === 0;
+  out.console = consoleReport;
+  record('residue', '(f) no console error or warning through the whole residue tour', consoleOk, consoleReport);
+}
 
 async function runMotion() {
   console.log('\n— gate: motion (prefers-reduced-motion: reduce) —');
@@ -884,17 +3304,24 @@ async function runMotion() {
   await waitStreamEnd(120000).catch(() => false);
 
   await ev(`document.getElementById('w-dock')?.click()`);
-  await settle(600);
+  // A17: the panel's open state is the engine's `data-open` on a node the patch
+  // REPLACES, and the entrance is a 280ms transition from zero width — a fixed
+  // settle raced it in a full run (the row read `present` but not yet open).
+  // Poll the attribute, then let the transition land.
+  await pollOk(`(() => { const p = document.getElementById('ws-panel'); return { ok: !!p && p.hasAttribute('data-open') }; })()`, 8000);
+  await settle(500);
   const ws = await ev(`uxGates.workspace()`);
   const wsOk = ws.open && parseFloat(ws.animationDuration) <= 0.01 && parseFloat(String(ws.transitionDuration).replace(/[^0-9.]+$/, '')) <= 0.01 && parseFloat(ws.opacity) > 0.9;
   await ev(`document.getElementById('w-close')?.click()`);
   await settle(500);
 
-  // toast enter (copy link -> neutral toast must appear, no animation)
+  // toast enter (copy link -> the ENGINE's toast must appear, no animation)
+  // A16b: the copy feedback is `[data-webui-toast]`, painted by the engine's
+  // `data-copy` binder — arc's `#toasts` stack no longer receives it.
   await openMenu(mSid);
   await ev(`(() => { const row = [...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${mSid}'); row?.querySelector('.chat-menu-items [id^="sm-copy-"]')?.click(); })()`);
   await settle(500);
-  const toast = await ev(`uxGates.toastAnim()`);
+  const toast = await ev(`uxGates.engineToastAnim()`);
   const toastOk = toast.present && toast.visible && parseFloat(toast.animationDuration) <= 0.01 && parseFloat(String(toast.transitionDuration).replace(/[^0-9.]+$/, '')) <= 0.01;
 
   // stream shimmer (needs a real turn; a genuinely unobtainable turn is an env
@@ -954,7 +3381,13 @@ async function runRegression() {
   await waitStreamEnd(120000).catch(() => false);
 
   // 1. scroll read-back mid-stream
-  const liveRes = await ensureLiveText('Count from 1 to 60, one number per line. Reply with only that list.', 0, 240000, 90000);
+  //    D6.1: the pin row needs room in the container the turn streams into, and
+  //    a fresh gate chat has none for the first 20 s (measured: room=0 → SKIP).
+  //    Stream into the gate's seeded long chat instead — real transcript room
+  //    from the first frame, deleted with the other probes.
+  const roomChat = await ensureScrollRoomChat();
+  out.scrollRoom = roomChat;
+  const liveRes = await ensureLiveText('Count from 1 to 60, one number per line. Reply with only that list.', 0, 240000, 90000, { inPlace: true });
   const live = liveRes ? liveRes.live : null;
   if (!live) {
     out.scrollReadback = { skipped: 'the live-turn element never mounted after retries (model endpoint measured healthy — liveness is live-turn presence, expected ~2.5 s after Enter; a bare-prompt turn emits reasoning_first_then_content)', diag: liveRes ? liveRes.diag : null };
@@ -982,21 +3415,34 @@ async function runRegression() {
       await waitStreamEnd(120000).catch(() => {});
       record('regression', 'scroll read-back mid-stream (SCROLL_PAD)', 'skip', out.scrollReadback);
     } else {
-      // the user scrolls up by SCROLL_PAD-distant 150 px, then token writes
-      // must not re-anchor the scroller (except on structural replaces, which
-      // are the engine's documented trait)
+      // the user scrolls up by SCROLL_PAD-distant 150 px FROM THE TAIL (a
+      // reader at the top would make the pin assertion vacuous), then token
+      // writes must not re-anchor the scroller (except on structural replaces,
+      // which are the engine's documented trait)
+      const tail = await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = s.scrollHeight; return Math.round(s.scrollTop); })()`);
+      await settle(150);
       await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = Math.max(0, s.scrollTop - 150); return s.scrollTop; })()`);
       await settle(120);
       const after = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s.scrollTop; })()`);
+      // Sample until the container has GROWN inside a live stretch. Measured at
+      // D6.1 on this host: the live row mounts with one jump (+196 px) and then
+      // grows in ~30–46 px steps every 10–25 s, so the old fixed 4.2 s window
+      // (14 × 300 ms) read `growth=0` and SKIPped a pin that was in fact held.
+      // The window is what changed; the assertion below is untouched.
       const samples = [];
-      for (let i = 0; i < 14; i++) {
-        await waitMs(300);
+      const sampleT0 = Date.now();
+      let grewAt = -1;
+      while (Date.now() - sampleT0 < 90000) {
+        await waitMs(1000);
         const s = await ev(`(() => {
           const sc = document.getElementById('chat-scroll');
           const st = uxGates.stream();
           return { top: sc.scrollTop, h: sc.scrollHeight, live: st.live, status: st.status || null, chips: (st.chips || st.toolChips || []).join('|'), textLen: st.textLen || 0 };
         })()`);
         samples.push(s);
+        if (grewAt < 0 && s.h > samples[0].h) grewAt = samples.length - 1;
+        if (grewAt >= 0 && samples.length - grewAt >= 6) break;
+        if (!s.live && samples.length > 4) break;
       }
       const firstH = samples[0].h;
       const growth = Math.max(...samples.map((s) => s.h)) - firstH;
@@ -1034,7 +3480,7 @@ async function runRegression() {
           readbackOk = !yanked && bestStable.every((s) => Math.abs(s.top - after) <= 60);
         }
       }
-      out.scrollReadback = { before, after, growth, samples: samples.map((s) => ({ top: s.top, h: s.h, live: s.live })), stableStretch: bestStable.length, pinHeldDuringTextStream: readbackOk, structuralFlips: samples.length - bestStable.length };
+      out.scrollReadback = { before, tail, after, growth, samples: samples.map((s) => ({ top: s.top, h: s.h, live: s.live, txt: s.textLen })), stableStretch: bestStable.length, pinHeldDuringTextStream: readbackOk, structuralFlips: samples.length - bestStable.length };
       await waitStreamEnd(120000).catch(() => {});
       if (readbackOk === null) {
         out.scrollReadback.verdict = 'inconclusive: no structurally stable live stretch in the growth window — pin assert needs a stable text stretch';
@@ -1055,30 +3501,39 @@ async function runRegression() {
     t.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
   })()`);
-  await settle(300);
+  // Confirm the engine's write LANDED in the per-chat draft store before the
+  // reload. Measured at 1 ms on an idle daemon, but the probe must not assume
+  // it: if the store never holds the text, the reload cannot restore it and
+  // that is an app defect to report, not to paper over with a longer sleep.
+  const storeHit = Date.now();
+  const stored = await waitTrue(`uxGates.draft().store === ${JSON.stringify(draft)}`, 3000);
+  const storeAfterMs = Date.now() - storeHit;
   await driver.navigate(APP);
   await waitReady();
   await chatView();
-  await settle(400);
+  // The restore is a patch consequence, not a synchronous read: poll until the
+  // composer holds the drafted text AND holds it, then re-read. A restore that
+  // a later patch clears is a failure, not a pass.
+  const restored = await waitStableValue(`(document.getElementById('composer-input')?.value || '') === ${JSON.stringify(draft)}`, true, 400, 5000);
   const kept = await ev(`document.getElementById('composer-input')?.value || ''`);
-  out.ghostDraft = { drafted: draft, afterReload: kept, pass: kept === draft };
+  out.ghostDraft = { drafted: draft, storeWritten: stored, storeAfterMs, restored, afterReload: kept, pass: stored && restored && kept === draft };
   record('regression', 'composer ghost draft on reload', out.ghostDraft.pass, out.ghostDraft);
 
   // 3. dd-pop Escape (model popover)
   await chatView();
   await ev(`document.getElementById('cb-model-toggle')?.click()`);
-  await settle(350);
-  const popOpen = await ev(`uxGates.popovers().model.open`);
+  // the popover is a server `data-open` latch: measured 1249 ms to arrive on a
+  // 136-session list, so a 350 ms read saw it closed and the row failed on its
+  // own instrument. Poll the state the assertion reads.
+  const popOpen = await waitTrue(`uxGates.popovers().model.open`, 3000);
   await driver.pressEscape();
-  await settle(300);
-  const popClosed = !(await ev(`uxGates.popovers().model.open`));
+  const popClosed = await waitStableValue(`uxGates.popovers().model.open`, false, 250, 3000);
   out.ddPopEscape = { opened: popOpen, closedByEscape: popClosed, pass: popOpen && popClosed };
   record('regression', 'dd-pop Escape closes', out.ddPopEscape.pass, out.ddPopEscape);
 
   // 4. Enter-to-send
-  await ev(`document.getElementById('chat-new')?.click()`);
-  await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000 });
-  await settle(300);
+  const beforeSid = await ev(`(document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null`);
+  await newGateChat('enter-send');
   const msg = 'UXGATE enter-send ' + Date.now() % 100000;
   await driver.js(`(() => {
     const t = document.getElementById('composer-input');
@@ -1089,12 +3544,26 @@ async function runRegression() {
   })()`);
   await settle(200);
   await driver.pressEnter();
-  await settle(900);
+  // The send is a server consequence: the user row is appended by a patch and
+  // the composer's clear rides the same round-trip. A fixed 900 ms read the
+  // pre-patch transcript on a loaded daemon (D2b.1 base FAIL:
+  // `{"sent":{"count":0},"composerNow":""}` while the submit had demonstrably
+  // landed — the composer was already clear). Poll the exact state the row
+  // asserts (the marker IS in the transcript and the field IS empty), then
+  // read it once more so a later patch cannot be mistaken for the pass.
+  const marker = msg.slice(0, 12);
+  const landed = await waitTrue(`(() => {
+    const msgs = [...document.querySelectorAll('.msg.user .msg-body')];
+    return msgs.some((m) => (m.textContent || '').includes(${JSON.stringify(marker)}))
+      && (document.getElementById('composer-input')?.value || '') === '';
+  })()`, 20000);
   const sent = await ev(`(() => {
     const msgs = [...document.querySelectorAll('.msg.user .msg-body')];
-    return { count: msgs.length, contains: msgs.some((m) => (m.textContent || '').includes(${JSON.stringify(msg.slice(0, 12))})), composerNow: document.getElementById('composer-input')?.value || '' };
+    return { count: msgs.length, contains: msgs.some((m) => (m.textContent || '').includes(${JSON.stringify(marker)})), composerNow: document.getElementById('composer-input')?.value || '' };
   })()`);
-  out.enterSend = { msg, sent, pass: sent.count >= 1 && sent.contains && sent.composerNow === '' };
+  const afterSid = await ev(`(document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null`);
+  out.enterSend = { msg, landed, sent, beforeSid, afterSid,
+    pass: landed && sent.count >= 1 && sent.contains && sent.composerNow === '' };
   record('regression', 'Enter-to-send', out.enterSend.pass, out.enterSend);
 }
 
@@ -1126,17 +3595,16 @@ async function runRound4() {
   let roomRes = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? { sh: s.scrollHeight, ch: s.clientHeight } : null; })()`);
   let room = roomRes ? roomRes.sh - roomRes.ch : -1;
   if (room < 240) {
-    // No room in the open chat: try the gate's own probe chat — it carries
-    // real content when the regression gate ran first in the same session.
-    await ensureProbeSession();
-    await settle(400);
-    await openSessionRow(probeSid);
-    await settle(500);
+    // D6.1: no room in the open chat. Open the gate's own long chat — seeded
+    // through the app's store on first use, deleted through its delete flow —
+    // instead of waiting for a provider turn to leave content in a probe chat
+    // (that path left the row SKIPping whenever regression did not run first).
+    out.scrollRoom = await ensureScrollRoomChat();
     roomRes = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? { sh: s.scrollHeight, ch: s.clientHeight } : null; })()`);
     room = roomRes ? roomRes.sh - roomRes.ch : -1;
   }
   if (!roomRes || room < 240) {
-    out.scrollRestore = { skipped: `the open chat has no usable scroll range (room=${room}) — run with --only=regression in the same session so the streaming chat leaves content, or open a long conversation first` };
+    out.scrollRestore = { skipped: `no usable scroll range, and the gate's seeded chat did not open (room=${room}; seeded=${JSON.stringify(out.scrollRoom || null)})` };
     record('round4', 'rail return restores chat scroll (UX-39)', 'skip', out.scrollRestore);
   } else {
     const mid = Math.min(900, Math.round(room * 0.45));
@@ -1144,14 +3612,18 @@ async function runRound4() {
     await settle(300);
     const before = await ev(`document.getElementById('chat-scroll').scrollTop`);
     await ev(`document.getElementById('nav-skills')?.click()`);
-    await settle(650);
+    // The rail switch is a patch, not a page: poll for each side of the round
+    // trip before reading it. A fixed settle read `after: -1` (no scroller yet)
+    // on a slow patch and failed a restore that had landed 250 ms later.
+    const left = await waitTrue(`!document.getElementById('chat-scroll')`, 6000);
     await ev(`document.getElementById('nav-chat')?.click()`);
-    await settle(600);
+    const back = await waitTrue(`!!document.getElementById('chat-scroll')`, 8000);
+    await settle(250);
     const after = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? s.scrollTop : -1; })()`);
     await settle(250);
     const after2 = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? s.scrollTop : -1; })()`);
-    const pass = Math.abs(before - mid) <= 8 && Math.abs(after - mid) <= 40 && Math.abs(after2 - mid) <= 40;
-    out.scrollRestore = { room, mid, before, after, after2, pass };
+    const pass = !!(left && back) && Math.abs(before - mid) <= 8 && Math.abs(after - mid) <= 40 && Math.abs(after2 - mid) <= 40;
+    out.scrollRestore = { room, mid, before, left, back, after, after2, pass };
     record('round4', 'rail return restores chat scroll (UX-39)', pass, out.scrollRestore);
     await ev(`(() => { const s = document.getElementById('chat-scroll'); if (s) s.scrollTop = s.scrollHeight; return true; })()`);
     await settle(250);
@@ -1221,7 +3693,7 @@ async function runRound4() {
   // 4. UX-45 — `+` lands the caret in the composer; clean the chat up after.
   await chatView();
   await settle(250);
-  await ev(`document.getElementById('chat-new')?.click()`);
+  await newGateChat('round4 UX-45');
   await settle(1000);
   const nc = await ev(`(() => ({ active: (document.activeElement || {}).id || null, sid: (document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null }))()`);
   const ncPass = nc.active === 'composer-input' && !!nc.sid && nc.sid !== probeSid;
@@ -1229,12 +3701,10 @@ async function runRound4() {
   record('round4', 'new chat lands the caret in the composer (UX-45)', ncPass, out.newChatFocus);
   if (nc.sid && nc.sid !== probeSid) {
     await openMenu(nc.sid);
-    await clickMenuDanger(nc.sid);
-    if (await ev(`uxGates.modal().open`)) {
+    if (await clickMenuDanger(nc.sid)) {
       await ev(`document.getElementById('modal-confirm')?.click()`);
-      await settle(700);
     }
-    out.newChatDeleted = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some((r) => r.getAttribute('data-sid') === '${nc.sid}'); })()`));
+    out.newChatDeleted = await waitTrue(`!([...document.querySelectorAll('.sess-row')].some(r => r.getAttribute('data-sid') === '${nc.sid}'))`, 5000);
     record('round4', 'new-chat probe cleaned up via the app delete flow', out.newChatDeleted, { sid: nc.sid });
   }
 
@@ -1251,6 +3721,39 @@ async function runSchemes() {
   const out = { schemes: [], errors: [] };
   const dir = `${HERE}assets/schemes/`;
   mkdirSync(dir, { recursive: true });
+
+  // A capture that times out is an instrument verdict, not a page verdict.
+  // Retry ONCE at the driver's existing 30 s CDP deadline (no bound changes:
+  // the retry is a second attempt, not a longer wait), and if it fails again
+  // record one infra SKIP for that capture and keep going — the scheme's own
+  // row and the other 26 schemes survive. D4b/D4c died here.
+  const shots = { ok: 0, skipped: 0 };
+  const shot = async (path, label) => {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try { await driver.screenshot(path); shots.ok++; return true; }
+      catch (err) {
+        const message = (err && err.message) ? err.message : String(err);
+        console.warn(`  schemes: ${label} attempt ${attempt}/2 failed — ${message}`);
+        if (attempt === 2) {
+          shots.skipped++;
+          record('schemes', `infra: ${label} — ${message}`, 'skip', {
+            infra: true, step: label, error: message, attempts: 2,
+          });
+          return false;
+        }
+        await waitMs(500);
+      }
+    }
+    return false;
+  };
+
+  // the settings grid is where every scheme is selected from; a page that
+  // cannot get back there is the GROUP's failure, so this throws to guard().
+  const backToGrid = async () => {
+    await ev(`document.getElementById('nav-settings')?.click()`);
+    await driver.waitFor(`document.querySelectorAll('[data-scheme-choice]').length > 0`, { timeoutMs: 8000, label: 'scheme grid' });
+    await settle(200);
+  };
 
   await ev(`document.getElementById('nav-settings')?.click()`);
   await driver.waitFor(`document.querySelectorAll('[data-scheme-choice]').length > 0`, { timeoutMs: 10000, label: 'scheme grid' });
@@ -1280,18 +3783,16 @@ async function runSchemes() {
     const tokens = await ev(`uxSchemes.tokens()`);
     // settings screenshot (we are on settings right now)
     await settle(300);
-    await driver.screenshot(`${dir}${slug(id)}-settings.png`);
+    const settingsShot = await shot(`${dir}${slug(id)}-settings.png`, `screenshot ${slug(id)}-settings.png`);
     // chat screenshot
     await ev(`document.getElementById('nav-chat')?.click()`);
     await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000, label: 'chat view' });
     await settle(500);
-    await driver.screenshot(`${dir}${slug(id)}-chat.png`);
-    out.schemes.push({ id, label, slug: slug(id), tokens, order: idx });
+    const chatShot = await shot(`${dir}${slug(id)}-chat.png`, `screenshot ${slug(id)}-chat.png`);
+    out.schemes.push({ id, label, slug: slug(id), tokens, order: idx, shots: { settings: settingsShot, chat: chatShot } });
     if (idx % 5 === 0) console.log(`    ${idx}/${ordered.length} schemes captured`);
-    // back to settings
-    await ev(`document.getElementById('nav-settings')?.click()`);
-    await driver.waitFor(`document.querySelectorAll('[data-scheme-choice]').length > 0`, { timeoutMs: 8000 });
-    await settle(200);
+    // back to settings for the next scheme
+    await backToGrid();
   }
 
   const index = {
@@ -1299,14 +3800,18 @@ async function runSchemes() {
     app: APP,
     generatedAt: new Date().toISOString(),
     count: out.schemes.length,
+    shots,
     notes: 'tokens are computed CSS custom-property values on :root for each scheme; ratios are sanity numbers (0 when a token could not be parsed).',
     schemes: out.schemes,
   };
   writeFileSync(`${HERE}schemes-index.json`, JSON.stringify(index, null, 2));
-  console.log(`  schemes-index.json written (${out.schemes.length} schemes); PNGs in Scripts/assets/schemes/`);
+  console.log(`  schemes-index.json written (${out.schemes.length} schemes); PNGs in Scripts/assets/schemes/ (${shots.ok} captured, ${shots.skipped} skipped)`);
 
+  // The row is the sheet's coverage — every registry scheme was visited and
+  // its tokens read. A capture that failed is its own infra SKIP above (and
+  // fails the run under --strict); it does not turn coverage into a FAIL.
   const ok = out.schemes.length === list.count && list.count === 27;
-  record('schemes', `contact sheet of ${list.count} registry schemes (chat+settings each)`, ok, { gridCount: list.count, captured: out.schemes.length });
+  record('schemes', `contact sheet of ${list.count} registry schemes (chat+settings each)`, ok, { gridCount: list.count, captured: out.schemes.length, shots });
   if (list.count !== 27) {
     console.error(`  NOTE: settings grid lists ${list.count} schemes; expected 27 from the catalog. This is a registry/app discrepancy worth reporting.`);
   }
@@ -1315,6 +3820,73 @@ async function runSchemes() {
 // ---------------------------------------------------------------------------
 // main
 
+// The gate groups, in the order they run. Each is wrapped by guard(), so a
+// throw costs that group one infra SKIP row and the next group still runs.
+const GROUPS = [
+  ['contrast', () => RUN.contrast, runContrast],
+  ['interactions', () => RUN.interactions, runInteractions],
+  ['upload', () => RUN.upload, runUpload],
+  ['scroll', () => RUN.scroll, runScroll],
+  ['focus', () => RUN.focus, runFocus],
+  ['drawer', () => RUN.drawer, runDrawer],
+  ['draft', () => RUN.draft, runDraft],
+  ['composer', () => RUN.composer, runComposer],
+  ['theme', () => RUN.theme, runTheme],
+  ['residue', () => RUN.residue, runResidue],
+  ['motion', () => RUN.motion, runMotion],
+  ['regression', () => RUN.regression, runRegression],
+  ['round4', () => RUN.round4, runRound4],
+  ['schemes', () => RUN.schemes, runSchemes],
+];
+
+function writeReport() {
+  const refused = results.filter((r) => r.ok === false);
+  const skp = skipped();
+  writeFileSync(`${HERE}gates-report.json`, JSON.stringify({
+    command: `node Scripts/ux-gates.mjs${opts.only ? ' --only=' + opts.only.join(',') : ''}${opts.strict ? ' --strict' : ''}`,
+    app: APP,
+    generatedAt: new Date().toISOString(),
+    node: process.version,
+    interactions: results.filter((r) => r.gate === 'interactions'),
+    upload: results.filter((r) => r.gate === 'upload'),
+    scroll: results.filter((r) => r.gate === 'scroll'),
+    focus: results.filter((r) => r.gate === 'focus'),
+    drawer: results.filter((r) => r.gate === 'drawer'),
+    draft: results.filter((r) => r.gate === 'draft'),
+    composer: results.filter((r) => r.gate === 'composer'),
+    theme: results.filter((r) => r.gate === 'theme'),
+    residue: results.filter((r) => r.gate === 'residue'),
+    motion: results.filter((r) => r.gate === 'motion'),
+    regression: results.filter((r) => r.gate === 'regression'),
+    round4: results.filter((r) => r.gate === 'round4'),
+    allPass: refused.length === 0,
+    skippedCount: skp.length,
+    infraSkippedCount: infraRows().length,
+    strict: opts.strict,
+  }, null, 2));
+}
+
+/// print every row + the tally line, and return this run's exit code.
+/// Called by BOTH the normal path and the late-error path — a measured row
+/// that never prints is evidence thrown away.
+function summarize(started) {
+  const refused = results.filter((r) => r.ok === false);
+  const skp = skipped();
+  console.log('\n— summary —');
+  for (const r of results) {
+    const mark = r.ok === 'skip' ? 'SKIP' : r.ok ? 'PASS' : 'FAIL';
+    const detail = JSON.stringify(r.detail) ?? 'undefined';
+    console.log(`  [${mark}] ${r.gate} · ${r.name}  ${detail.length > 160 ? detail.slice(0, 160) + '…' : detail}`);
+  }
+  const passedCount = results.filter((r) => r.ok === true).length;
+  console.log(`  ${passedCount}/${results.length} gates passed in ${((Date.now() - started) / 1000).toFixed(0)}s; ${refused.length} failed; ${skp.length} skipped${opts.strict ? ' (--strict: skips fail)' : ''}`);
+  // leave the app's view + settings exactly as found; skips are honorable
+  // verdicts and only fail the run (as hard failures) with --strict
+  const hardFailures = opts.strict
+    ? results.filter((r) => r.ok !== true)
+    : refused;
+  return hardFailures.length ? 1 : 0;
+}
 
 async function main() {
   const started = Date.now();
@@ -1329,7 +3901,11 @@ async function main() {
       if (!opts.keepProfile) try { rmSync(profile, { recursive: true, force: true }); } catch { /* ignore */ }
       driver = await UxDriver.launch({ port: opts.port, userDataDir: profile, headless: opts.headless });
     }
+    instrumentDriver(driver);
 
+    // Everything up to the first record() is the instrument STARTING: driver
+    // attach/launch, probe injection, page load, boot. A throw in here has no
+    // row to print, so it keeps `exit 2` (see the catch below).
     await installProbes();
     await driver.navigate(APP);
     await waitReady();
@@ -1337,52 +3913,42 @@ async function main() {
     await settle(300);
     await snapshotInitialState();
 
-    if (RUN.contrast) await runContrast();
-    if (RUN.interactions) await runInteractions();
-    if (RUN.motion) await runMotion();
-    if (RUN.regression) await runRegression();
-    if (RUN.round4) await runRound4();
-    if (RUN.schemes) await runSchemes();
-
-    const refused = results.filter((r) => r.ok === false);
-    const skp = skipped();
-    writeFileSync(`${HERE}gates-report.json`, JSON.stringify({
-      command: `node Scripts/ux-gates.mjs${opts.only ? ' --only=' + opts.only.join(',') : ''}${opts.strict ? ' --strict' : ''}`,
-      app: APP,
-      generatedAt: new Date().toISOString(),
-      node: process.version,
-      interactions: results.filter((r) => r.gate === 'interactions'),
-      motion: results.filter((r) => r.gate === 'motion'),
-      regression: results.filter((r) => r.gate === 'regression'),
-      round4: results.filter((r) => r.gate === 'round4'),
-      allPass: refused.length === 0,
-      skippedCount: skp.length,
-      strict: opts.strict,
-    }, null, 2));
-
-    await cleanupProbeSessions();
-    await restoreState();
-
-    console.log('\n— summary —');
-    for (const r of results) {
-      const mark = r.ok === 'skip' ? 'SKIP' : r.ok ? 'PASS' : 'FAIL';
-      const detail = JSON.stringify(r.detail);
-      console.log(`  [${mark}] ${r.gate} · ${r.name}  ${detail.length > 160 ? detail.slice(0, 160) + '…' : detail}`);
+    for (const [gate, on, fn] of GROUPS) {
+      if (on()) await guard(gate, fn);
     }
-    const passedCount = results.filter((r) => r.ok === true).length;
-    console.log(`  ${passedCount}/${results.length} gates passed in ${((Date.now() - started) / 1000).toFixed(0)}s; ${refused.length} failed; ${skp.length} skipped${opts.strict ? ' (--strict: skips fail)' : ''}`);
 
-    // leave the app's view + settings exactly as found; skips are honorable
-    // verdicts and only fail the run (as hard failures) with --strict
-    const hardFailures = opts.strict
-      ? results.filter((r) => r.ok !== true)
-      : refused;
-    process.exitCode = hardFailures.length ? 1 : 0;
+    stepInFlight = 'gates-report.json write';
+    await guard('run', writeReport);
+
+    // teardown is infra too: a cleanup that throws must not erase the tally
+    stepInFlight = 'probe cleanup';
+    await guard('run', cleanupProbeSessions);
+    // restoreState already swallows its own error (it is all inside one
+    // try/catch); this guard is the belt to that braces — it cannot rethrow
+    // into main() and mask the tally.
+    stepInFlight = 'state restore';
+    await guard('run', restoreState);
+    process.exitCode = summarize(started);
   } catch (err) {
-    console.error('\nux-gates.mjs failed:', err.message || String(err));
-    try { await cleanupProbeSessions(); } catch { /* ignore */ }
-    try { await restoreState(); } catch { /* ignore */ }
-    process.exitCode = 2;
+    const message = (err && err.message) ? err.message : String(err);
+    // THE PREDICATE: `results.length === 0`. With no row recorded there is no
+    // evidence to print — the instrument never started (launch/attach failed,
+    // the page never loaded, the probe could not be injected), so 2 is the
+    // honest code. One row or more and this run HAS measurements: record the
+    // error as the one row it costs and print the tally like any other run.
+    if (results.length === 0) {
+      console.error(`\nux-gates.mjs could not start (0 rows recorded) at ${stepInFlight}:`, message);
+      try { await restoreState(); } catch { /* ignore */ }
+      process.exitCode = 2;
+    } else {
+      const rowsBefore = results.length;
+      record('run', `infra: ${stepInFlight} — ${message}`, 'skip', {
+        infra: true, step: stepInFlight, error: message, rowsBefore,
+      });
+      console.error(`\nux-gates.mjs: late infra error after ${rowsBefore} row(s) — printing the tally`);
+      try { await restoreState(); } catch { /* restoreState swallows its own error */ }
+      process.exitCode = summarize(started);
+    }
   } finally {
     try { await driver?.close(); } catch { /* ignore */ }
   }

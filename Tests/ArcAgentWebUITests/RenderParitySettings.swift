@@ -59,7 +59,13 @@ extension ArcWebUITestRoot {
 
 	    @Test("agent powers with locks matches golden")
 	    func agentPowersGolden() async {
-	        let html = await app {
+	    // a render fixture installs the process-global gate — AppState's init
+	    // calls AgentPowers.configure — so the locks this golden renders must
+	    // not outlive it, or every later test in the process inherits a locked
+	    // MEMORY and its writes are refused.
+	    let gate = AgentPowers.config
+	    defer { AgentPowers.configure(gate) }
+	    let html = await app {
 	            $0.skills = [
 	                Skill(name: "deploy", description: "Ship a build", content: "", tags: [],
 	                      category: nil, path: URL(fileURLWithPath: "/tmp/deploy")),

@@ -72,26 +72,68 @@ extension ArcWebUITestRoot {
             return (hi + 0.05) / (lo + 0.05)
         }
 
-        /// every theme block that paints on a light surface.
-        static let lightThemes = [
-            ":root[data-theme=\"light\"]",
-            ":root[data-theme=\"system\"]",
-        ]
-        /// the literal dark palette blocks.
-        static let darkThemes = [
-            ":root[data-theme=\"dark\"]",
-        ]
+        /// every occurrence of `selector`'s block body, in source order — a selector can
+        /// appear twice (`system` has a literal block and one in the dark media pass).
+        static func blockBodies(_ css: String, selector: String) -> [String] {
+            var out: [String] = []
+            var search = css.startIndex
+            while let found = css.range(of: selector, range: search..<css.endIndex) {
+                guard let open = css[found.upperBound...].firstIndex(of: "{"),
+                    let close = css[open...].firstIndex(of: "}")
+                else { break }
+                out.append(String(css[css.index(after: open)..<close]))
+                search = css.index(after: close)
+            }
+            return out
+        }
+
+        /// the literal a block paints for `property`: its own declaration, with one
+        /// `var(--token)` indirection resolved against that same block. A scheme block
+        /// states `--muted: var(--color-text-muted)`, so reading the declaration alone
+        /// would compare two `var(…)` strings.
+        static func painted(_ body: String, property: String) -> String? {
+            guard let declared = declaration(body, property: property) else { return nil }
+            return resolve(declared, in: body)
+        }
+
+        /// The default scheme's blocks that paint on a light surface: `light` and the
+        /// literal `system` block (the dark media pass overrides `system`).
+        ///
+        /// Read from `ArcThemeCatalog.stylesheet()` — the paint a page is served — not
+        /// from `Theme.css`, which now carries no palette of its own.
+        static func lightSurfaceBlocks() -> [(selector: String, body: String)] {
+            let sheet = ArcThemeCatalog.stylesheet()
+            return [
+                ":root[data-scheme=\"default\"][data-theme=\"light\"]",
+                ":root[data-scheme=\"default\"][data-theme=\"system\"]",
+            ].compactMap { selector in
+                Self.blockBody(sheet, selector: selector).map { (selector, $0) }
+            }
+        }
+
+        /// The default scheme's blocks that paint on a dark surface: `dark`, and the
+        /// second `system` block — the one inside `@media (prefers-color-scheme: dark)`.
+        static func darkSurfaceBlocks() -> [(selector: String, body: String)] {
+            let sheet = ArcThemeCatalog.stylesheet()
+            var blocks: [(selector: String, body: String)] = []
+            let dark = ":root[data-scheme=\"default\"][data-theme=\"dark\"]"
+            if let body = Self.blockBody(sheet, selector: dark) { blocks.append((dark, body)) }
+            let system = ":root[data-scheme=\"default\"][data-theme=\"system\"]"
+            let all = Self.blockBodies(sheet, selector: system)
+            if all.count > 1 {
+                blocks.append(("\(system) @media (prefers-color-scheme: dark)", all[1]))
+            }
+            return blocks
+        }
 
         // MARK: - palette floors
 
         @Test("secondary ink clears AA on every light surface")
         func mutedClearsAA() {
-            let css = Theme.css
-            for selector in Self.lightThemes {
-                guard let body = Self.blockBody(css, selector: selector),
-                    let muted = Self.declaration(body, property: "--muted"),
-                    let bg = Self.declaration(body, property: "--bg"),
-                    let surface = Self.declaration(body, property: "--surface"),
+            for (selector, body) in Self.lightSurfaceBlocks() {
+                guard let muted = Self.painted(body, property: "--muted"),
+                    let bg = Self.painted(body, property: "--bg"),
+                    let surface = Self.painted(body, property: "--surface"),
                     let onBG = Self.contrast(muted, bg),
                     let onSurface = Self.contrast(muted, surface)
                 else {
@@ -105,11 +147,9 @@ extension ArcWebUITestRoot {
 
         @Test("secondary ink also clears AA in the dark palettes")
         func mutedClearsInDark() {
-            let css = Theme.css
-            for selector in Self.darkThemes {
-                guard let body = Self.blockBody(css, selector: selector),
-                    let muted = Self.declaration(body, property: "--muted"),
-                    let bg = Self.declaration(body, property: "--bg"),
+            for (selector, body) in Self.darkSurfaceBlocks() {
+                guard let muted = Self.painted(body, property: "--muted"),
+                    let bg = Self.painted(body, property: "--bg"),
                     let ratio = Self.contrast(muted, bg)
                 else {
                     Issue.record("\(selector): missing --muted/--bg")
@@ -121,11 +161,9 @@ extension ArcWebUITestRoot {
 
         @Test("the warning label ink clears AA on every light surface")
         func warningStrongClearsAA() {
-            let css = Theme.css
-            for selector in Self.lightThemes {
-                guard let body = Self.blockBody(css, selector: selector),
-                    let warning = Self.declaration(body, property: "--warning-strong"),
-                    let bg = Self.declaration(body, property: "--bg"),
+            for (selector, body) in Self.lightSurfaceBlocks() {
+                guard let warning = Self.painted(body, property: "--warning-strong"),
+                    let bg = Self.painted(body, property: "--bg"),
                     let ratio = Self.contrast(warning, bg)
                 else {
                     Issue.record("\(selector): missing --warning-strong/--bg")
@@ -136,13 +174,11 @@ extension ArcWebUITestRoot {
             }
         }
 
-        @Test("the success badge ink clears AA in every theme that declares it")
+        @Test("the success badge ink clears AA in the default scheme's blocks")
         func successBadgeClearsAA() {
-            let css = Theme.css
-            for selector in Self.lightThemes + Self.darkThemes {
-                guard let body = Self.blockBody(css, selector: selector),
-                    let success = Self.declaration(body, property: "--success"),
-                    let surface = Self.declaration(body, property: "--surface"),
+            for (selector, body) in Self.lightSurfaceBlocks() + Self.darkSurfaceBlocks() {
+                guard let success = Self.painted(body, property: "--success"),
+                    let surface = Self.painted(body, property: "--surface"),
                     let ratio = Self.contrast(success, surface)
                 else {
                     Issue.record("\(selector): missing --success/--surface")
@@ -150,6 +186,78 @@ extension ArcWebUITestRoot {
                 }
                 #expect(ratio >= 4.5, "\(selector): --success \(success) on --surface \(surface) = \(String(format: "%.2f", ratio)):1")
             }
+        }
+
+        /// Walks **every** scheme in the catalog in **both** modes and checks the pair the
+        /// sheet actually paints a success hint with: `--success` on `--surface`.
+        ///
+        /// `successBadgeClearsAA` above is the literal spot-check: the default palette's
+        /// `light`/`system`/`dark`/`system`-in-the-dark-pass blocks, resolved to the values
+        /// they paint. It never measured a scheme that declares its own `colorSuccess`, and
+        /// the browser gate has the same blind spot: it samples the active scheme. This test
+        /// is the instrument that closes both.
+        ///
+        /// It reads the emitted sheet rather than the source structs, so it sees exactly
+        /// what the browser sees: `ArcThemeCatalog.stylesheet()` renders each provider's
+        /// `@Theme`-generated `theme` (base palette + this scheme's overrides, merged by
+        /// `overlaying`) into `:root[data-scheme="<id>"][data-theme="<mode>"]`, declares
+        /// `--success: var(--color-success)` / `--surface: var(--color-bg-raised)` there,
+        /// and this test resolves those two indirections against that same block — the
+        /// nearest declaration wins for the browser too.
+        @Test("every scheme's success token clears AA on its own raised surface")
+        func everySchemesSuccessClearsAA() {
+            let sheet = ArcThemeCatalog.stylesheet()
+            var rows: [String] = []
+            var offenders: [(scheme: String, mode: String, success: String, surface: String, ratio: Double)] = []
+            var minPair = ""
+            var minRatio = Double.greatestFiniteMagnitude
+
+            for entry in ArcThemeCatalog.entries {
+                for mode in ["light", "dark"] {
+                    let selector = ":root[data-scheme=\"\(entry.id)\"][data-theme=\"\(mode)\"]"
+                    guard let body = Self.blockBody(sheet, selector: selector) else {
+                        Issue.record("\(selector): no block in the emitted sheet")
+                        continue
+                    }
+                    // the indirections the sheet declares, resolved in the block they are
+                    // declared in — a `--success` that stopped meaning `colorSuccess` would
+                    // make this test measure a pair the page does not paint.
+                    guard let successAlias = Self.declaration(body, property: "--success"),
+                        let surfaceAlias = Self.declaration(body, property: "--surface"),
+                        successAlias == "var(--color-success)",
+                        surfaceAlias == "var(--color-bg-raised)",
+                        let success = Self.resolve(successAlias, in: body),
+                        let surface = Self.resolve(surfaceAlias, in: body),
+                        let ratio = Self.contrast(success, surface)
+                    else {
+                        let surfaceDecl = Self.declaration(body, property: "--surface") ?? "—"
+                        let successDecl = Self.declaration(body, property: "--success") ?? "—"
+                        Issue.record(
+                            "\(selector): --success/--surface did not resolve to a #RRGGBB pair (surface \(surfaceDecl), success \(successDecl))")
+                        continue
+                    }
+                    rows.append(String(format: "%-16@ %-6@ %@ on %@ = %.2f:1", entry.id, mode, success, surface, ratio))
+                    if ratio < minRatio {
+                        minRatio = ratio
+                        minPair = "\(entry.id)/\(mode) \(success) on \(surface)"
+                    }
+                    if ratio < 4.5 {
+                        offenders.append((entry.id, mode, success, surface, ratio))
+                        Issue.record(
+                            "\(entry.id)/\(mode): --success \(success) on --surface \(surface) = \(String(format: "%.2f", ratio)):1 — needs 4.5:1")
+                    }
+                }
+            }
+
+            print("success-on-surface contrast table:")
+            print("scheme           mode   --success on --surface     ratio")
+            for row in rows { print(row) }
+            print("minimum: \(minPair) = \(String(format: "%.4f", minRatio)):1")
+
+            #expect(rows.count == ArcThemeCatalog.entries.count * 2,
+                    "walked \(rows.count) (scheme, mode) pairs of \(ArcThemeCatalog.entries.count * 2)")
+            #expect(offenders.isEmpty,
+                    "\(offenders.count) (scheme, mode) pair(s) paint --success below 4.5:1")
         }
 
         // MARK: - the rules that paint those surfaces

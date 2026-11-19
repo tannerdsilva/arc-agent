@@ -14,7 +14,7 @@ struct KanbanTools {
     static func create(board: ToolDependency<any KanbanBoard> = ToolDependency()) -> ToolEntry {
         ToolEntry(
             name: "kanban_create",
-            toolset: "kanban",
+            toolset: .kanban,
             description: "Create a new task on the kanban board.",
             schema: .object(
                 description: "Task creation parameters",
@@ -54,7 +54,7 @@ struct KanbanTools {
     static func list(board: ToolDependency<any KanbanBoard> = ToolDependency()) -> ToolEntry {
         ToolEntry(
             name: "kanban_list",
-            toolset: "kanban",
+            toolset: .kanban,
             description: "List tasks on the kanban board with optional status and assignee filters.",
             schema: .object(
                 description: "List parameters",
@@ -88,6 +88,7 @@ struct KanbanTools {
                 }
                 return result
             },
+            parallelSafe: true,
             emoji: "📋"
         )
     }
@@ -98,7 +99,7 @@ struct KanbanTools {
     static func show(board: ToolDependency<any KanbanBoard> = ToolDependency()) -> ToolEntry {
         ToolEntry(
             name: "kanban_show",
-            toolset: "kanban",
+            toolset: .kanban,
             description: "Show full details of a kanban task by ID.",
             schema: .object(
                 description: "Show parameters",
@@ -124,6 +125,7 @@ struct KanbanTools {
                 Body: \(task.body.prefix(500))
                 """
             },
+            parallelSafe: true,
             emoji: "📖"
         )
     }
@@ -134,7 +136,7 @@ struct KanbanTools {
     static func complete(board: ToolDependency<any KanbanBoard> = ToolDependency()) -> ToolEntry {
         ToolEntry(
             name: "kanban_complete",
-            toolset: "kanban",
+            toolset: .kanban,
             description: "Mark a kanban task as done with a result summary.",
             schema: .object(
                 description: "Complete parameters",
@@ -169,7 +171,7 @@ struct KanbanTools {
     static func block(board: ToolDependency<any KanbanBoard> = ToolDependency()) -> ToolEntry {
         ToolEntry(
             name: "kanban_block",
-            toolset: "kanban",
+            toolset: .kanban,
             description: "Block a task with a reason (moves to blocked status).",
             schema: .object(
                 description: "Block parameters",

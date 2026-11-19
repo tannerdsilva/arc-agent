@@ -22,7 +22,7 @@ public enum ProcessWatchTool {
 
     public static let entry = ToolEntry(
         name: "process_watch",
-        toolset: "terminal",
+        toolset: .terminal,
         description: "Inspect and react to the machine's processes through the scoped "
             + "process watcher: list (allowlisted only), inspect <pid>, signal <pid> "
             + "(requires control: true on the matching target — approval-gated), "

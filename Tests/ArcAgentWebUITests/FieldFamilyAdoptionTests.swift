@@ -45,11 +45,15 @@ extension ArcWebUITestRoot {
 		///   structural one — so they stay hand-written for B3's typed vocabulary.
 		/// - a dropdown (1): `mc-effort` is the `Select` family, B2.2's card.
 		private static let unadopted = [
-			"cat-rename-input", "cat-name-input", "cat-color-input",
+			"cat-rename-input", "cat-name-input",
 			"kb-addcol-name", "kb-addcard-name", "kb-addlane-name", "kb-lane-ren-name", "clarify-input",
 			"composer-input", "storage-edit-id", "ws-new-name",
 			"skill-name-input", "skill-desc-input",
 			"mc-effort",
+			// the rename dialog's pair (A16a): an inline form inside a
+			// `.modal-overlay` card, named by its own `#rename-title` heading —
+			// the same shape as `cat-rename-input` above, one row up.
+			"rename-name", "rename-id",
 		]
 
 		private static func regex(_ pattern: String) throws -> NSRegularExpression {
@@ -122,9 +126,18 @@ extension ArcWebUITestRoot {
 		@Test("the controls outside WebUIField are exactly the enumerated shapes")
 		func remainderCensus() throws {
 			let source = try Self.viewsSource()
-			let fieldIDs = Set(try Self.identifiers(
+			var fieldIDs = Set(try Self.identifiers(
 				in: source,
 				pattern: #"(?:Input|TextArea|Select)\(field: "([^"]+)""#
+			))
+			// the composer's textarea renders through `ComposerText` — a typed
+			// component, not a modifier chain (D-5(a′): the two draft behaviors
+			// segfaulted every render on this element). it is still a
+			// `field:`-bound control outside `WebUIField`, so the census keeps
+			// seeing it instead of losing the row.
+			fieldIDs.formUnion(try Self.identifiers(
+				in: source,
+				pattern: #"ComposerText\(field: FieldID\("([^"]+)"\)"#
 			))
 			let adopted = Set(try Self.identifiers(in: source, pattern: #"controlID: "([^"]+)""#))
 			let left = fieldIDs.subtracting(adopted)

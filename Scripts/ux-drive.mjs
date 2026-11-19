@@ -314,6 +314,8 @@ export class UxDriver {
 
   async pressKey(key, opts = {}) {
     // key: 'Tab' | 'Escape' | 'Enter' | 'ArrowUp' | 'ArrowDown' | 'Backspace'
+    // opts.modifiers: CDP bitmask (8 = Shift), for Shift+Enter's newline.
+    const modifiers = opts.modifiers || 0;
     const keyMap = {
       Enter: { code: 'Enter', key: 'Enter', text: '\r', vk: 13 },
       Tab: { code: 'Tab', key: 'Tab', vk: 9 },
@@ -324,20 +326,26 @@ export class UxDriver {
       ArrowRight: { code: 'ArrowRight', key: 'ArrowRight', vk: 39 },
       Backspace: { code: 'Backspace', key: 'Backspace', vk: 8 },
       Home: { code: 'Home', key: 'Home', vk: 36 },
+      End: { code: 'End', key: 'End', vk: 35 },
+      PageUp: { code: 'PageUp', key: 'PageUp', vk: 33 },
+      PageDown: { code: 'PageDown', key: 'PageDown', vk: 34 },
     };
     const k = keyMap[key];
     if (!k) throw new Error(`pressKey: unknown key ${key}`);
     if (k.text !== undefined) {
-      await this.send('Input.dispatchKeyEvent', { type: 'keyDown', key: k.key, code: k.code, windowsVirtualKeyCode: k.vk, text: k.text, unmodifiedText: k.text });
-      await this.send('Input.dispatchKeyEvent', { type: 'keyUp', key: k.key, code: k.code, windowsVirtualKeyCode: k.vk });
+      await this.send('Input.dispatchKeyEvent', { type: 'keyDown', modifiers, key: k.key, code: k.code, windowsVirtualKeyCode: k.vk, text: k.text, unmodifiedText: k.text });
+      await this.send('Input.dispatchKeyEvent', { type: 'keyUp', modifiers, key: k.key, code: k.code, windowsVirtualKeyCode: k.vk });
     } else {
-      await this.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: k.key, code: k.code, windowsVirtualKeyCode: k.vk });
-      await this.send('Input.dispatchKeyEvent', { type: 'keyUp', key: k.key, code: k.code, windowsVirtualKeyCode: k.vk });
+      await this.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', modifiers, key: k.key, code: k.code, windowsVirtualKeyCode: k.vk });
+      await this.send('Input.dispatchKeyEvent', { type: 'keyUp', modifiers, key: k.key, code: k.code, windowsVirtualKeyCode: k.vk });
     }
   }
 
   /** Dispatch a real Tab keypress (needed for focus-trail / tab-budget work). */
   async pressTab() { await this.pressKey('Tab'); }
+  /** Dispatch a real Shift+Tab — the backward focus walk. CDP's modifier bit 8 is
+   *  Shift, so the page sees `keydown` with `key:"Tab"` and `shiftKey:true`. */
+  async pressShiftTab() { await this.pressKey('Tab', { modifiers: 8 }); }
   async pressEscape() { await this.pressKey('Escape'); }
   async pressEnter() { await this.pressKey('Enter'); }
 

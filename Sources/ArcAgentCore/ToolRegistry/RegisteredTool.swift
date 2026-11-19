@@ -34,7 +34,11 @@ public struct RegisteredTool: Sendable {
     public var name: String { tool.name }
 
     /// The toolset the tool belongs to. See ``AgentTool/toolset``.
-    public var toolset: String { tool.toolset }
+    public var toolset: Toolset { tool.toolset }
+
+    /// The toolset's display / config / wire spelling. See
+    /// ``AgentTool/toolsetName``.
+    public var toolsetName: String { tool.toolsetName }
 
     /// The tool's human-readable description. See ``AgentTool/description``.
     public var description: String { tool.description }
@@ -45,12 +49,13 @@ public struct RegisteredTool: Sendable {
     /// The closure that executes the tool. See ``AgentTool/handler``.
     public var handler: ToolHandler { tool.handler }
 
-    /// The tool's optional availability check. See ``AgentTool/checkFn``.
-    public var checkFn: ToolRequirementCheck? { tool.checkFn }
+    /// What must be true for the tool to be advertised. See
+    /// ``AgentTool/availability``.
+    public var availability: ToolAvailability { tool.availability }
 
-    /// The environment variables the tool requires. See
-    /// ``AgentTool/requiresEnv``.
-    public var requiresEnv: [String] { tool.requiresEnv }
+    /// Whether the tool may run concurrently with siblings. See
+    /// ``AgentTool/parallelSafe``.
+    public var parallelSafe: Bool { tool.parallelSafe }
 
     /// Where the tool's capability may be exercised. See
     /// ``AgentTool/placement``.

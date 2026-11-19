@@ -334,11 +334,27 @@ public struct ToolsConfig: Codable, Sendable, Equatable {
     /// Toolsets removed from every session (`--toolsets` parity; the CLI also
     /// adds its flag and the bound profile's own sets to this list).
     public var disabledToolsets: [String]
+    /// Per-tool overrides on top of the toolset switch. Optional so a config
+    /// written before this existed decodes unchanged — and so the file stays
+    /// silent about a surface nobody narrowed.
+    ///
+    /// The precedence is ``ToolEnablement/isEnabled(tool:toolset:config:)``'s:
+    /// a disabled toolset wins over both lists, and a per-tool disable wins
+    /// over a per-tool enable.
+    public var disabledTools: [String]?
+    public var enabledTools: [String]?
     /// Skills removed from every session, by name.
     public var disabledSkills: [String]
 
-    public init(disabledToolsets: [String] = [], disabledSkills: [String] = []) {
+    public init(
+        disabledToolsets: [String] = [],
+        disabledTools: [String]? = nil,
+        enabledTools: [String]? = nil,
+        disabledSkills: [String] = []
+    ) {
         self.disabledToolsets = disabledToolsets
+        self.disabledTools = disabledTools
+        self.enabledTools = enabledTools
         self.disabledSkills = disabledSkills
     }
 
@@ -346,16 +362,35 @@ public struct ToolsConfig: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.disabledToolsets = try container.decodeIfPresent([String].self, forKey: .disabledToolsets) ?? []
+        self.disabledTools = try container.decodeIfPresent([String].self, forKey: .disabledTools)
+        self.enabledTools = try container.decodeIfPresent([String].self, forKey: .enabledTools)
         self.disabledSkills = try container.decodeIfPresent([String].self, forKey: .disabledSkills) ?? []
     }
 
     private enum CodingKeys: String, CodingKey {
         case disabledToolsets
+        case disabledTools
+        case enabledTools
         case disabledSkills
     }
 
     /// The disabled toolsets as the `Set` every surface hands `ArcAgent`.
     public var disabledToolsetSet: Set<String> { Set(disabledToolsets) }
+
+    /// The per-tool deny list as a set (empty when the key is absent).
+    public var disabledToolSet: Set<String> { Set(disabledTools ?? []) }
+
+    /// The per-tool enable list as a set (empty when the key is absent).
+    public var enabledToolSet: Set<String> { Set(enabledTools ?? []) }
+
+    /// The three lists as the one value the schema renderer and dispatch read.
+    public var toolEnablement: ToolEnablementConfig {
+        ToolEnablementConfig(
+            disabledToolsets: disabledToolsetSet,
+            disabledTools: disabledToolSet,
+            enabledTools: enabledToolSet
+        )
+    }
 
     /// The skills a session may carry: `discovered` minus the disabled names.
     ///

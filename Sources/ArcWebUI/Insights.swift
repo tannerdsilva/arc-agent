@@ -153,7 +153,13 @@ extension AppState {
                     options: days.map { SelectOption(value: "\($0)", label: "Last \($0) days") },
                     selected: "\(insightsRangeDays)"
                 )
-                .wire("ins-range", on: .change)
+                // the range registers in this render pass, so the panel carries
+                // its own handler instead of a boot group answering `ins-range`.
+                .control(id: "ins-range", on: .change, perform: { event in
+                    let days = Int(event.string("value") ?? "30") ?? 30
+                    await self.setInsightsRange(days)
+                    return .refresh
+                })
                 .data("no-restore", "")
             }
         }

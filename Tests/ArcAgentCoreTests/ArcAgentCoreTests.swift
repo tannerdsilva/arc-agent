@@ -1,5 +1,6 @@
 import Testing
 @testable import ArcAgentCore
+import WebUIIslandWire
 import Foundation
 
 // =========================================================================
@@ -23,13 +24,13 @@ extension ArcCoreTestRoot {
             let registry = try ArcAgentCore.testRegistry()
             #expect(registry.allTools.count == 50) // 53 legacy − 5 kanban_* + 1 unified kanban
 
-            #expect(registry.lookup(name: "read_file")?.toolset == "file")
+            #expect(registry.lookup(name: "read_file")?.toolsetName == "file")
             #expect(registry.lookup(name: "read_file")?.emoji == "📄")
-            #expect(registry.lookup(name: "write_file")?.toolset == "file")
-            #expect(registry.lookup(name: "patch")?.toolset == "file")
-            #expect(registry.lookup(name: "search_files")?.toolset == "file")
-            #expect(registry.lookup(name: "terminal")?.toolset == "terminal")
-            #expect(registry.lookup(name: "process")?.toolset == "terminal")
+            #expect(registry.lookup(name: "write_file")?.toolsetName == "file")
+            #expect(registry.lookup(name: "patch")?.toolsetName == "file")
+            #expect(registry.lookup(name: "search_files")?.toolsetName == "file")
+            #expect(registry.lookup(name: "terminal")?.toolsetName == "terminal")
+            #expect(registry.lookup(name: "process")?.toolsetName == "terminal")
 
             // the full surface is registered: the opt-in families are present
             #expect(registry.lookup(name: "web_search") != nil)
@@ -75,8 +76,8 @@ extension ArcCoreTestRoot {
         @Test("registry toolset filtering with all toolsets disabled")
         func allToolsetsDisabled() throws {
             let registry = try ArcAgentCore.testRegistry()
-            let allToolsets = Set(registry.allTools.map(\.toolset))
-            let schemas = registry.buildToolSchemas(enabled: [], disabled: allToolsets)
+            let allToolsets = Set(registry.allTools.map(\.toolsetName))
+            let schemas = ToolSchemaRenderer.eagerSchemas(registry: registry, enablement: ToolEnablementConfig(disabledToolsets: allToolsets))
             #expect(schemas.isEmpty)
         }
 
@@ -184,19 +185,19 @@ extension ArcCoreTestRoot {
         func schemaFiltering() throws {
             let registry = try ArcAgentCore.testRegistry()
 
-            let fileSchemas = registry.buildToolSchemas(enabled: ["file"], disabled: [])
+            let fileSchemas = ToolSchemaRenderer.eagerSchemas(registry: registry, enablement: ToolEnablementConfig(), enabled: ["file"])
             #expect(fileSchemas.count == 4)
             #expect(fileSchemas[0]["type"] as? String == "function")
 
-            let terminalSchemas = registry.buildToolSchemas(enabled: ["terminal"], disabled: [])
+            let terminalSchemas = ToolSchemaRenderer.eagerSchemas(registry: registry, enablement: ToolEnablementConfig(), enabled: ["terminal"])
             #expect(terminalSchemas.count == 3)
 
             // the web family is on the full surface: two registered providers
-            let webSchemas = registry.buildToolSchemas(enabled: ["web"], disabled: [])
+            let webSchemas = ToolSchemaRenderer.eagerSchemas(registry: registry, enablement: ToolEnablementConfig(), enabled: ["web"])
             #expect(webSchemas.count == 2)
 
-            let disabled = registry.buildToolSchemas(enabled: [], disabled: ["file"])
-            #expect(disabled.count == 46) // 50 tools − 4 file family
+            let disabled = ToolSchemaRenderer.eagerSchemas(registry: registry, enablement: ToolEnablementConfig(disabledToolsets: ["file"]))
+            #expect(disabled.count == 46)
         }
 
         // =========================================================================
@@ -207,41 +208,37 @@ extension ArcCoreTestRoot {
         func toolEntryProperties() {
             let entry = ToolEntry(
                 name: "test_tool",
-                toolset: "test",
+                toolset: Toolset(claimed: "test"),
                 description: "A test tool",
                 schema: .string(description: "A param"),
                 handler: { _ in "done" },
                 emoji: "🧪"
             )
             #expect(entry.name == "test_tool")
-            #expect(entry.toolset == "test")
+            #expect(entry.toolsetName == "test")
             #expect(entry.description == "A test tool")
             #expect(entry.emoji == "🧪")
-            #expect(entry.requiresEnv.isEmpty)
-            #expect(entry.checkFn == nil)
+            #expect(entry.availability == .always)
+            #expect(entry.availability.requiredEnvNames.isEmpty)
+            #expect(entry.parallelSafe == false)
         }
 
-        @Test("tool entry with requires env and check fn")
+        @Test("tool entry with availability and parallel safety")
         func toolEntryWithRequirements() {
-            let checked = LockedBool(false)
             let entry = ToolEntry(
                 name: "conditional_tool",
-                toolset: "test",
+                toolset: Toolset(claimed: "test"),
                 description: "Conditional tool",
                 schema: .string(description: "x"),
                 handler: { _ in "ok" },
-                checkFn: { checked.value },
-                requiresEnv: ["SECRET_KEY"],
+                availability: .requiresEnv(["SECRET_KEY"]),
+                parallelSafe: true,
                 emoji: "🔐"
             )
-            #expect(entry.requiresEnv == ["SECRET_KEY"])
-            #expect(entry.checkFn != nil)
-        }
-
-        /// A thread-safe boolean wrapper for testing Sendable closures.
-        final class LockedBool: @unchecked Sendable {
-            var value: Bool
-            init(_ value: Bool) { self.value = value }
+            #expect(entry.availability.requiredEnvNames == ["SECRET_KEY"])
+            #expect(entry.availability.unavailableReason(env: [:]) != nil)
+            #expect(entry.availability.unavailableReason(env: ["SECRET_KEY": "v"]) == nil)
+            #expect(entry.parallelSafe)
         }
 
         // =========================================================================
@@ -910,7 +907,7 @@ extension ArcCoreTestRoot {
                 sessions: FileSessionStore(),
                 cron: store
             )
-            let cronTools = with.allTools.filter { $0.toolset == "scheduling" }
+            let cronTools = with.allTools.filter { $0.toolsetName == "scheduling" }
             #expect(cronTools.map(\.name) == ["cronjob"], "the web UI surface must advertise cronjob or the agent reaches for crontab")
 
             let bare = try ArcAgentCore.buildRegistry(

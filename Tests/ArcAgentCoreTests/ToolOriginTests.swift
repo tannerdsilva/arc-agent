@@ -39,7 +39,7 @@ extension ArcCoreTestRoot {
             var registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
             let tool = ToolEntry(
                 name: "pack_probe",
-                toolset: "db",
+                toolset: Toolset(claimed: "db"),
                 description: "A tool minted by a runtime source.",
                 schema: .object(properties: [:], required: []),
                 handler: { _ in "ok" })

@@ -7,18 +7,32 @@ import WebUI
 import WebUIServer
 import WebUIState
 
-/// The one structural push edge: the door every producer in arc pushes through,
-/// standing on no-webui's `PageDiffer` instead of re-deriving a patch per
-/// handler.
+/// The push edge: the door arc's producers push through.
+///
+/// **What still crosses it, and what no longer does.**
+///
+/// - Render-time handlers do not: they answer `HandlerOutcome.refresh` (no-webui
+///   2.9.0), and the server re-renders the dispatch session's page against the
+///   baseline it owns, then fans the frames out itself.
+/// - The `@Wired` host handlers do not either (no-webui 2.12.0): a handler's
+///   return type picks its registration, so a structural handler declares
+///   `HandlerOutcome` and answers `.refresh` (`Controller.changed()`) through
+///   `register(outcome:)`. Nothing a handler returns reaches this door.
+/// - The turn loop's structural boundaries and token deltas do: a turn runs in a
+///   detached `Task`, and `.refresh` is only reachable from an event dispatch.
 ///
 /// A batch means one of two things, and the door tells them apart rather than
 /// trusting the producer to have:
 ///
-/// - a **structural** op (`nil`/`.replace`) says "the page changed". The frame
-///   the client needs is the difference between what it holds and a *fresh*
-///   render, so the edge renders once and ships the differ's frames. The `html`
-///   the producer sent is ignored: a handler that assembled markup is re-sending
-///   bytes the render already contains, at best identical and at worst stale.
+/// - a **structural** op (`nil`/`.replace`, or an empty batch) says "the page
+///   changed". The client needs the difference between what it holds and a
+///   *fresh* render, and only the server can derive that: it served the page, so
+///   it owns the baseline. The door therefore asks the server to refresh every
+///   page this host served (`refresh`), and the server's own diff decides what
+///   ships. **A structural batch never forwards its own html.** The producer
+///   assembled it before the render that describes the same change, so at best
+///   it is identical and at worst stale; forwarding it would also be a second
+///   diff regime over one page, which is what this door exists to not be.
 /// - a **delta** op (`.text`, `.append`) is a write against a node another
 ///   producer owns — the streaming spans, which `FragmentUpdate.text` rewrites on
 ///   every token. It goes to the wire verbatim, transition flag included;
@@ -26,44 +40,27 @@ import WebUIState
 ///
 /// Structure ships first, deltas second: a delta targets a node the structural
 /// frame may have re-mounted, and the client would log "Element not found" for a
-/// delta that beat its own container.
+/// delta that beat its own container. Both are awaited, in that order.
 final class PushEdge: Sendable {
 
-    /// The diff arc's page is served from.
+    /// Ask the server to re-render every page this host served and ship what
+    /// moved.
     ///
-    /// `elementID` identity is the only one that is a real address: the engine
-    /// resolves a frame with `getElementById`, and the shell is full of elements
-    /// that carry a component attribute but no `id`. `.finest` coverage is what
-    /// keeps a chrome change from dragging `#app` onto the wire; `.nearestTrackedAncestor`
-    /// makes an appeared node a parent replace instead of a whole page; the two
-    /// excluded spans are the token-owned ones, whose bytes must not make their
-    /// ancestors look changed. `transition: false` is a stated policy, not a `nil`
-    /// delegation — the diff is not a navigation and must not animate as one.
-    static let livePolicy = RegionPolicy(
-        identity: .elementID,
-        coverage: .finest,
-        escalation: .nearestTrackedAncestor,
-        excluded: ["live-turn-text", "live-turn-thinking"],
-        transition: false
-    )
-
-    private let differ: PageDiffer
-    /// the markup a fresh `app.appShell()` answers — the root element's own
-    /// bytes, never a document (a document's diff is scoped to `<body>`, and the
-    /// frames would then name a different root than every later render).
-    private let render: @Sendable () async -> String
-    /// the wire. A closure, not a `WebUIServer`: the door's whole job is to decide
-    /// what crosses, and a test that has to conjure a live server to observe that
-    /// decision is a test that will not be written.
+    /// A closure, not a `WebUIServer`: the door's whole job is to decide which
+    /// half of a batch costs a refresh, and a test that has to conjure a live
+    /// server to observe that decision is a test that will not be written. The
+    /// host wires it to `server.refresh(session:)` over the render tokens the
+    /// page route recorded; a suite wires it to a counter.
+    private let refresh: @Sendable () async -> Void
+    /// the wire for the half that crosses verbatim. Also a closure, for the same
+    /// reason.
     private let broadcast: @Sendable ([FragmentUpdate]) async -> Void
 
     init(
-        differ: PageDiffer,
-        render: @escaping @Sendable () async -> String,
+        refresh: @escaping @Sendable () async -> Void,
         broadcast: @escaping @Sendable ([FragmentUpdate]) async -> Void
     ) {
-        self.differ = differ
-        self.render = render
+        self.refresh = refresh
         self.broadcast = broadcast
     }
 
@@ -75,23 +72,14 @@ final class PushEdge: Sendable {
     /// failure would look like a dropped keystroke rather than a dropped batch.
     func push(_ updates: [FragmentUpdate]) async {
         let deltas = updates.filter { $0.op == .text || $0.op == .append }
-        // an empty batch is a producer saying "look at the page": the whole point of
-        // the nudge. it costs one render and ships nothing unless bytes moved.
-        let hasStructure = updates.isEmpty || updates.contains { $0.op == nil || $0.op == .replace }
+        // an empty batch is a producer saying "look at the page": the whole point
+        // of the nudge. it costs one refresh, and the server ships nothing unless
+        // the render moved bytes.
+        let structural = updates.isEmpty || updates.contains { $0.op == nil || $0.op == .replace }
 
-        if hasStructure {
-            let frames = differ.messages(forMarkup: await render(), root: "app")
-            // empty means "nothing moved" — the render that triggered this push
-            // produced the bytes the client already holds, so there is no frame and
-            // no reason to wake the wire.
-            if !frames.isEmpty { await broadcast(frames) }
-        }
+        if structural { await refresh() }
         if !deltas.isEmpty { await broadcast(deltas) }
     }
-
-    /// Declare what the client already holds — the page the host just served — so
-    /// the first patch is a region instead of a whole-root replace.
-    func seed(_ markup: String) { differ.seed(withMarkup: markup) }
 }
 
 /// The Web UI host: boots the app state, serves the page through no-webui's
@@ -145,6 +133,21 @@ public struct WebUIHost: Service {
             // its own over the same `~/.arc/kanban` directory.
             kanban: kanban
         )
+        // the origin this host serves on, for the one control that must carry an
+        // absolute URL (the row menu's "Copy conversation link"): a render has no
+        // request, so a server-rendered `data-copy` value cannot learn the
+        // browser's origin, and a relative `?s=` copies nothing pasteable.
+        await self.app.setPublicOrigin(Self.publicOrigin(host: host, port: port))
+    }
+
+    /// The absolute origin the page is served from, as a browser would spell it.
+    ///
+    /// A wildcard bind is not an origin any browser can use, so it reads as
+    /// loopback — the address `arc serve` prints and the one a local browser is
+    /// on. Port 80 keeps the default spelling.
+    static func publicOrigin(host: String, port: Int) -> String {
+        let h = (host.isEmpty || host == "0.0.0.0" || host == "::") ? "127.0.0.1" : host
+        return port == 80 ? "http://\(h)" : "http://\(h):\(port)"
     }
 
     /// Run one scheduled job headless and return its output — the daemon's
@@ -178,12 +181,18 @@ public struct WebUIHost: Service {
             // one.
             assets: [
                 AppShell.Assets.sheet.registration,
-                AppShell.Assets.overlay.registration,
             ],
             // Workspace uploads stream over their own HTTP route with a
             // token-bound budget; the socket body limit stays off so large
             // request payloads elsewhere are not truncated (user request).
             maxBodyBytes: .max,
+            // The server owns the baseline a re-render diffs against, and this is
+            // the only dial that tells it which regions a re-render may ship.
+            // `HandlerOutcome.refresh` and a producer refresh both diff here, so
+            // one value keeps the two doors from ever disagreeing about what
+            // crosses — `AppShell` owns it because it also owns the page region
+            // those bytes land in.
+            refreshPolicy: AppShell.refreshPolicy,
         )
     }
 
@@ -196,12 +205,10 @@ public struct WebUIHost: Service {
     static func pageDocument(
         config: WebUIServerConfig,
         sheetURL: String,
-        overlayURL: String,
         renderToken: String? = nil
     ) -> @Sendable (UnsafeMarkup, String) -> WebUI.HTMLDocument {
         AppShell.makeDocument(
             sheetURL: sheetURL,
-            overlayURL: overlayURL,
             renderToken: renderToken,
             maxFrameBytes: config.maxFrameSize
         )
@@ -305,9 +312,10 @@ public struct WebUIHost: Service {
         let router = EventRouter()
 
         // The shipped assets — address, bytes and registration all live in
-        // `AppShell.Assets`; this host only serves them.
+        // `AppShell.Assets`; this host only serves them. ONE asset: the sheet.
+        // A17 deleted the client script, so a page's only script is the engine
+        // `HTMLDocument` emits itself.
         let sheet = AppShell.Assets.sheet
-        let overlay = AppShell.Assets.overlay
 
         // Assemble the page (external /ui/* assets keep each response small).
         // The document template wraps whatever body the app currently renders,
@@ -316,7 +324,7 @@ public struct WebUIHost: Service {
         // The theme attributes belong on `<html>`, not on `#app`: the engine writes them on
         // `documentElement` and the theme is scoped to `:root`. `themeAttrs` is the server's
         // default, which the engine overrides from storage before first paint.
-        let makeDocument = Self.pageDocument(config: config, sheetURL: sheet.url, overlayURL: overlay.url)
+        let makeDocument = Self.pageDocument(config: config, sheetURL: sheet.url)
         // the tokens this host served, so `POST /api/upload` can tell a page it
         // rendered from a request that never loaded one. Bounded (see
         // `UploadTokenStore`): a daemon runs for weeks.
@@ -327,19 +335,37 @@ public struct WebUIHost: Service {
         // deprecated `requestRender:` init predates — and the reason arc needs no
         // materializer of its own.
         //
-        // The token is the one THIS response was minted for: it goes into the
-        // document's `webui-config` meta (so the page can echo it on an upload)
-        // and into the store the upload route validates against.
-        let pageProvider: @Sendable (String?, String) async -> WebUI.HTMLDocument = { [app] deepLink, renderToken in
-            if let sid = deepLink, !sid.isEmpty {
-                await app.openDeepLink(sid)
+        // The token is the one THIS response was minted for, and it is both
+        // credentials at once: `webui-config`'s `renderToken` (the engine echoes
+        // it, so every frame resolves to the session this render's
+        // `controlAttributes` handlers registered into) and the upload route's
+        // `X-Render-Token` (validated against the store below). no-webui 2.11.0
+        // deleted the reason for a second meta — its upload transport reads
+        // `engine.config.renderToken`, which is this value.
+        // The shell above is rendered OUTSIDE a render pass — it is the same
+        // document skeleton on every response — so it registers no session
+        // handlers; the app's `appShell()` render is the one that runs inside the
+        // server's `RenderContext` and lands in this token's session.
+        let pageProvider: @Sendable (String?, String, RenderIntent) async -> WebUI.HTMLDocument = { [app] deepLink, renderToken, intent in
+            // One render pipeline, three occasions (no-webui `RenderIntent`):
+            // a load opens the deep link; a client navigation and a `refresh` —
+            // a handler answered `HandlerOutcome.refresh` — replay neither, or
+            // every settings toggle would re-open a `?s=`. Scroll position is
+            // the engine's (`data-follow`, A11): a load lands at the tail
+            // because `ChatScroller` renders following, not because the server
+            // arms a flag on the way in.
+            switch intent {
+            case .load:
+                if let sid = deepLink, !sid.isEmpty {
+                    await app.openDeepLink(sid)
+                }
+            case .navigate, .refresh:
+                break
             }
-            await app.armScrollToBottom()
             let shell = await app.appShell()
             return Self.pageDocument(
                 config: config,
                 sheetURL: sheet.url,
-                overlayURL: overlay.url,
                 renderToken: renderToken
             )(shell.markup, AppShell.themeAttrs(await app.themeDefaults()))
         }
@@ -351,12 +377,12 @@ public struct WebUIHost: Service {
         // Both page routes record the token they serve; the upload route is the
         // one POST arc answers itself (streamed to disk, never buffered).
         let pageRouter = Router {
-            WorkspaceUpload.pageRoute("/", tokens: uploadTokens) { deepLink, token in
+            WorkspaceUpload.pageRoute("/", tokens: uploadTokens) { deepLink, token, intent in
                 // ?s=<id> opens that conversation directly (copy-link flow).
-                await pageProvider(deepLink, token)
+                await pageProvider(deepLink, token, intent)
             }
-            WorkspaceUpload.pageRoute("/index.html", tokens: uploadTokens) { _, token in
-                await pageProvider(nil, token)
+            WorkspaceUpload.pageRoute("/index.html", tokens: uploadTokens) { _, token, intent in
+                await pageProvider(nil, token, intent)
             }
             WorkspaceUpload.uploadRoute(
                 root: { [app] in await app.workspaceRootURL() },
@@ -378,8 +404,10 @@ public struct WebUIHost: Service {
         }
 
         // `eventRouter:` hands the server the router arc wires by hand: the
-        // `wireAll` registrations below land in its default session, and without
-        // this init they would land in a router the server never consults.
+        // `wireAll` registrations below land in its HOST table — one table for
+        // the whole router, sealed after the boot wiring and consulted by every
+        // dispatch after the page's own session (§22.1/D1). Without this init
+        // they would land in a router the server never consults.
         let server = WebUIServer(
             router: pageRouter,
             eventRouter: router,
@@ -387,10 +415,12 @@ public struct WebUIHost: Service {
             logger: logger
         )
 
-        // The one push edge. Every producer's batch crosses this door — handlers
-        // through `Controller.changed()`, the turn loop through the pusher it is
-        // handed — and the frame that reaches the wire is derived from a fresh
-        // render rather than trusted from the producer.
+        // The one push edge. The producers that still cross this door — the turn
+        // loop's structural boundaries and its token deltas — get the door's own
+        // decision: a structural batch asks the server to re-render the pages it
+        // served, a delta is forwarded verbatim. Handlers no longer cross it:
+        // `Controller.changed()` answers `HandlerOutcome.refresh`, and the server
+        // re-renders the dispatch session's page itself (no-webui 2.12.0).
         //
         // Three producers do NOT cross it, by design: the log and workspace
         // streamers broadcast their fragments straight to `server.broadcast`
@@ -398,27 +428,48 @@ public struct WebUIHost: Service {
         // the token stream's `FragmentUpdate.text` deltas target nodes another
         // producer owns.
         //
-        // The boot shell is captured once and serves twice: the log line's byte
-        // count, and the differ's seed. The seed is the shell's ELEMENT markup
-        // (`#app`), not the document — every later `render()` answers `#app`, and
-        // a document's diff is scoped to `<body>`. Seeding a document would diff
-        // two different roots on the first push and ship the whole page.
+        // The boot shell is captured once for the boot log line's byte count.
         let bootShell = await app.appShell().markup
         let bootPageBytes = makeDocument(
             bootShell,
             AppShell.themeAttrs(await app.themeDefaults())
         ).markup.html.utf8.count
 
+        // Every page this host served is a structural refresh target.
+        //
+        // `uploadTokens` records each render token the page route handed out,
+        // and the token IS the render session (`RenderSessionID(rawValue:)`), so
+        // the store is the registry of "pages this host rendered". One structural
+        // batch therefore asks the server to re-render each of them — the same
+        // reach the retired single-differ broadcast had — and each page gets its
+        // own diff against the baseline the server recorded when it served it. A
+        // page that has not loaded yet is simply not in the set; a page older
+        // than the store's capacity is not refreshed until it reloads (a daemon
+        // runs for weeks, and an unbounded registry is a slow leak).
+        //
+        // `server.refresh(session:)` is a no-op before `start()` — the same shape
+        // `broadcast` has — so a push that races boot costs nothing.
         let edge = PushEdge(
-            differ: PageDiffer(policy: PushEdge.livePolicy),
-            render: { [app] in await app.appShell().markup.html },
+            refresh: { [server] in
+                for token in await uploadTokens.snapshot() {
+                    await server.refresh(session: RenderSessionID(token))
+                }
+            },
             broadcast: { [server] updates in await server.broadcast(updates) }
         )
-        edge.seed(bootShell.html)
-        let controller = await Controller(app: app, push: { updates in
+        let controller = Controller(app: app, push: { updates in
             await edge.push(updates)
         })
         await controller.wireAll(router)
+        // the host table is complete: seal it before the server can bind, so a
+        // registration made without a session is a logged refusal (`.error`,
+        // naming the id) instead of a table that grows under a live listener.
+        // `wireAll` is arc's only host-table writer — every other registration
+        // is a render pass (`controlAttributes`), and the seal does not touch
+        // those. `WebUIServer.start()` seals too; the call is idempotent, and
+        // sealing here states the ordering as arc's contract rather than as an
+        // implementation detail of the server.
+        router.sealHostRegistrations()
         logger.info("serving http://\(host):\(port) (page \(bootPageBytes) bytes)")
         // no cron engine here: the daemon owns the one scheduler and calls
         // back into this host's `runScheduledJob` for job execution.

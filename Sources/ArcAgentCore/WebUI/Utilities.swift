@@ -1,27 +1,5 @@
 import Foundation
-
-// MARK: - HTML Escaping
-
-/// Escape a string for safe inclusion in HTML content.
-///
-/// Replaces the five characters that have special meaning in HTML:
-/// - `&` → `&amp;`
-/// - `<` → `&lt;`
-/// - `>` → `&gt;`
-/// - `"` → `&quot;`
-/// - `'` → `&#39;`
-///
-/// - Parameter string: The raw string to escape.
-/// - Returns: An HTML-safe string.
-public func htmlEscape(_ string: String) -> String {
-    var result = string
-    result = result.replacingOccurrences(of: "&", with: "&amp;")
-    result = result.replacingOccurrences(of: "<", with: "&lt;")
-    result = result.replacingOccurrences(of: ">", with: "&gt;")
-    result = result.replacingOccurrences(of: "\"", with: "&quot;")
-    result = result.replacingOccurrences(of: "'", with: "&#39;")
-    return result
-}
+import WebUIIslandWire
 
 // MARK: - URL Sanitization
 
@@ -83,8 +61,16 @@ public func sanitizeImageURL(_ url: String) -> String? {
 /// `sanitizeURL`. math is not a token: `$…$`, `$$…$$`, `\(…\)` and `\[…\]`
 /// render as escaped literal text — the math path and its client renderer left
 /// with the vendored payload, and a future math capability comes from no-webui.
-public func markdownToHTML(_ markdown: String) -> String {
-    var parser = MarkdownBlockParser(lines: markdown.components(separatedBy: "\n"))
+/// - Parameter tableEnhance: serialized behavior attributes for pipe tables
+///   (`data-table-enhance="…"`), splices onto the table's wrapper when
+///   non-empty. The value comes from the typed behavior in the view layer —
+///   this renderer never spells a `data-*` name of its own. Empty (the
+///   default) keeps every other caller's bytes identical.
+public func markdownToHTML(_ markdown: String, tableEnhance: String = "") -> String {
+    var parser = MarkdownBlockParser(
+        lines: markdown.components(separatedBy: "\n"),
+        tableEnhance: tableEnhance
+    )
     return parser.parseBlocks().joined(separator: "\n")
 }
 
@@ -94,9 +80,27 @@ public func markdownToHTML(_ markdown: String) -> String {
 /// cannot be used because a type named `ArcAgentCore` shadows the module
 /// name for qualified lookup. This accessor is unambiguous.
 public enum MarkdownRenderer {
-    public static func render(_ markdown: String) -> String {
-        markdownToHTML(markdown)
+    public static func render(_ markdown: String, tableEnhance: String = "") -> String {
+        markdownToHTML(markdown, tableEnhance: tableEnhance)
     }
+}
+
+/// The one non-typed name the table behavior needs.
+///
+/// `data-table-enhance` comes from the framework's typed `TableEnhance` and is
+/// serialized by the view layer. Its filter field is found by a selector the
+/// engine owns (`input[data-table-filter]`, documented in no-webui's
+/// `Documentation/BEHAVIOUR.md`) and has no Swift spelling, so the name lives
+/// here once — the renderer emits the field, and nothing else writes the
+/// literal.
+public enum MarkdownTable {
+    /// `data-table-filter` — the selector the engine's table handler reads.
+    public static let filterAttribute = "data-table-filter"
+
+    /// The filter input the table handler looks for inside its container.
+    public static let filterFieldHTML =
+        "<input type=\"text\" class=\"markdown-table-filter\" " + filterAttribute
+        + " placeholder=\"Filter table\" aria-label=\"Filter table rows\">"
 }
 
 // MARK: Block parsing
@@ -104,6 +108,14 @@ public enum MarkdownRenderer {
 private struct MarkdownBlockParser {
     var lines: [String]
     var i = 0
+    /// serialized `data-table-enhance` attribute text for pipe tables; empty
+    /// means "emit the inert wrapper exactly as before".
+    var tableEnhance: String = ""
+
+    init(lines: [String], tableEnhance: String = "") {
+        self.lines = lines
+        self.tableEnhance = tableEnhance
+    }
 
     mutating func parseBlocks() -> [String] {
         var out: [String] = []
@@ -255,7 +267,21 @@ private struct MarkdownBlockParser {
             body.append(Self.splitRow(t))
             i += 1
         }
-        let headCells = header.map { "<th>" + renderInlineMarkdown($0) + "</th>" }.joined()
+        let headCells = header.map { cell -> String in
+            let rendered = renderInlineMarkdown(cell)
+            guard !tableEnhance.isEmpty else { return "<th>" + rendered + "</th>" }
+            // The engine's sort handler is a delegated click on the `<th>`, so
+            // the header keeps a real button inside the cell: the button is
+            // what a keyboard reader can reach (a bare `<th>` is not
+            // focusable), and its `closest('th')` still resolves to the cell
+            // the engine sorts by. The glyph is decoration — `aria-sort` on the
+            // `th` is the state the engine announces.
+            let plain = cell.trimmingCharacters(in: .whitespaces)
+            let name = htmlEscape(plain.isEmpty ? "this column" : plain)
+            return "<th scope=\"col\">" + rendered
+                + "<button type=\"button\" class=\"markdown-table-sort\" title=\"Sort column\""
+                + " aria-label=\"Sort by " + name + "\">\u{21C5}</button></th>"
+        }.joined()
         var bodyHTML = ""
         for row in body {
             let cells = row.map { "<td>" + renderInlineMarkdown($0) + "</td>" }.joined()
@@ -266,7 +292,16 @@ private struct MarkdownBlockParser {
         // too wide for the reading column, so long identifiers and numbers
         // never break mid-word. The wrapper is inert everywhere else the
         // renderer is used.
-        return "<div class=\"msg-table-wrap\"><table>\n<thead>\n<tr>" + headCells + "</tr>\n</thead>\n<tbody>\n"
+        //
+        // When the view layer supplies the table behavior, the attribute and
+        // its filter field sit on the WRAPPER, not on `<table>`: the handler
+        // looks for `input[data-table-filter]` inside the element it is bound
+        // to, and a field cannot live in a `<table>` without landing in the
+        // header row the handler counts columns from (or in a `<caption>`,
+        // which would fold into the table's accessible name).
+        let filter = tableEnhance.isEmpty ? "" : MarkdownTable.filterFieldHTML
+        return "<div class=\"msg-table-wrap\"" + tableEnhance + ">" + filter
+            + "<table>\n<thead>\n<tr>" + headCells + "</tr>\n</thead>\n<tbody>\n"
             + bodyHTML + "</tbody>\n</table></div>"
     }
 

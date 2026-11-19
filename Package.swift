@@ -65,7 +65,7 @@ let package = Package(
         ),
         .package(
             url: "https://github.com/tannerdsilva/no-webui.git",
-            revision: "403b23bb16880a6207ff6308e3b8280cb591508b"
+            revision: "aaf349087e24968fcf80c0b1c0016012a096f4f3"
         ),
 		.package(path: "Plugins/ArcSidebarTabs"),
 	],
@@ -131,6 +131,15 @@ let package = Package(
                 .product(name: "HTTPTypes", package: "swift-http-types"),
                 .product(name: "SwiftSlash", package: "SwiftSlash"),
                 .product(name: "Crypto", package: "swift-crypto"),
+                // the framework's zero-dependency, Foundation-free escaping leaf.
+                // no-webui declares no product for `WebUISharedCore` itself at this
+                // pin, so this is its declared carrier: `WebUIIslandWire`'s only
+                // target dependency is `WebUISharedCore` and it `@_exported`s it
+                // (the framework's own comment: island authors reach the leaf
+                // "without depending on `WebUICore`, which links swift-log").
+                // `WebUI/Utilities.swift`'s shared renderer emits HTML and now uses
+                // the framework's `htmlEscape` instead of a second copy.
+                .product(name: "WebUIIslandWire", package: "no-webui"),
             ],
             exclude: [
             ],
@@ -238,6 +247,11 @@ let package = Package(
                 // the shutdown-contract test builds a real ServiceGroup.
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
                 .product(name: "Logging", package: "swift-log"),
+                // ToolSurfaceInventoryTests prints a sha256 of the prompt schema array.
+                .product(name: "Crypto", package: "swift-crypto"),
+                // HTMLEscapeTests compares arc's escaping against the framework's
+                // (and, after the swap, pins the framework's output as a golden).
+                .product(name: "WebUIIslandWire", package: "no-webui"),
             ],
         ),
 
@@ -279,6 +293,14 @@ let package = Package(
                 // the server's transport, so the test speaks the same wire.
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
+                // TwoPopulationDispatchTests speaks the websocket: the upgrade
+                // handshake and the frames are the framework's own client types,
+                // so a wire-shape drift fails there instead of in a browser.
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOWebSocket", package: "swift-nio"),
+                // the seal's diagnostic is a swift-log `.error` line; the test
+                // captures it through a handler to assert the refusal is loud.
+                .product(name: "Logging", package: "swift-log"),
             ],
             resources: [
                 // the palette pins: the values the painted sheet must still hold, extracted

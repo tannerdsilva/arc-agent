@@ -19,7 +19,8 @@ extension ArcCoreTestRoot {
         private func internalToolSource(toolset: String = "db") -> LocalPackToolSource {
             let entry = ToolEntry(
                 name: "db_mutate",
-                toolset: toolset,
+                // the fixture names its toolset as text, as a pack would
+                toolset: Toolset(claimed: toolset),
                 description: "Mutates a field in the encrypted store.",
                 schema: .object(
                     properties: ["field": .string(description: "Field to mutate")],
@@ -53,7 +54,7 @@ extension ArcCoreTestRoot {
             #expect(tools.map(\.name) == ["db_mutate"])
             let tool = try #require(tools.first)
             // The pack declares the toolset; the access roster decides reach.
-            #expect(tool.toolset == "db")
+            #expect(tool.toolsetName == "db")
             #expect(tool.description.isEmpty == false)
 
             await source.bridge.close()
@@ -114,7 +115,7 @@ extension ArcCoreTestRoot {
                 sources: [source]
             )
 
-            #expect(registry.lookup(name: "db_mutate")?.toolset == "db")
+            #expect(registry.lookup(name: "db_mutate")?.toolsetName == "db")
             // The built-ins are still there, unchanged.
             #expect(registry.lookup(name: "read_file") != nil)
 
@@ -141,7 +142,7 @@ extension ArcCoreTestRoot {
         func shapelessPackMintsNoParameters() async throws {
             let entry = ToolEntry(
                 name: "noop",
-                toolset: "pack",
+                toolset: Toolset(claimed: "pack"),
                 description: "Takes nothing.",
                 schema: .object(properties: [:]),
                 handler: { _ in "ok" }

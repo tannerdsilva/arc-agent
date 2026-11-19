@@ -38,6 +38,10 @@ extension ArcWebUITestRoot {
 			"skill-new-main|skill-new",
 			"toasts|toast-dismiss",
 			"todo-add-form|todos",
+			// A9: the workspace panel is a 2.11.0 upload zone. `ws-drop` is the
+			// event-routing key (`upload-complete` lands here); `ws-panel` is the
+			// patch address the panel has always had. routing-only, like the dock.
+			"ws-panel|ws-drop",
 			"ws-dock|workspace",
 			"ws-tree|workspace",
 		]

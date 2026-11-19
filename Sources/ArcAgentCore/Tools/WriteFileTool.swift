@@ -17,7 +17,7 @@ public enum WriteFileTool {
     /// The ``ToolEntry`` for this tool.
     public static let entry = ToolEntry(
         name: "write_file",
-        toolset: "file",
+        toolset: .file,
         description: "Write content to a file, completely replacing existing content. "
             + "Creates parent directories automatically.",
         schema: .object(properties: [

@@ -139,27 +139,55 @@ extension ArcCoreTestRoot {
         private func readFileEntry(_ handler: @escaping @Sendable ([String: Any]) async throws -> String) -> ToolEntry {
             ToolEntry(
                 name: "read_file",
-                toolset: "file",
+                toolset: .file,
                 description: "test read tool",
                 schema: .object(properties: ["path": .string(description: "path")], required: ["path"]),
-                handler: handler
+                handler: handler,
+                // the real `read_file` is declared parallel-safe; the fixture
+                // stands in for it, so it must answer the same.
+                parallelSafe: true
             )
         }
 
         // MARK: - Planner
 
         @Test("planner groups parallel-safe runs and isolates barriers")
-        func plannerSegments() {
+        func plannerSegments() throws {
             func call(_ name: String, _ id: String) -> ToolCall {
                 ToolCall(id: id, function: ToolCallFunction(name: name, arguments: "{}"))
             }
+            // the answer comes from the live surface's `parallelSafe` property,
+            // not from a name table: this is the same lookup the agent performs.
+            let registry = try ArcAgentCore.testRegistry()
+            let isParallelSafe: (String) -> Bool = { registry.lookup(name: $0)?.parallelSafe ?? false }
+
             let batch = [
                 call("read_file", "1"), call("web_search", "2"), call("terminal", "3"),
                 call("read_file", "4"), call("read_file", "5"), call("write_file", "6"),
             ]
-            let segments = ArcAgent.planToolBatch(batch)
+            let segments = ArcAgent.planToolBatch(batch, isParallelSafe: isParallelSafe)
             #expect(segments.map { $0.map(\.id) } == [["1", "2"], ["3"], ["4", "5"], ["6"]],
                 "expected parallel run, barrier, parallel run, barrier; got \(segments.map { $0.map(\.id) })")
+
+            // F19: two reads coalesce into one segment...
+            let reads = ArcAgent.planToolBatch(
+                [call("read_file", "a"), call("read_file", "b")], isParallelSafe: isParallelSafe)
+            #expect(reads.count == 1)
+            #expect(reads.first?.map(\.id) == ["a", "b"])
+            // ...while a read beside a side effect stays two segments.
+            let mixed = ArcAgent.planToolBatch(
+                [call("read_file", "a"), call("terminal", "b")], isParallelSafe: isParallelSafe)
+            #expect(mixed.count == 2)
+
+            // the declared set is exactly the eight tools the old name table held.
+            let declared = Set(registry.allTools.filter(\.parallelSafe).map(\.name))
+            // the unified `kanban` tool (KanbanCards) is side-effecting, so it
+            // is NOT in the parallel-safe set — the legacy kanban_list/show pair
+            // used to be, but that pair no longer exists.
+            #expect(declared == [
+                "read_file", "web_search", "web_extract", "skill_view",
+                "list_profiles", "get_profile",
+            ])
         }
 
         // MARK: - Session restore
@@ -269,7 +297,7 @@ extension ArcCoreTestRoot {
             })
             try registry.register(ToolEntry(
                 name: "web_search",
-                toolset: "web",
+                toolset: .web,
                 description: "test search tool",
                 schema: .object(properties: ["query": .string(description: "query")], required: ["query"]),
                 handler: { args in
@@ -277,7 +305,8 @@ extension ArcCoreTestRoot {
                     try? await Task.sleep(nanoseconds: 10_000_000)
                     await tracker.exit()
                     return "W:\(args["query"] as? String ?? "?")"
-                }
+                },
+                parallelSafe: true
             ))
 
             let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)

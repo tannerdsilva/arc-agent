@@ -12,7 +12,7 @@ public enum SkillManageTool {
 
     public static let entry = ToolEntry(
         name: "skill_manage",
-        toolset: "skills",
+        toolset: .skills,
         description: "Manage skills (create, update, delete). Skills are your procedural "
             + "memory — reusable approaches for recurring task types. "
             + "Actions: create (full SKILL.md + optional category), patch "
@@ -265,7 +265,7 @@ public enum SkillManageTool {
 public enum SkillsListTool {
     public static let entry = ToolEntry(
         name: "skills_list",
-        toolset: "skills",
+        toolset: .skills,
         description: "List available skills (name + description). Use skill_view(name) to load full content.",
         schema: .object(
             description: "Skill list parameters",

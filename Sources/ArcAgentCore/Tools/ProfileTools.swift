@@ -19,7 +19,7 @@ public enum ListProfilesTool {
     public static func entry(profiles: any ProfileStore) -> ToolEntry {
         ToolEntry(
             name: "list_profiles",
-            toolset: "profile",
+            toolset: .profile,
             description: "List all agent profiles (bots) in the roster with their names, titles, and descriptions.",
             schema: .object(properties: [:], required: []),
             handler: { _ in
@@ -37,8 +37,7 @@ public enum ListProfilesTool {
                 }, options: [.sortedKeys])
                 return String(decoding: data, as: UTF8.self)
             },
-            checkFn: nil,
-            requiresEnv: [],
+            parallelSafe: true,
             emoji: "📋"
         )
     }
@@ -50,7 +49,7 @@ public enum GetProfileTool {
     public static func entry(profiles: any ProfileStore) -> ToolEntry {
         ToolEntry(
             name: "get_profile",
-            toolset: "profile",
+            toolset: .profile,
             description: "Get detailed information about a specific agent profile by name.",
             schema: .object(properties: [
                 "name": .string(description: "The profile name to look up.")
@@ -83,8 +82,7 @@ public enum GetProfileTool {
                 ] as [String: Any], options: [.sortedKeys])
                 return String(decoding: data, as: UTF8.self)
             },
-            checkFn: nil,
-            requiresEnv: [],
+            parallelSafe: true,
             emoji: "🔍"
         )
     }
@@ -129,7 +127,7 @@ public enum SendBotMessageTool {
     ) -> ToolEntry {
         ToolEntry(
             name: "send_bot_message",
-            toolset: "profile",
+            toolset: .profile,
             description: "Send a message to another agent (bot) in the roster and wait for their reply. The message is delivered to their canonical Bot Chat.",
             schema: .object(properties: [
                 "target": .string(description: "The name of the target agent profile."),
@@ -174,8 +172,6 @@ public enum SendBotMessageTool {
                     return "Error: Could not deliver to '\(target)': \(reason)"
                 }
             },
-            checkFn: nil,
-            requiresEnv: [],
             emoji: "💬"
         )
     }
@@ -229,7 +225,7 @@ public enum CreateProfileTool {
     public static func entry(profiles: any ProfileStore) -> ToolEntry {
         ToolEntry(
             name: "create_profile",
-            toolset: "profile",
+            toolset: .profile,
             description: "Create a new agent profile (bot). The name must be unique: 2-64 characters, lowercase letters, digits, hyphens and underscores, starting with a letter or digit.",
             schema: .object(properties: [
                 "name": .string(description: "Unique profile name (2-64 chars: lowercase letters, digits, hyphens, underscores; must start with a letter or digit)."),
@@ -312,8 +308,6 @@ public enum CreateProfileTool {
 
                 return "Profile '\(name)' created successfully."
             },
-            checkFn: nil,
-            requiresEnv: [],
             emoji: "➕"
         )
     }
@@ -325,7 +319,7 @@ public enum DeleteProfileTool {
     public static func entry(context: ToolContext, profiles: any ProfileStore) -> ToolEntry {
         ToolEntry(
             name: "delete_profile",
-            toolset: "profile",
+            toolset: .profile,
             description: "Permanently delete an agent profile and all its data. Requires confirm: true. Neither the 'default' profile nor the profile you are running as can be deleted.",
             schema: .object(properties: [
                 "name": .string(description: "The profile name to delete."),
@@ -358,8 +352,6 @@ public enum DeleteProfileTool {
                 try await profiles.delete(profileName)
                 return "Profile '\(name)' deleted."
             },
-            checkFn: nil,
-            requiresEnv: [],
             emoji: "🗑️"
         )
     }
@@ -375,7 +367,7 @@ public enum SendGroupChatTool {
     ) -> ToolEntry {
         ToolEntry(
             name: "send_group_chat",
-            toolset: "profile",
+            toolset: .profile,
             description: "Send a message to a group chat room with multiple agents. A room that does not exist yet is created from the roster profiles assigned to that group.",
             schema: .object(properties: [
                 "group": .string(description: "The group chat room name."),
@@ -413,8 +405,6 @@ public enum SendGroupChatTool {
                 let sender = context.profile.rawValue
                 return "Message from '@\(sender)' posted to group chat '\(group)' (\(count) member\(count == 1 ? "" : "s"))."
             },
-            checkFn: nil,
-            requiresEnv: [],
             emoji: "👥"
         )
     }

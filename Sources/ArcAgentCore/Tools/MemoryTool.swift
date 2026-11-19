@@ -34,7 +34,7 @@ struct MemoryTool {
     static func entry(context: ToolContext, memory: any MemoryProvider) -> ToolEntry {
         ToolEntry(
             name: "memory",
-            toolset: "core",
+            toolset: .core,
             description: "Save durable facts to persistent memory that survive across sessions. Memory is "
                 + "injected into every future turn, so keep entries compact and high-signal.\n\n"
                 + "HOW: make ALL your changes in ONE call via an 'operations' array (each item: "

@@ -1,5 +1,30 @@
 import ArcToolKit
 
+/// The read side of a tool surface: what a consumer that only *advertises* or
+/// *looks up* tools needs.
+///
+/// `tool_search` and the MCP dispatcher hold this, so neither can reach
+/// `register` — mutating a copy would be a lie either way. A reader that wants
+/// to *search* the live catalog reads whatever the ``ToolDependency`` slot
+/// currently names; whoever produced the newest surface fills it.
+public protocol ToolCatalogReader: Sendable {
+
+    /// Look up a tool by name.
+    ///
+    /// - Parameter name: The tool's unique name.
+    /// - Returns: The tool and its origin, or `nil` if no tool with that name
+    ///   is registered.
+    func lookup(name: String) -> RegisteredTool?
+
+    /// All registered tools, each with its origin.
+    ///
+    /// The order is **name order**, and that is a contract rather than a
+    /// convenience: this array is rendered into the prompt prefix, so a
+    /// registry whose order is stable across processes is what lets the
+    /// provider's prompt cache hit.
+    var allTools: [RegisteredTool] { get }
+}
+
 /// A registry that manages tool discovery, registration, and lookup.
 ///
 /// ``ToolRegistry`` is the narrow waist of the ARC Agent tool system. Every tool
@@ -30,7 +55,7 @@ import ArcToolKit
 /// 3. **Macros** — A `#tool` macro may eventually generate registration calls
 ///
 /// See ``CompileTimeToolRegistry`` for the built-in implementation.
-public protocol ToolRegistry: Sendable {
+public protocol ToolRegistry: Sendable, ToolCatalogReader {
 
     /// Register a tool with the registry.
     ///
@@ -54,70 +79,20 @@ public protocol ToolRegistry: Sendable {
 
     /// All registered tools, each with its origin.
     ///
-    /// The order is insertion order — tools registered first appear first.
+    /// The order is **name order**, and that is a contract rather than a
+    /// convenience: this array is rendered into the prompt prefix, so a
+    /// registry whose order is stable across processes is what lets the
+    /// provider's prompt cache hit. Both implementations sort — a runtime tier
+    /// that arrives in dictionary iteration order would otherwise reorder the
+    /// prefix on every launch.
     var allTools: [RegisteredTool] { get }
 
-    /// Build the OpenAI-compatible function-calling schema array.
+    /// A monotonically increasing identity for this surface's contents.
     ///
-    /// This method filters tools by the enabled/disabled toolsets, runs
-    /// availability checks, and maps each surviving tool to the OpenAI
-    /// function-calling schema format.
-    ///
-    /// - Parameters:
-    ///   - enabled: The set of enabled toolset names. If empty, all toolsets
-    ///     are enabled.
-    ///   - disabled: The set of disabled toolset names. Takes precedence over
-    ///     `enabled`.
-    /// - Returns: An array of OpenAI-compatible function-calling schemas.
-    func buildToolSchemas(
-        enabled: Set<String>,
-        disabled: Set<String>
-    ) -> [[String: Any]]
-}
-
-// MARK: - Default Implementation
-
-extension ToolRegistry {
-
-    /// Default implementation of ``buildToolSchemas(enabled:disabled:)``.
-    ///
-    /// 1. Resolves enabled toolsets to tool names (or uses all tools if
-    ///    `enabled` is empty).
-    /// 2. Subtracts disabled toolsets.
-    /// 3. Runs `checkFn` for each tool and filters out unavailable ones.
-    /// 4. Maps each surviving tool to the OpenAI function-calling format.
-    public func buildToolSchemas(
-        enabled: Set<String>,
-        disabled: Set<String>
-    ) -> [[String: Any]] {
-        let tools = allTools.filter { tool in
-            // If disabled, exclude
-            guard !disabled.contains(tool.toolset) else { return false }
-
-            // If enabled is non-empty, toolset must be in it
-            if !enabled.isEmpty {
-                guard enabled.contains(tool.toolset) else { return false }
-            }
-
-            // Run availability check
-            if let check = tool.checkFn {
-                guard check() else { return false }
-            }
-
-            return true
-        }
-
-        return tools.map { tool in
-            [
-                "type": "function",
-                "function": [
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.schema.asDictionary(),
-                ] as [String: Any],
-            ] as [String: Any]
-        }
-    }
+    /// a value registry is re-pointed rather than mutated in place, so a cache
+    /// cannot watch it — it compares this number. an immutable registry answers
+    /// `0` forever; an admitting registry bumps on every accepted mutation.
+    var revision: Int { get }
 }
 
 // MARK: - Errors

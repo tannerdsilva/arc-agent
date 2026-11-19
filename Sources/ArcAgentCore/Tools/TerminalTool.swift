@@ -28,7 +28,7 @@ public enum TerminalTool {
     public static func entry(grant: ToolGrant) -> ToolEntry {
         ToolEntry(
             name: "terminal",
-            toolset: "terminal",
+            toolset: .terminal,
             description: "Execute a shell command and return its output. "
                 + "Use for builds, installs, git, scripts, and any command-line tool. "
                 + "For long runs (test suites, builds, servers) set background=true to get a "

@@ -105,7 +105,7 @@ public struct LocalPackToolSource: ToolSource {
         try await bridge.tools().map { descriptor in
             PackToolEntry(
                 name: descriptor.name,
-                toolset: toolset,
+                toolset: Toolset(claimed: toolset),
                 description: descriptor.description ?? "",
                 schema: Self.schema(from: descriptor.inputSchema),
                 placement: placement,
@@ -135,7 +135,7 @@ public struct LocalPackToolSource: ToolSource {
 struct PackToolEntry: AgentTool {
 
     let name: String
-    let toolset: String
+    let toolset: Toolset
     let description: String
     let schema: JSONSchema
     /// Declared by the source that minted this tool, never by the pack itself:
@@ -146,7 +146,7 @@ struct PackToolEntry: AgentTool {
 
     init(
         name: String,
-        toolset: String,
+        toolset: Toolset,
         description: String,
         schema: JSONSchema,
         placement: ToolPlacement,

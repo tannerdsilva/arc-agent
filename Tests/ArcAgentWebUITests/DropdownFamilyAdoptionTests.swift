@@ -187,13 +187,19 @@ extension ArcWebUITestRoot {
 					#expect(Self.attribute("data-component-id", in: button ?? "") == trigger,
 					        "\(page): the boundary must ride the trigger itself, not a wrapper")
 
-					// the double-registration shape: `id:`/`onSelect:` handed to the
-					// component on top of a self-wiring button emits a SECOND
-					// `data-event` inside the control. measured: arc's `ArcButton`
-					// emits none of its own, so exactly one is correct.
+					// the trigger is a boundary too when its group registers at
+					// render time, and the panel is the other one. exactly one of
+					// each: a second `data-event` on the trigger is the
+					// double-registration shape `id:`/`onSelect:` produces on top
+					// of a self-wiring button.
 					let control = Self.divSubtree(in: markup, containing: "id=\"\(trigger)\"")
-					#expect(Self.occurrences(of: "data-event=\"click\"", in: control) == 1,
-					        "\(page): \(trigger) has \(Self.occurrences(of: "data-event=\"click\"", in: control)) click boundaries — the panel must be the only one")
+					let trigger = button ?? ""
+					let triggerEvents = Self.occurrences(of: "data-event=\"click\"", in: trigger)
+					#expect(triggerEvents <= 1,
+					        "\(page): \(trigger) carries \(triggerEvents) click boundaries on itself — the trigger may own at most one")
+					let controlEvents = Self.occurrences(of: "data-event=\"click\"", in: control)
+					#expect(controlEvents == triggerEvents + 1,
+					        "\(page): \(trigger) subtree has \(controlEvents) click boundaries — the panel must be the only other one")
 
 					// the panel boundary is unchanged: same dispatch id, same event.
 					#expect(Self.occurrences(of: "data-component-id=\"\(panel)\" data-event=\"click\"", in: control) == 1,
@@ -287,14 +293,16 @@ extension ArcWebUITestRoot {
 
 		@Test("the routing contract in Views.swift is unchanged")
 		func boundaryCensusIsUnchanged() throws {
-			// the recorded pre-count of the card: 38 inline `data-component-id`
-			// spellings (40 after the kanban agent page replaced the legacy
-			// board). `wire(...)` boundaries are not part of the count and are
-			// pinned by `the trigger is the boundary` above. a change here is a
-			// routing change and needs the card that owns it.
+			// the recorded count of the card: 38 inline `data-component-id`
+			// spellings in Views.swift after the merge. the kanban agent page's
+			// ids (14) moved to KanbanAgentPage.swift and the scheduled-tasks
+			// ids (2) to NewFeatures.swift, so Views.swift carries only the
+			// shells it renders. `wire(...)` boundaries are not part of the
+			// count and are pinned by `the trigger is the boundary` above. a
+			// change here is a routing change and needs the card that owns it.
 			let source = try Self.viewsSource()
 			let count = Self.occurrences(of: "data-component-id", in: source)
-			#expect(count == 40, "Views.swift carries \(count) `data-component-id` spellings, not the recorded 40")
+			#expect(count == 38, "Views.swift carries \(count) `data-component-id` spellings, not the recorded 38")
 		}
 
 		@Test("the rows are not boundaries")

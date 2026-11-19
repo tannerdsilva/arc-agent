@@ -241,6 +241,37 @@ struct ModelConfigPreset: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+extension ModelConfigPreset {
+    /// The preset's contribution to the shared endpoint resolution: every field
+    /// the picker set, tagged with where it came from. Blank fields defer to
+    /// `~/.arc/config.json` (`ProviderEndpointResolver`), which is why an
+    /// untouched optional in the add form cannot shadow a configured endpoint.
+    var endpointChoice: ProviderEndpointResolver.Choice {
+        ProviderEndpointResolver.Choice(
+            baseURL: baseURL,
+            model: model,
+            provider: provider,
+            source: .preset,
+            label: name
+        )
+    }
+
+    /// `host:port` for this preset's base URL, parsed the way a turn parses it.
+    ///
+    /// Rendered beside the model in Settings, so the row shows the address a
+    /// chat will actually dial instead of hiding it behind the picker. An
+    /// unusable string comes back raw — a typo must be visible in the row, not
+    /// collapsed into a placeholder.
+    var endpointAuthority: String {
+        guard let url = try? ProviderEndpointResolver.parse(baseURL, source: .preset) else {
+            return baseURL
+        }
+        let host = url.host ?? baseURL
+        guard let port = url.port else { return host }
+        return host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+    }
+}
+
 /// A named workspace bound to an arbitrary folder on disk. `path` is the
 /// required anchor (Unix path standards, see `WorkspaceRules`); `name` is a
 /// label — optional at the edges (create form, decode) and always resolved to
@@ -760,6 +791,9 @@ actor AppState {
     /// Logs view: active severity filter ("all" | "info" | "warn" | "error").
     var logFilter = "all"
 
+    /// true when this state came from `init(renderFixture:)`: it owns no file
+    /// and dials no network, so optional preflights stay off.
+    private(set) var isRenderFixture = false
     var sessions: [Session] = []
 
     // MARK: Lazy message loading (scalable design)
@@ -948,16 +982,59 @@ actor AppState {
 
     /// UI mode flags
     var pendingDelete = false
-    var filePopOpen = false
 
     /// Composer dropdown state (arc-parity custom selectors: workspace,
-    /// profile, model, thinking). UI-only — never persisted.
-    var wsSelectOpen = false
+    /// profile, model, thinking) — UI-only, never persisted.
+    ///
+    /// **This is a one-render latch, not a durable flag** (no-webui 2.15.0's
+    /// `data-open` contract). The engine's dismiss stack closes a popover by
+    /// REMOVING `data-open` client-side — Escape and an outside click never
+    /// round-trip — so a durable server copy would re-assert the popover on the
+    /// next render of the composer region (measured: any composer patch ships
+    /// the popover element). Instead the handler that opens a popover — or must
+    /// keep it open — arms this latch, and `composerHTML()` clears it after the
+    /// render that emitted `data-open`, so every later render states the closed
+    /// popover and the engine's removal is the only close path.
+    var composerPopover: ComposerPopover?
+    /// The serial the last armed popover renders with, carried as the
+    /// attribute's VALUE (`data-open="7"`). The engine reads presence; the
+    /// changing value is what makes an open render byte-different from the
+    /// previous one, so the diff ships it even when the server had already
+    /// rendered that popover open before the dismissal — without it, re-opening
+    /// after Escape would be an empty diff and the click would do nothing.
+    var composerPopoverSerial = 0
+    /// A composer popover, named by the surface it opens.
+    enum ComposerPopover: String, Equatable, Sendable {
+        case file, workspace, profile, model, thinking
+    }
+
+    /// The session row menu the next render emits as open — the same one-render
+    /// latch, keyed by the session's raw id (nil = no menu).
+    var rowMenu: String?
+    var rowMenuSerial = 0
+    /// Whether the open row menu shows its "Move to Category" panel instead of
+    /// its item list. Server state: the panel is a swap INSIDE the open menu,
+    /// so the menu must be re-armed on the same render that flips this.
+    var rowMenuShowsCategories = false
+
+    /// The workspace ⋮ menu the next workspace-panel render emits as open — the
+    /// same one-render latch (A16d). The menu's rows are static server markup
+    /// and the open state was the overlay's `.open` class; it is `data-open` +
+    /// `data-dismiss` now, so the engine's dismiss stack owns closing and the
+    /// server only states the click's open render. The serial makes a re-open
+    /// after a client dismissal a byte-different render.
+    var wsMenuArmed: Int?
+    var wsMenuSerial = 0
+
+    /// Arm the composer's `data-focus-into` for the next composer render — the
+    /// new-chat caret (UX-45). `FocusOnAppear` cannot cover this path: the `+`
+    /// survives the patch and holds focus, and the behaviour deliberately never
+    /// steals from a live control. The latch is consumed by `composerHTML()`, so
+    /// the declarative focus statement exists for exactly one render.
+    var composerFocusArmed = false
+
     var wsSelectQuery = ""
-    var profileSelectOpen = false
-    var modelSelectOpen = false
     var modelSelectQuery = ""
-    var thinkSelectOpen = false
     /// Settings → Storage: staged medium, connection form, picker state.
     var stagedStorage: String?
     /// Bumped when a saved connection is added/edited/removed (cache bust).
@@ -986,13 +1063,24 @@ actor AppState {
     /// chat and profile flows keep their original fields above, untouched).
     /// `modalHTML()` derives ONE dialog shape from whichever is armed.
     var pendingConfirm: ConfirmRequest?
-    /// Next chat-scroll render should force the view to the bottom (chat open).
-    var forceScrollBottom = true
+    /// Session whose rename dialog is open (nil = closed). Server state: the row
+    /// menu's "Rename conversation" arms it, and the dialog is a `.modal-overlay`
+    /// card rendered beside the confirm dialog (A16a — a native `<dialog open>`
+    /// renders in flow, not in the top layer, so it cannot be a modal without JS).
+    var renameSessionID: String?
     /// Conversation outline open. Server-owned so the toggle routes through the
     /// engine like every other control (the client-only version logged
     /// "[WebUIEngine] click on unwired control #outline-toggle" on every click)
     /// and the open state survives a reload.
+    ///
+    /// The panel is an ENGINE LAYER now (A17): the render states
+    /// `data-open="<outlineSerial>" data-dismiss`, so the dismiss stack owns
+    /// Escape and the click-away and the sheet keys visibility on the attribute.
+    /// The serial is the open-latch value: an engine dismissal clears the
+    /// attribute on the client, so a re-open must be a byte-different render or
+    /// the patch that would restore it never ships.
     var outlineOpen = false
+    var outlineSerial = 0
 
     /// Chat list filtering (phase: categories).
     var chatFilter = ""
@@ -1003,8 +1091,18 @@ actor AppState {
     var categoryMenu: CategoryMenu? = nil
     var categoryMenuRename = false
 
-    /// Right-hand workspace panel.
+    /// Right-hand workspace panel. Open state for the panel is the engine's
+    /// `data-open` (A17): the render states the attribute with `wsPanelSerial`
+    /// as its value, the dismiss stack owns Escape and the click-away, and the
+    /// sheet keys visibility, the dock's hiding and the exit transition on it —
+    /// so no `.hidden` class and no client exit-visual hook survive.
     var workspaceOpen = false
+    /// The open-latch value rendered as `data-open`'s VALUE. An engine
+    /// dismissal clears the attribute client-side without telling the server,
+    /// so every open must bump this: a re-open that reused the last value would
+    /// be byte-identical to the render the client already dismissed and would
+    /// never ship.
+    var wsPanelSerial = 0
     /// Last rendered workspace-tree rows; the live scanner only pushes a
     /// fragment when the listing actually changes.
     var cachedWSTreeHTML = ""
@@ -1012,9 +1110,6 @@ actor AppState {
     var wsNewDraft: String? = nil
     var showHiddenFiles = false
     var expandedPaths: Set<String> = []
-    /// One-shot flag: set when toggling the panel OPEN so the next render
-    /// attaches the slide-in animation class; consumed by workspacePanelHTML.
-    var wsEnterAnim = false
 
     /// Render-path cache for the workspace file tree, keyed by
     /// (path, showHidden, expanded set). Repeated shell re-renders of an
@@ -1124,6 +1219,9 @@ actor AppState {
 
     /// Kanban UI mode (phase: kanban).
     var addingColumn = false
+    /// The lane form's mode: the panel head's + Row toggles it, and the panel
+    /// body renders `kanbanAddLaneForm()` while it is on.
+    var addingLane = false
     var addingCardColumnID: String? = nil
     var addingCardLaneID: String? = nil
     /// Round-3 UX-34: inline reason for an empty card title, rendered next to
@@ -1234,12 +1332,12 @@ actor AppState {
     /// Daily-token graph range selected in the Insights panel (7/30/90/365).
     var insightsRangeDays = 30
     var toasts: [Toast] = []
-    /// URL fragment the server hands the client for the shared-link clipboard
-    /// write (UX-06). Clicks inside the wired chat-menu boundary never reach
-    /// client JS — the engine routes them away — so the copy rides this
-    /// marker: the server surfaces the toast, the overlay's post-patch pass
-    /// reads the marker, writes the clipboard, and drops it.
-    var pendingCopyURL: String? = nil
+    /// The absolute origin the page is served from (`http://host:port`), set by
+    /// `WebUIHost`. It is what makes the row menu's "Copy conversation link" a
+    /// literal `data-copy` value: the render has no request, so a
+    /// server-rendered URL cannot learn the browser's own origin, and a
+    /// relative `?s=` copies nothing pasteable. Empty in render fixtures.
+    var publicOrigin = ""
     /// Mid-stream sends awaiting their turn, keyed by session (UX-04). Typing
     /// during a turn queues the message visibly here; each runs as its own
     /// turn after the current reply, in order, and a chip ✕ removes it.
@@ -1301,6 +1399,24 @@ actor AppState {
     var mcpToolCatalog: [String: [String]] = [:]
     /// Why the last "Test" probe failed, per server (absent = no failure).
     var mcpTestError: [String: String] = [:]
+
+    // MARK: Tool policy (Settings → Tool policy)
+
+    /// Which rule the Settings → Tool policy form is open on.
+    ///
+    /// `nil` is closed. `editing` carries the rule's POSITION, not its contents:
+    /// a `ToolPolicyRule` has no identity of its own (its match string is
+    /// mutable), and the position is exactly what Save replaces — replacing in
+    /// place is what keeps the list's order, which is its semantics.
+    var toolPolicyEditor: ToolPolicyEditor? = nil
+
+    /// The editor's two states. `.adding` appends at the END of the list: the
+    /// last rule to match is the one that decides, so the end is the strongest
+    /// position, and the panel says so where the button is.
+    enum ToolPolicyEditor: Sendable, Equatable {
+        case adding
+        case editing(Int)
+    }
 
     // MARK: Runtime pieces (rebuilt when workspace / tessera mode changes)
 
@@ -1401,6 +1517,8 @@ actor AppState {
         var categoryMenu: CategoryMenu? = nil
         var categoryMenuRename = false
         var pendingConfirm: ConfirmRequest? = nil
+        /// an armed rename dialog: its input seeds from the session's full title.
+        var renameSessionID: String? = nil
         /// the composer flyout is only visible while something is armed; these
         /// seams are the only way to pin its four states from a render test.
         var pendingApproval: PendingApproval? = nil
@@ -1411,7 +1529,9 @@ actor AppState {
         /// discovered skills: the agent-powers lock rows render per skill.
         var skills: [Skill] = []
         var pluginStartupOutcome: [String: String] = [:]
-        var pendingCopyURL: String? = nil
+        /// the origin the page is served from — set on the fixture by a test
+        /// that pins an absolute share link.
+        var publicOrigin = ""
         /// Left-panel chat list filter text (drives the "No chats match" branch).
         var chatFilter = ""
         /// Show archived chats instead of active ones.
@@ -1434,6 +1554,8 @@ actor AppState {
         var selectedWorkspace: String?
         var skillFilter = ""
         var toolFilter = ""
+        /// the Settings → Tool policy form's open state (`nil` = closed).
+        var toolPolicyEditor: ToolPolicyEditor? = nil
         // create/edit forms + the profile skills picker are transient view state
         var createProfile = false
         var createWorkspace = false
@@ -1465,6 +1587,7 @@ actor AppState {
         var renamingBoardID: String? = nil
         var renamingLaneID: String? = nil
         var addingColumn = false
+        var addingLane = false
         var addingCardColumnID: String? = nil
         var addingCardLaneID: String? = nil
         var kanbanAddError: String? = nil
@@ -1535,6 +1658,10 @@ actor AppState {
     ///   **scratch** store here.
     init(renderFixture fixture: RenderFixture,
          configurationStore: ConfigurationStore? = nil) {
+        // a fixture owns no file and dials no network: it is the seam tests and
+        // render previews run on, so the turn factory installs no reachability
+        // probe for it (see `makeTurnAgent`).
+        self.isRenderFixture = true
         self.settings = fixture.settings
         if let injected = fixture.cronStore { self.cronStore = injected }
         if let injected = fixture.kanbanAgentDoc { self.kanbanAgentDoc = injected }
@@ -1551,6 +1678,7 @@ actor AppState {
         self.categoryMenu = fixture.categoryMenu
         self.categoryMenuRename = fixture.categoryMenuRename
         self.pendingConfirm = fixture.pendingConfirm
+        self.renameSessionID = fixture.renameSessionID
         self.pendingApproval = fixture.pendingApproval
         self.pendingClarify = fixture.pendingClarify
         self.pluginManifests = fixture.pluginManifests
@@ -1559,7 +1687,7 @@ actor AppState {
         self.turnMemoryOverride = fixture.turnMemory
         self.approvalManager = fixture.approvalManager
         self.pluginStartupOutcome = fixture.pluginStartupOutcome
-        self.pendingCopyURL = fixture.pendingCopyURL
+        self.publicOrigin = fixture.publicOrigin
         self.chatFilter = fixture.chatFilter
         self.showArchived = fixture.showArchived
         self.activeTurns = fixture.activeTurns
@@ -1573,6 +1701,7 @@ actor AppState {
         self.selectedWorkspace = fixture.selectedWorkspace
         self.skillFilter = fixture.skillFilter
         self.toolFilter = fixture.toolFilter
+        self.toolPolicyEditor = fixture.toolPolicyEditor
         self.createProfile = fixture.createProfile
         self.createWorkspace = fixture.createWorkspace
         self.editingProfile = fixture.editingProfile
@@ -1580,6 +1709,7 @@ actor AppState {
         self.profileSkillsDraft = fixture.profileSkillsDraft
         self.profileSkillsPickerOpen = fixture.profileSkillsPickerOpen
         self.addingColumn = fixture.addingColumn
+        self.addingLane = fixture.addingLane
         self.addingCardColumnID = fixture.addingCardColumnID
         self.kanbanAddError = fixture.kanbanAddError
         self.memoryDoc = fixture.memoryDoc
@@ -1690,7 +1820,7 @@ actor AppState {
             cron: cronStore,
             cronHistory: cronHistory
         ))
-        let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
+        let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolsetName })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
         let loadedSettings = Self.loadSettings()
         self.settings = loadedSettings.settings
@@ -1863,7 +1993,7 @@ actor AppState {
         if let made = await rebuiltRegistry(for: activeSessionID) {
             self.registry = made
         }
-        let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
+        let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolsetName })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
     }
 
@@ -2671,11 +2801,22 @@ actor AppState {
         toasts.removeAll { $0.id == id }
     }
 
-    /// Stage the shared-link URL for the client clipboard write (UX-06). The
-    /// path rides the next `#toasts` fragment as a hidden marker that the
-    /// overlay consumes; the caller surfaces the "copied" toast.
-    func markCopyLink(_ sessionID: String) {
-        pendingCopyURL = "?s=\(enc(sessionID))"
+    /// The absolute share link for `id` — the `data-copy` value the row menu's
+    /// "Copy conversation link" carries (UX-06, F5).
+    ///
+    /// The engine's `[data-copy]` copies its attribute's TEXT, so the value has
+    /// to be the whole URL. The server knows the origin it serves on
+    /// (`WebUIHost` sets `publicOrigin`), which is the only reason this can be
+    /// an attribute at all — the render carries no request, so it cannot read
+    /// the browser's own origin. Behind a proxy that rewrites the origin the
+    /// copied link names the configured host: the alternative is a client
+    /// handler, which is exactly what A16b deletes.
+    func shareURL(_ sessionID: String) -> String {
+        publicOrigin.isEmpty ? "?s=\(enc(sessionID))" : "\(publicOrigin)/?s=\(enc(sessionID))"
+    }
+
+    func setPublicOrigin(_ origin: String) {
+        publicOrigin = origin
     }
 
     /// How long a surfaced error stays on screen before it clears itself. Long
@@ -2696,7 +2837,7 @@ actor AppState {
     /// verbatim — same shape as `toastsShell()` in the page.
     func toastFragments() -> [FragmentUpdate] {
         // `transition: false` — same contract as `fragment()` (see Helpers.swift):
-        // this broadcast bypasses the differ's stamp, and an un-flagged frame
+        // this broadcast bypasses the refresh policy's stamp, and an un-flagged frame
         // wedges the engine's patcher when the transition callback starves.
         [FragmentUpdate(id: "toasts", html: toastsShell().markup.html, transition: false)]
     }
@@ -2830,14 +2971,24 @@ actor AppState {
 
     /// Build an OpenAI-compatible client for the given config preset,
     /// reusing the process-wide HTTP client.
+    ///
+    /// Resolution goes through the shared rule, so an aux call (title,
+    /// compression, vision) addresses exactly the endpoint the chat's turns do.
     func makeClient(for preset: ModelConfigPreset) -> OpenAICompatibleClient? {
-        guard let hc = httpClient,
-              let url = URL(string: preset.baseURL)
-        else { return nil }
+        guard let hc = httpClient else { return nil }
+        let endpoint: ProviderEndpoint
+        do {
+            endpoint = try ProviderEndpointResolver.resolve(
+                choice: preset.endpointChoice, config: arcConfig.model
+            )
+        } catch {
+            LogCollector.shared.append(level: .error, text: "[model] \(error)")
+            return nil
+        }
         return OpenAICompatibleClient(
-            baseURL: url,
+            baseURL: endpoint.baseURL,
             apiKey: preset.apiKey,
-            model: preset.model,
+            model: endpoint.model,
             httpClient: hc,
             defaultParameters: RequestParameters(temperature: preset.temperature, maxTokens: preset.maxOutputTokens, topP: preset.topP)
         )
@@ -2895,6 +3046,7 @@ actor AppState {
     /// - Returns: The agent and the `Configuration` it was built from.
     func makeTurnAgent(
         preset: ModelConfigPreset,
+        endpoint suppliedEndpoint: ProviderEndpoint? = nil,
         thinking: String,
         headless: Bool,
         sessionID: String,
@@ -2961,11 +3113,31 @@ actor AppState {
             )
         )
 
-        // an unparseable preset url must not trap the server; fail closed to
-        // the reserved .invalid tld so the request errors out visibly instead
-        // of redirecting the key to a different provider.
-        let baseURL = URL(string: effectivePreset.baseURL)
-            ?? URL(string: "https://invalid.invalid")!
+        // one precedence rule (``ProviderEndpointResolver``): the chat's preset
+        // wins, then `~/.arc/config.json`, then the built-in default. a caller
+        // that already resolved the endpoint (the interactive turn, so it can
+        // fail the turn with the offending string) hands it down; every other
+        // path resolves here and falls back to the reserved `.invalid` host with
+        // the cause named in the log rather than silently redirecting the key.
+        let endpoint: ProviderEndpoint
+        if let suppliedEndpoint {
+            endpoint = suppliedEndpoint
+        } else {
+            do {
+                endpoint = try ProviderEndpointResolver.resolve(
+                    choice: effectivePreset.endpointChoice, config: arcConfig.model
+                )
+            } catch {
+                LogCollector.shared.append(level: .error, text: "[model] \(error)")
+                endpoint = ProviderEndpoint(
+                    baseURL: URL(string: "https://invalid.invalid")!,
+                    model: effectivePreset.model,
+                    provider: effectivePreset.provider,
+                    source: .preset,
+                    label: effectivePreset.name
+                )
+            }
+        }
 
         // build the configuration from those sources.
         // Per-profile toolset tightening, matching the SessionAgent precedent:
@@ -2978,15 +3150,17 @@ actor AppState {
             effectiveDisabled.formUnion(bound.disabledToolsets ?? [])
             if let enabled = bound.enabledToolsets {
                 effectiveDisabled.formUnion(
-                    Set(registry.allTools.map(\.toolset)).subtracting(enabled))
+                    Set(registry.allTools.map(\.toolsetName)).subtracting(enabled))
             }
         }
 
         let config = ArcAgent.Configuration(
-            model: effectivePreset.model,
-            provider: effectivePreset.provider,
-            baseURL: baseURL,
+            model: endpoint.model,
+            provider: endpoint.provider,
+            baseURL: endpoint.baseURL,
             apiKey: effectivePreset.apiKey,
+            // a fixture never dials, so it never preflights either.
+            endpointProbe: isRenderFixture ? nil : HTTPEndpointProbe(),
             registry: turnRegistry,
             // a scratch store: the UI is the transcript's only writer (§3.3), so
             // the agent must never restore from — or persist into — a durable one.
@@ -3026,6 +3200,11 @@ actor AppState {
             maxOutputTokens: effectivePreset.maxOutputTokens,
             agentPowers: arcConfig.agentPowers,
             disabledToolsets: effectiveDisabled,
+            // per-tool overrides from the same `tools` block — the panel's
+            // switches write these, and a profile's toolset narrowing above
+            // still wins over a per-tool enable.
+            disabledTools: toolPolicy.disabledToolSet,
+            enabledTools: toolPolicy.enabledToolSet,
             // the scripted-client seam (nil in production) — see
             // `turnClientOverride`.
             llmClient: turnClientOverride,
@@ -3383,6 +3562,38 @@ actor AppState {
     func configName(for sessionID: String?) -> String {
         if let sid = sessionID, let c = settings.sessionConfig[sid], !c.isEmpty { return c }
         return settings.activeConfig
+    }
+
+    /// Record the endpoint that actually serves this chat, so a transcript can
+    /// never claim a model/provider its turns never used.
+    ///
+    /// The store record is created when the first message is sent — before the
+    /// turn resolves its preset — so the stamp rides that turn as an update.
+    /// Only a change is written: a chat on a stable endpoint records once.
+    ///
+    /// The caller must have materialized this session's messages
+    /// (`ensureSessionMessages`), or the update would write a summary back as a
+    /// transcript.
+    func stampEndpoint(_ endpoint: ProviderEndpoint, on sessionID: String) async {
+        guard let idx = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        var session = sessions[idx]
+        let changed = session.model != endpoint.model || session.provider != endpoint.provider
+        session.model = endpoint.model
+        session.provider = endpoint.provider
+        if session.source == nil { session.source = "webui" }
+        guard changed else { return }
+        sessions[idx] = session
+        sessionVersion += 1
+        guard let store, !isDraftSession(sessionID) else { return }
+        do {
+            try await store.update(session)
+        } catch {
+            LogCollector.shared.append(
+                level: .error,
+                text: "[store] failed to record endpoint for session "
+                    + "\(String(sessionID.prefix(8))): \(error)"
+            )
+        }
     }
 
     func profileName(for sessionID: String?) -> String? {

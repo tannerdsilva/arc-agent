@@ -181,10 +181,6 @@ struct Chat: AsyncParsableCommand {
 
         let resolvedModel = model ?? ProcessInfo.processInfo.environment["ARC_MODEL"]
             ?? arcConfig.model.defaultModel
-        let resolvedBaseURL = baseURL
-            ?? ProcessInfo.processInfo.environment["ARC_BASE_URL"]
-            ?? arcConfig.model.baseURL
-            ?? "https://api.openai.com/v1"
         let resolvedApiKey = apiKey
             ?? ProcessInfo.processInfo.environment["ARC_API_KEY"]
             ?? ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
@@ -192,20 +188,39 @@ struct Chat: AsyncParsableCommand {
 
         // A keyless custom endpoint (local inference server) is legitimate:
         // only refuse when there is no configured base URL to be keyless AT.
+
+        // one precedence rule (``ProviderEndpointResolver``): an explicit
+        // --base-url / ARC_BASE_URL wins, then `~/.arc/config.json` (already
+        // profile-adjusted above), then the built-in default. an unusable URL
+        // is named here, with the ipv6 case spelled out, instead of failing as
+        // an anonymous transport error on the first request.
+        let endpoint: ProviderEndpoint
+        do {
+            endpoint = try ProviderEndpointResolver.resolve(
+                choice: ProviderEndpointResolver.Choice(
+                    baseURL: baseURL ?? ProcessInfo.processInfo.environment["ARC_BASE_URL"],
+                    model: resolvedModel,
+                    source: .flag
+                ),
+                config: arcConfig.model
+            )
+        } catch {
+            print("Error: \(error).")
+            return
+        }
+        let url = endpoint.baseURL
+
+        // A keyless custom endpoint (local inference server) is legitimate:
+        // only refuse when there is no configured base URL to be keyless AT.
         let provider = arcConfig.model.provider
         let keylessOK = resolvedApiKey.isEmpty
-            && (resolvedBaseURL.hasPrefix("http://127.0.0.1")
-                || resolvedBaseURL.hasPrefix("http://localhost")
-                || resolvedBaseURL.hasPrefix("http://[")
+            && (url.absoluteString.hasPrefix("http://127.0.0.1")
+                || url.absoluteString.hasPrefix("http://localhost")
+                || url.absoluteString.hasPrefix("http://[")
                 || provider == "custom")
         guard !resolvedApiKey.isEmpty || keylessOK else {
             print("Error: No API key found. Set ARC_API_KEY or OPENAI_API_KEY, or pass --api-key.")
             print("       Run `arc setup` to configure your API key.")
-            return
-        }
-
-        guard let url = URL(string: resolvedBaseURL) else {
-            print("Error: Invalid base URL '\(resolvedBaseURL)'.")
             return
         }
 
@@ -270,7 +285,7 @@ struct Chat: AsyncParsableCommand {
             disabledToolsets.formUnion(Self.parseList(t))
         }
         if let enabled = profileEnabledToolsets {
-            let all = Set(registry.allTools.map(\.toolset))
+            let all = Set(registry.allTools.map(\.toolsetName))
             disabledToolsets.formUnion(all.subtracting(enabled))
         }
         disabledToolsets.formUnion(profileDisabledToolsets)
@@ -299,6 +314,7 @@ struct Chat: AsyncParsableCommand {
             provider: arcConfig.model.provider,
             baseURL: url,
             apiKey: resolvedApiKey,
+            endpointProbe: HTTPEndpointProbe(),
             registry: registry,
             sessionStore: sessionStore,
             memoryProvider: memoryProvider,
@@ -333,6 +349,11 @@ struct Chat: AsyncParsableCommand {
             agentPowers: arcConfig.agentPowers,
             mcpServers: arcConfig.mcpServers,
             disabledToolsets: disabledToolsets,
+            // Per-tool overrides ride the same `tools` block. They narrow what
+            // the toolset switch left on; a toolset in the merged `disabled`
+            // set above still wins (ToolEnablement's precedence).
+            disabledTools: arcConfig.tools.disabledToolSet,
+            enabledTools: arcConfig.tools.enabledToolSet,
             delegation: arcConfig.delegation,
             // The prompt's "Active ARC profile" line and `profile_edit`'s SOUL
             // default both read this; it had no caller before slice 4.
@@ -573,7 +594,7 @@ struct Tools: AsyncParsableCommand {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         for tool in tools {
             let emoji = tool.emoji ?? "🔧"
-            print("\(emoji) \(tool.name) [\(tool.toolset)]")
+            print("\(emoji) \(tool.name) [\(tool.toolsetName)]")
             print("   \(tool.description)")
             print("")
         }

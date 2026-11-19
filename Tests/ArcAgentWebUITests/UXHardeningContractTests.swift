@@ -3,6 +3,7 @@ import Testing
 
 import ArcTheme
 import ArcAgentCore
+import WebUI
 @testable import ArcWebUI
 
 extension ArcWebUITestRoot {
@@ -60,7 +61,6 @@ extension ArcWebUITestRoot {
         }
         private static var appState: String { source("Sources/ArcWebUI/AppState.swift") }
         private static var appStateActions: String { source("Sources/ArcWebUI/AppState+Actions.swift") }
-        private static var overlay: String { source("Sources/ArcWebUI/Assets/overlay.js") }
         private static var host: String { source("Sources/ArcWebUI/WebUIHost.swift") }
         private static var fileStore: String { source("Sources/ArcAgentCore/Session/SessionStore.swift") }
 
@@ -299,135 +299,203 @@ extension ArcWebUITestRoot {
 
         // MARK: - Appearance follows the applied theme
 
-        /// Defect: the engine applies the device-local theme before the
-        /// settings panel exists, then the panel arrives carrying the server's
-        /// saved mode. When the two differ, the page is dark and the Appearance
-        /// section still marks Light selected — the panel lies about the state
-        /// of the switch it owns.
-        @Test("the appearance panel describes the applied theme, not a stale saved mode")
-        func themePickersFollowAppliedTheme() {
-            let js = Self.overlay
-            #expect(js.contains("function syncThemePickers"),
-                    "the panel needs a reconciler: the engine applies the stored theme before the panel renders")
-            #expect(js.contains("getAttribute('data-theme')"),
-                    "the applied mode is the source of truth, not the server's saved mode")
-            #expect(js.contains("addEventListener('webui:theme', syncThemePickers)"),
-                    "a theme change while the panel is open must update the checked card")
-            let calls = js.components(separatedBy: "syncThemePickers();").count - 1
-            #expect(calls >= 2,
-                    "both the initial pass and every patch must reconcile the cards")
+        /// A15 (no-webui 2.17.0): `aria-pressed` is the theme selected-state
+        /// contract. The server renders it from the saved mode, the engine
+        /// reconciles it on boot and on every press, and the sheet paints
+        /// `[aria-pressed="true"]`. The overlay's `.active` mirror and its
+        /// `syncThemePickers` / `webui:theme` pass are gone: a second writer is
+        /// how the panel could disagree with the page it describes.
+        @Test("the theme card's selected state is aria-pressed, with no overlay mirror")
+        func themeSelectionIsAriaPressed() async {
+            let css = Self.sheetSource
+            let surface = await RenderedMarkup.fullSurface()
+            #expect(css.contains(".theme-pick-btn[aria-pressed=\"true\"]"),
+                    "the sheet must paint the selected card from the normative aria state")
+            #expect(!css.contains(".theme-pick-btn.active"),
+                    "a server-only class is not a selected contract")
+            #expect(surface.contains("class=\"theme-pick-btn\""),
+                    "the theme cards carry no selection class")
+            #expect(!surface.contains("theme-pick-btn active"),
+                    "the `.active` mirror is retired: aria-pressed is the only selected state")
+            #expect(surface.contains("aria-pressed=\"true\""),
+                    "the server renders the saved mode's pressed card")
         }
 
         // MARK: - B1/F52 Enter sends
 
-        @Test("Enter sends from the composer; Shift+Enter keeps the newline")
-        func enterSends() {
-            let js = Self.overlay
-            #expect(js.contains("t.id !== 'composer-input'"), "the handler must be scoped to the composer")
-            #expect(js.contains("e.shiftKey"), "Shift+Enter must stay a newline")
-            #expect(js.contains("form.requestSubmit()"),
-                    "the submit path must be the form's own, so the engine flushes and reads live values")
-            #expect(js.contains("e.keyCode === 229"), "an IME commit must not send")
+        /// A15 (no-webui 2.17.0): Enter-to-submit is the engine's.
+        /// `SubmitOnEnterMode.plain` submits a textarea and leaves Shift+Enter a
+        /// newline, the binder returns early on an IME composition, and
+        /// `ClearOnSubmit` empties the field on the submit event. The overlay
+        /// keeps no keydown handler: the engine's listener is bound on the
+        /// element, so a document-level copy would be a second submit path with
+        /// a different ordering. A17 deleted the capture-phase echo memo that
+        /// outlived the seam, so the engine's listener is the ONLY submit path
+        /// (see `ComposerSubmitContractTests` and `ZeroClientScriptTests`).
+        @Test("Enter submits and the field clears through the engine's own attributes")
+        func enterSendsThroughTheEngine() async {
+            let composer = await RenderedMarkup.composer()
+            #expect(composer.contains("data-submit-on-enter=\"plain\""),
+                    "a textarea opts in to Enter-to-submit by VALUE; the bare attribute leaves it exempt")
+            #expect(!composer.contains("data-submit-on-enter=\"\""),
+                    "the legacy spelling would leave the textarea exempt")
+            #expect(composer.contains("data-clear-on-submit"),
+                    "the clear is the engine's, on the submit event")
+            #expect(composer.contains("data-autogrow"),
+                    "the composer textarea must carry the engine's growth behavior")
         }
 
-        // MARK: - UX-28 slash menu whole-row scroll + initial active row (T25)
+        // MARK: - the slash palette is a FilterList region (A16d, no-webui 3.1.0)
 
-        @Test("the slash dropdown sizes itself to whole rows and opens with the first row active")
-        func slashMenuWholeRows() {
-            let overlay = Self.overlay
+        @Test("the slash palette is one FilterList region: server rows, engine-owned open state")
+        func slashPaletteIsAFilterList() async {
+            let composer = await RenderedMarkup.composer()
             let css = Self.sheetSource
-            // The regression (w1v-02, w2f-02): a 232px max-height against 57.5px
-            // rows showed a 2px sliver of the next row. The scroll region is now a
-            // borderless `.cmd-list` inner wrapper, and the overlay sizes it to a
-            // floor of the available space over the measured row pitch — so the
-            // border-box height IS the content height and lands exactly on a row
-            // boundary.
-            #expect(overlay.contains(".cmd-list"),
-                    "the rows must live in the borderless inner wrapper whose box owns the clip")
-            #expect(overlay.contains("list.style.maxHeight = (Math.round((whole * rowH) * 4) / 4) + 'px'"),
-                    "the scroll region's max-height must be an exact multiple of the row pitch")
-            #expect(overlay.contains("var whole = Math.max(1, Math.floor(avail / rowH));"),
-                    "the visible row count must be floored, never truncated mid-row")
-            #expect(overlay.contains("list.scrollTop"), "revealing the active row must scroll the inner list")
-            // UX-54: the cap rose 232 → 460px (8 of 10 commands visible instead
-            // of a four-row fold) and the inner list shows a slim always-visible
-            // scrollbar so the remaining rows advertise themselves.
-            #expect(css.contains(".cmd-list { max-height: 460px; overflow-y: auto; scrollbar-gutter: stable; }"),
-                    "the clip lives on the inner borderless list, not the bordered dropdown")
-            #expect(css.contains(".cmd-list::-webkit-scrollbar-thumb"),
-                    "UX-54: the inner list must advertise overflow with a visible scrollbar")
-            #expect(overlay.contains("Math.min(460, composerTop - 12)"),
-                    "UX-54: the menu must claim the available space up to 460px, not a four-row fold")
-            // Opening the menu must reset the highlight to the first row so Enter's
-            // target is unambiguous after a prior interaction moved the selection.
-            #expect(overlay.contains("if (!wasOpen) slashSel = 0;"),
-                    "a fresh open must mark the first item active")
-            // The active row carries the class the visible treatment keys on, and
-            // the sheet gives it an accent-tinted fill plus a left accent bar.
-            #expect(overlay.contains("b.className = 'cmd-item' + (idx === slashSel ? ' active' : '')"),
-                    "the selected row must carry the .active class")
-            #expect(css.contains(".cmd-item.active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent-strong); }"),
-                    "the active row must read as active: accent fill + left bar")
+            // ONE `.combo` region around the textarea and the panel carries the
+            // three declarations 3.1.0 reads: the prefix-gated source, the
+            // write-back target and the token template. The value is
+            // `prefix|source` — the token form, not the whole-field one.
+            let region = composer.range(of: #"<div class="combo"[^>]*>"#,
+                                        options: .regularExpression).map { String(composer[$0]) }
+            #expect(region != nil, "the composer must render one `.combo` region (the FilterList root)")
+            #expect(region?.contains("data-filter-list=\"/|#composer-input\"") == true,
+                    "the region must state the token form `prefix|source`; the whole-field form would filter on the entire draft")
+            #expect(region?.contains("data-filter-insert=\"composer-input\"") == true,
+                    "the insert target is the composer field")
+            #expect(region?.contains("data-filter-template=\"/{value} \"") == true,
+                    "the template restores the slash and the trailing space around the row's bare name")
+            // The rows are SERVER markup: `[role=option]` inside `.combo__panel`,
+            // the panel keyed on `data-open` (the engine's latch). Their
+            // textContent is the bare command name because FilterInsert writes
+            // exactly it; the description rides `data-desc` and the sheet paints
+            // it — the old `/name` + description look without a client row builder.
+            #expect(composer.contains("id=\"cmd-dropdown\""), "the panel keeps its id for the gate + sheet")
+            #expect(composer.contains("class=\"combo__panel\""), "the engine locates the panel by this class")
+            #expect(composer.range(of: #"<div class="combo__option"[^>]*>help</div>"#,
+                                   options: .regularExpression) != nil,
+                    "a row's textContent must be the BARE command name — `FilterInsert` inserts it verbatim")
+            #expect(composer.contains("data-desc=\"Show available slash commands\""),
+                    "the description must ride `data-desc`")
+            #expect(!composer.contains("slash-data"),
+                    "the JSON payload is retired: the server renders the rows directly")
+            // CSS: visibility is the engine's `data-open`; the hidden attribute
+            // must beat the author display rule; the description is a pseudo.
+            #expect(css.contains(".combo__panel[data-open] { display: block; }"),
+                    "the panel's open state must be the engine's `data-open`, never a class")
+            #expect(css.contains(".combo__option[hidden] { display: none; }"),
+                    "the engine hides filtered rows with `[hidden]`; an author `display` would outrank the UA rule")
+            #expect(css.contains(".combo__option::after { content: attr(data-desc)"),
+                    "the row description is painted from `data-desc`, not inserted as text")
+            #expect(css.contains(".combo__panel::-webkit-scrollbar-thumb"),
+                    "UX-54: the panel must advertise overflow with a visible scrollbar")
         }
 
         // MARK: - UX-33 focus survives the fragment patch (T26)
 
-        @Test("the overlay restores focus to the control the patch just replaced")
+        @Test("focus survives a replaced control through the engine's by-id memo")
         func focusRestoredAfterPatch() {
-            let overlay = Self.overlay
             // The regression (steps-w2f-i): activating a settings chip with Enter
             // or Space toggled it correctly but the server re-render replaced the
-            // node, so `document.activeElement` fell back to <body>. The overlay
-            // must remember the control that blurred and re-focus its replacement
-            // (matched by id, or data-sid for roving session rows) inside the
-            // post-patch seam.
-            #expect(overlay.contains("lastFocusedControl"), "the overlay must remember the control that had focus")
-            #expect(overlay.contains("document.getElementById(rec.id)"),
-                    "focus must be restored by id — the node was replaced, a cached reference is stale")
-            #expect(overlay.contains("restoreFocusAfterPatch();"),
-                    "the restore must run in the post-patch seam (enhancePatched)")
-            #expect(overlay.contains("rec.el.isConnected"),
-                    "restore must be skipped when the focused node survived or focus moved on purpose")
-            #expect(overlay.contains("nu.focus({ preventScroll: true })"),
-                    "the re-focused control must not scroll the page")
+            // node, so `document.activeElement` fell back to <body>. T26 is
+            // no-webui 2.14.0's now. `capture` records the focused control and the
+            // `data-focus-return` region around it; `restore` re-queries that
+            // target by id after the patch (a cached element reference is stale —
+            // the node was replaced) and skips the restore while the focused node
+            // survived, so focus the user moved on purpose is never yanked back.
+            // Arc's half is the declaration: `FocusReturn(id:)` is the typed
+            // spelling of the one attribute the engine reads, and it is emitted
+            // on the dialog's openers and its close controls (the round trip is
+            // pinned on rendered bytes in `ModalFocusContractTests`).
+            let engine = WebUIAssets.engine
+            #expect(
+                engine.contains("focusMemo = decl ? { active: active, target: decl.getAttribute('data-focus-return') || decl.id } : null;"),
+                "the engine no longer captures the focused control's `data-focus-return` region — T26 then has no owner on either side"
+            )
+            #expect(
+                engine.contains("var target = document.getElementById(memo.target);"),
+                "the engine no longer re-queries the return target by id: the focused node was replaced, so a cached reference is stale"
+            )
+            #expect(
+                engine.contains("if (memo.active && memo.active.isConnected) { return; }"),
+                "the restore must be skipped while the focused node survived, or it yanks focus from where the user moved it"
+            )
+            #expect(
+                FocusReturn(id: "some-control").attribute().attributeText == " data-focus-return=\"some-control\"",
+                "`FocusReturn` must serialize to the attribute the engine reads — a renamed attribute leaves every declaration inert"
+            )
+            // the REGION form of T26 (a `data-focus-return` wrapper around a
+            // control a patch replaces) is measured live in
+            // `ux-gates.mjs --only=focus`: no arc surface declares one yet — the
+            // dialog's openers and close controls are the only declarations this
+            // slice ships — so that row names the surface it tried and reports a
+            // SKIP with the reason until a surface declares one.
         }
 
-        // MARK: - B2/F45 dropdown dismissal
+        // MARK: - B2/F45 dropdown dismissal (no-webui 2.15.0's armed layers)
 
-        @Test("the dropdown dismiss boundary is rendered AND fired")
-        func dropdownDismissIsWired() async {
+        /// The composer popovers are the ENGINE's layers now: `data-open` is the
+        /// state and `data-dismiss` is the membership, both on the popover, and
+        /// the engine arms one only while the other is present. The old
+        /// boundary span (`#dd-dismiss`) and its wire are gone — the dismissal no
+        /// longer round-trips, so there is no boundary to click.
+        @Test("each composer popover carries the engine's data-open/data-dismiss pair")
+        func dropdownDismissIsArmed() async {
             let composer = await RenderedMarkup.composer()
-            let dismiss = composer.range(of: #"<span [^>]*id="dd-dismiss"[^>]*>"#,
-                                         options: .regularExpression).map { String(composer[$0]) }
-            #expect(dismiss?.contains("data-component-id=\"dd-dismiss\"") == true
-                    && dismiss?.contains("data-event=\"click\"") == true,
-                    "the dismiss target must carry the wire boundary")
-            #expect(dismiss?.contains("hidden") == true,
-                    "the dismiss target is an invisible boundary, not a visible control")
-            #expect(composer.contains("id=\"dd-dismiss\""),
-                    "the `dd-dismiss` handler existed for months with no element carrying the id")
-            #expect(Self.actions.contains("@Wired(\"dd-dismiss\", events: [.click])"),
-                    "the server half stays registered via @Wired")
-            #expect(Self.overlay.contains("function dismissDropdowns()"))
-            #expect(Self.overlay.contains("dismissDropdowns();"), "Escape/outside-click must call it")
+            // closed at rest: absence is the closed state, so neither attribute
+            // may be emitted for a popover nobody opened.
+            #expect(!composer.contains("data-open="),
+                    "a closed composer popover must not carry data-open")
+            #expect(!composer.contains("data-dismiss"),
+                    "a closed composer popover must not join the dismiss stack")
+            #expect(!composer.contains("id=\"dd-dismiss\""),
+                    "the dd-dismiss boundary is deleted: the engine's dismissal does not round-trip")
+            #expect(!Self.actions.contains("@Wired(\"dd-dismiss\""),
+                    "and its server handler with it")
+            // the four selector popovers + the attach popover are the surfaces
+            #expect(composer.contains("dd-pop dd-pop-ws"), "the workspace popover still renders")
+            #expect(composer.contains("dd-pop dd-pop-model"), "the model popover still renders")
+            #expect(composer.contains("id=\"file-pop\""), "the attach popover still renders")
+        }
+
+        /// The pair is one contract: opening a popover emits BOTH attributes, and
+        /// the value is the open serial (the diff-buster that makes an open render
+        /// byte-different from the previous one).
+        @Test("opening a popover emits data-open with the arm serial plus data-dismiss")
+        func openedPopoverCarriesTheArmedPair() async {
+            let app = await AppState(renderFixture: AppState.RenderFixture())
+            await app.openModelSelect()
+            let open = await app.composerHTML().markup.html
+            #expect(open.contains(#"data-open=""#), "an opened popover must carry data-open")
+            #expect(open.contains(#"data-dismiss="""#), "and the disarmable membership in the same tag")
+            let modelTag = open.range(of: #"<div class="dd-pop dd-pop-model"[^>]*>"#, options: .regularExpression)
+                .map { String(open[$0]) } ?? ""
+            #expect(modelTag.contains("data-open=") && modelTag.contains("data-dismiss="),
+                    "both attributes must be on the popover itself, not on a wrapper")
+            // one render later the latch is spent: the popover states closed, so
+            // an engine-side dismissal is never re-asserted by a patch.
+            let after = await app.composerHTML().markup.html
+            #expect(!after.contains("data-open="),
+                    "the latch is one-render: the next render states the popover closed")
         }
 
         // MARK: - UX-02 attach popover joins the dismissal system
 
-        @Test("the attach popover is dismissed by the same Escape/outside-click path")
-        func filePopDismissalIsOwned() {
-            let overlay = Self.overlay
-            #expect(overlay.contains("var fp = document.getElementById('file-pop');"),
-                    "dismissDropdowns must own #file-pop: it is not a `.dd-pop`, so no boundary ever fired for it")
-            #expect(overlay.contains("if (fp && !fp.classList.contains('hidden')) {"),
-                    "closing must be gated on the popover actually being open")
-            #expect(overlay.contains("e.target.closest('.file-pop')"),
-                    "a click inside the popover (path input / recents) must not dismiss it")
+        @Test("the attach popover is an armed layer of the same stack")
+        func filePopDismissalIsOwned() async {
+            let app = await AppState(renderFixture: AppState.RenderFixture())
+            await app.openFilePop()
+            let open = await app.composerHTML().markup.html
+            let filePop = open.range(of: #"<div class="file-pop"[^>]*id="file-pop"[^>]*>"#,
+                                     options: .regularExpression).map { String(open[$0]) }
+                ?? open.range(of: #"<div class="file-pop"[^>]*>"#, options: .regularExpression)
+                    .map { String(open[$0]) } ?? ""
+            #expect(filePop.contains("data-open="), "the attach popover arms like the selectors")
+            #expect(filePop.contains("data-dismiss="), "and disarms like them too")
             let appStateActions = Self.appStateActions
-            #expect(appStateActions.contains("if filePopOpen { closeSelectorPanels() }"),
-                    "opening the attach popover must close any open composer selector (without re-closing itself)")
-            #expect(appStateActions.contains("filePopOpen = false"),
-                    "closing the composer selectors must close the attach popover too (mutual exclusivity)")
+            #expect(appStateActions.contains("func armComposerPopover(_ which: ComposerPopover)"),
+                    "one latch arms every composer popover, so they are mutually exclusive by construction")
+            #expect(appStateActions.contains("composerPopover = nil"),
+                    "closing the composer selectors closes the attach popover too")
         }
 
         // MARK: - UX-03 workspace dock keeps its routing anchor
@@ -448,7 +516,7 @@ extension ArcWebUITestRoot {
             haystack.components(separatedBy: needle).count - 1
         }
 
-        @Test("the workspace dock keeps its routing anchor and a collapse tab in both states")
+        @Test("the workspace dock keeps its routing anchor and one closed-state handle")
         func workspaceDockAnchorIsStable() async {
             let closed = await Self.workspace { $0.workspaceOpen = false }.workspaceDockHTML().markup.html
             let open = await Self.workspace { $0.workspaceOpen = true }.workspaceDockHTML().markup.html
@@ -463,38 +531,37 @@ extension ArcWebUITestRoot {
                 #expect(html.contains("id=\"w-dock\""),
                         "the collapse tab must exist in the \(state) state, not an empty div")
             }
-            #expect(closed.contains("title=\"Open workspace\""), "the closed dock is the open handle")
-            #expect(open.contains("title=\"Collapse workspace\""),
-                    "the open-state dock must be a discoverable collapse tab, not an empty div")
-            #expect(!closed.contains(" hidden"), "the closed dock's tab must be visible")
-            let overlay = Self.overlay
-            #expect(overlay.contains("var wsPanel = document.getElementById('ws-panel');"),
-                    "the overlay must own Escape-to-close for the workspace panel like it does for the outline")
-            #expect(overlay.contains("document.getElementById('w-close') || document.getElementById('w-dock')"),
-                    "Escape must fall back to the collapse tab when the panel's ✕ is absent")
+            // A17: ONE shape both states. The tab is the closed-state handle and
+            // the sheet hides it while the panel is open, because the open state
+            // is the engine's `data-open` — a dismissal never reaches the server,
+            // so a server-rendered `hidden` could outlive the panel and strand it.
+            #expect(closed == open, "the dock renders one shape, not a server-stated variant")
+            #expect(closed.contains("title=\"Open workspace\""), "the tab is the open handle")
             let css = Self.sheetSource
-            #expect(css.contains(".ws-dock-btn.ws-dock-open { opacity: 1; }"),
-                    "the collapse affordance exists only on hover — Escape/click are its only closers")
+            #expect(css.contains("#app:has(#ws-panel[data-open]) .ws-dock-btn { display: none; }"),
+                    "the dock must hide on the engine's layer attribute, not a server `hidden`")
         }
 
-        @Test("an open workspace panel shows exactly one close control — the collapse tab is hidden")
+        @Test("an open workspace panel shows exactly one close control — the tab is hidden")
         func workspaceDockHidesWhenOpen() async {
             // UX-30: the open-state dock tab floated at the panel's mid-right edge
-            // over the file rows — two competing close affordances. While open the
-            // collapse tab must be hidden so the header ✕ is the single close
-            // control (the anchored wrapper stays, so routing never drops).
+            // over the file rows — two competing close affordances. The tab must be
+            // hidden while the panel is open so the header ✕ is the single close
+            // control. A17 moved that from a server `hidden` (which an engine
+            // dismissal could strand) to the sheet, keyed on the panel's layer
+            // attribute.
             let app = Self.workspace { $0.workspaceOpen = true }
             let dock = await app.workspaceDockHTML().markup.html
             let panel = await app.workspacePanelHTML().markup.html
-            let tabTag = dock.components(separatedBy: "<button").dropFirst().first
-                .map { String($0.prefix(while: { $0 != ">" })) } ?? ""
-            #expect(tabTag.contains("id=\"w-dock\""), "the collapsed-tab pin must be reading the tab")
-            #expect(tabTag.contains("hidden"),
-                    "the open state must mark the collapse tab hidden — two close controls is the bug")
+            #expect(dock.contains("id=\"w-dock\""), "the anchored tab stays mounted in both states")
+            #expect(!dock.contains(" hidden"),
+                    "the tab must carry no server `hidden` — the engine's dismissal never reaches the server")
             #expect(Self.count(of: "id=\"w-close\"", in: panel) == 1,
                     "the open panel must render exactly one header ✕")
-            #expect(Self.sheetSource.contains(".ws-dock-btn[hidden] { display: none; }"),
-                    ".ws-dock-btn declares display:flex — without an explicit [hidden] rule the UA rule loses and the dead chevron stays visible")
+            #expect(panel.contains("data-open="),
+                    "the open panel states the engine's layer attribute")
+            #expect(Self.sheetSource.contains("#app:has(#ws-panel[data-open]) .ws-dock-btn { display: none; }"),
+                    "the single-close-control rule is the sheet's, keyed on the layer attribute")
         }
 
         // MARK: - UX-05 the topbar follows the auto-title
@@ -531,7 +598,7 @@ extension ArcWebUITestRoot {
             // `id="ta-<action.id>-<toast.id>"` on the action button. Render it
             // once and assert the wireable id is present in the bytes.
             var undoFixture = AppState.RenderFixture()
-            undoFixture.pendingCopyURL = "https://example.com/x"
+            undoFixture.publicOrigin = "http://127.0.0.1:8890"
             undoFixture.toasts = [
                 Toast(id: 2, text: "Saved", kind: "success",
                       action: ToastAction(id: "undo-delete", label: "Undo")),
@@ -540,30 +607,22 @@ extension ArcWebUITestRoot {
             let rendered = await undoApp.toastsHTML().markup.html
             #expect(rendered.contains("id=\"ta-undo-delete-2\""),
                     "the toast action button must be rendered with a wireable id")
-            #expect(Self.overlay.contains("if (kind === 'quiet') return"),
-                    "copy-link feedback toasts must surface (only explicit quiet stays silent)")
-            // The copy side effect is server-owned (single owner for toast+URL),
-            // and the clipboard write is a post-patch handoff via #pending-copy.
-            // (T23 audit: wired regions do not swallow client listeners on this
-            // pair — probes showed all phases firing — so this is an ownership
-            // choice, not a workaround for lost events.)
-            // UX-24: the overlay owns the copy toast now; the server only
-            // stages the URL marker. The overlay's post-patch pass reads it,
-            // writes the clipboard, and flashes exactly one toast.
+            // Copy is ONE attribute now (A16b/F5): the engine binds
+            // `[data-copy]`, writes the clipboard and owns the "Copied" pill, so
+            // every copy surface carries its text as `data-copy` and arc keeps no
+            // clipboard code at all. The staged `#pending-copy` marker, the
+            // `flashToast` builder and the three per-surface handlers are gone —
+            // a name from that list reappearing is the duplicate coming back.
             #expect(!Self.actions.contains("surfaceToast(\"Conversation link copied.\")"),
-                    "the server must NOT surface the copy toast — the overlay owns it (UX-24)")
-            #expect(Self.appState.contains("func markCopyLink(_ sessionID: String)"),
-                    "the server must stage the link for the client clipboard write")
-            #expect(Self.appState.contains("var pendingCopyURL: String? = nil"),
-                    "the staged link must ride the toasts fragment")
-            // Re-based onto rendered output: the builder emits `<span id="pending-copy" data-copy-url="…">`
-            // inside #toasts. Re-use the rendered fragment from above.
-            #expect(rendered.contains("id=\"pending-copy\" data-copy-url"),
-                    "the hidden copy marker must be rendered inside #toasts")
-            #expect(Self.overlay.contains("function copyFromServerMarker()"),
-                    "the overlay must consume the marker and write the clipboard")
-            #expect(Self.overlay.contains("copyFromServerMarker();"),
-                    "the clipboard handoff must run out of the post-patch seam")
+                    "the server must NOT surface a copy toast — the engine's `[data-webui-toast]` is the one feedback")
+            #expect(!Self.appState.contains("func markCopyLink(_ sessionID: String)"),
+                    "the staged link helper is gone: the share url is an attribute value now")
+            #expect(!Self.appState.contains("var pendingCopyURL: String? = nil"),
+                    "nothing stages a copy url through the toasts fragment any more")
+            #expect(!rendered.contains("id=\"pending-copy\""),
+                    "the hidden copy marker must not be rendered inside #toasts")
+            #expect(Self.views.contains("Clipboard(text:") ,
+                    "the copy surfaces must carry `Clipboard` values (the link, the work-log digest, the preview)")
         }
         @Test("deleting a chat surfaces a plain notification with NO undo button")
         func deleteHasNoUndoToast() async {
@@ -654,21 +713,22 @@ extension ArcWebUITestRoot {
         @Test("the copy-link branch stages the marker; the door's render carries the shell")
         func copyLinkToastsInterpolates() async {
             let actions = Self.actions
-            // The branch stages the URL on the state and asks the door to look. The
-            // render is what emits the marker, inside `#toasts` (single-shot: reading
-            // it clears it). Pin both halves, and keep the hand-written wrapper
-            // banned — it shipped the literal interpolation once.
-            #expect(actions.contains("await self.app.markCopyLink(sid)"),
-                    "the copy-link branch must stage the URL the overlay writes to the clipboard")
+            // The branch no longer stages anything: the entry itself carries
+            // `data-copy` with the absolute share url (A16b), and the server click
+            // only closes the menu. Pin both halves — the engine-owned value and
+            // the hand-written wrapper that shipped literal markup once.
+            #expect(!actions.contains("await self.app.markCopyLink(sid)"),
+                    "the copy-link branch must not stage a url any more: the value is an attribute")
+            #expect(actions.contains("the clipboard write is the ENGINE's"),
+                    "the copy branch must say where the clipboard write now lives, or the next reader re-adds a staged path")
             #expect(!actions.contains("<div id=\"toasts\" data-component-id=\"toast-dismiss\""),
                     "the hand-written toasts wrapper string must not survive — it ships literal markup")
             var fixture = AppState.RenderFixture()
-            fixture.pendingCopyURL = "https://example.com/x"
             let rendered = await AppState(renderFixture: fixture).toastsShell().markup.html
             #expect(rendered.contains("id=\"toasts\""),
                     "the fragment must carry the container: an inner-only replace deletes #toasts for the session")
-            #expect(rendered.contains("id=\"pending-copy\" data-copy-url=\"https://example.com/x\""),
-                    "the staged URL must render inside #toasts — that is what the overlay reads")
+            #expect(!rendered.contains("pending-copy"),
+                    "no staged marker rides the toasts fragment (A16b)")
         }
 
 
@@ -745,9 +805,9 @@ extension ArcWebUITestRoot {
 
         /// The preview pane must keep the reason it cannot render (binary,
         /// too large, not utf-8, read failure) instead of an empty <pre>, and
-        /// every control in its head must have an owner: the copy control is
-        /// client-side, the open-in-editor control was markup-only and is gone.
-        @Test("workspace previews keep their no-preview reason and the copy control is wired")
+        /// every control in its head must have an owner: the copy control is the
+        /// engine's `[data-copy]` and exists only when there IS text to copy.
+        @Test("workspace previews keep their no-preview reason and the copy control carries its text")
         func workspacePreviewContracts() async {
             let body = await Self.workspace {
                 $0.workspaceOpen = true
@@ -758,59 +818,47 @@ extension ArcWebUITestRoot {
                     "an unreadable preview must name the reason, not render an empty box")
             #expect(!body.contains("<pre"),
                     "an unreadable preview must not fall through to an empty <pre>")
-            #expect(body.contains("id=\"ws-preview-copy\""),
-                    "the preview must still render its copy control")
+            #expect(!body.contains("id=\"ws-preview-copy\""),
+                    "with no content there is nothing to copy: the control must not render (A16b)")
             #expect(!body.contains("ws-preview-open"),
                     "the unwired open-in-editor control must not ship")
-            let overlay = Self.overlay
-            #expect(overlay.contains("#ws-preview-copy"),
-                    "the preview copy control must have a client owner")
+
+            let readable = await Self.workspace {
+                $0.workspaceOpen = true
+                $0.previewPath = "notes.md"
+                $0.previewContent = "# Notes\n\nA line of prose."
+            }.workspaceBodyHTML().markup.html
+            #expect(readable.contains("id=\"ws-preview-copy\""),
+                    "a readable preview must render its copy control")
+            #expect(readable.contains("data-copy=\"# Notes"),
+                    "the copy control carries the file's server-rendered text (A16b/F5)")
+
+            // D-10's `attachUploadedPath` pin is gone with the function: 2.11.0's
+            // upload zone dispatches `upload-complete` on `#composer-form`, and
+            // `handleComposerForm` routes the answer to the same attach wire. the
+            // route test (`UploadRouteTests`) and the upload gate prove that path
+            // end to end; there is no client upload code left to pin.
         }
 
 
-        // MARK: - UX-01 slash autocomplete consumer
+        // MARK: - UX-01 the slash palette's server consumer (A16d)
 
-        @Test("the slash menu payload has a client consumer wired to open/filter/insert")
-        func slashMenuIsConsumed() async {
-            let overlay = Self.overlay
-            // The regression: `#slash-data` and `#cmd-dropdown` were rendered but
-            // nothing consumed them after the engine migration — `/` did nothing.
-            #expect(overlay.contains("function slashItems()"),
-                    "the overlay must parse the server-rendered slash payload")
-            #expect(overlay.contains("JSON.parse(host.textContent || '{}')"),
-                    "the menu must read `#slash-data`, not a hardcoded copy")
-            #expect(overlay.contains("function syncSlashMenu(value)"),
-                    "opening/filtering must be driven by composer input")
-            #expect(overlay.contains("e.key === 'ArrowDown' || e.key === 'ArrowUp'"),
-                    "ArrowUp/Down must move the selection")
-            #expect(overlay.contains("e.key === 'Enter' || e.key === 'Tab'"),
-                    "Enter/Tab must insert the highlighted command")
-            #expect(overlay.contains("chooseSlash("), "an insert path must exist")
-            #expect(overlay.contains("function closeSlashMenu()"),
-                    "Escape/outside-click must be able to close it")
-            #expect(overlay.contains("if (slashMenuOpen()) return;"),
-                    "Enter with the menu open must insert, not submit the stale `/…` text")
+        @Test("the slash palette's rows are server markup and no client consumer survives")
+        func slashMenuIsServerRendered() async {
+            // The A16-era regression was the OPPOSITE shape: `#slash-data` and
+            // `#cmd-dropdown` were rendered and nothing consumed them. 3.1.0's
+            // `FilterList(token:)` is the consumer, declared ON the markup — so
+            // the honest pin is that the client block is gone and the region is
+            // there, not that a function name exists.
             let composer = await RenderedMarkup.composer()
-            // the plan asks for a stronger pin than a substring: the payload must
-            // PARSE as JSON, because a malformed blob silently kills autocomplete.
-            let slashTag = composer.range(of: #"<div id="slash-data"[^>]*>[\s\S]*?</div>"#,
-                                          options: .regularExpression).map { String(composer[$0]) }
-            #expect(slashTag != nil, "the slash payload node must exist")
-            if let slashTag {
-                let inner = slashTag
-                    .replacingOccurrences(of: #"^<div[^>]*>"#, with: "", options: .regularExpression)
-                    .replacingOccurrences(of: "</div>", with: "")
-                    .replacingOccurrences(of: "&quot;", with: "\"")
-                    .replacingOccurrences(of: "&#39;", with: "'")
-                    .replacingOccurrences(of: "&lt;", with: "<")
-                    .replacingOccurrences(of: "&gt;", with: ">")
-                    .replacingOccurrences(of: "&amp;", with: "&")
-                let decoded = (try? JSONSerialization.jsonObject(with: Data(inner.utf8))) as? [String: Any]
-                #expect(decoded?["items"] != nil,
-                        "the slash payload must parse as JSON with an items array")
-            }
-            #expect(composer.contains("id=\"slash-data\""),
-                    "the payload node must stay in the composer markup")
+            // ten builtin commands, each a row the engine can list and select
+            #expect(Self.count("class=\"combo__option\"", in: composer) >= 10,
+                    "every builtin command must be a server-rendered option row")
+            #expect(composer.contains("role=\"option\""),
+                    "rows must carry the role the filter list enumerates")
+            // `/` still reaches the field, so the shortcut is preserved without JS
+            #expect(composer.contains("data-filter-list=\"/|#composer-input\""),
+                    "the `/` gate is the region's declaration")
         }
 
         // MARK: - UX-04 honest mid-stream queue
@@ -841,7 +889,6 @@ extension ArcWebUITestRoot {
             #expect(actions.contains("if !wasStopped, let next = self.popQueuedSend(sessionID)"),
                     "the turn end must drain one queued message so order matches the chips")
             #expect(actions.contains("@Wired(\"queued-sends\""), "the queue row must be wired")
-            #expect(!Self.overlay.contains("steer"), "no steer wording may survive")
         }
 
         // MARK: - UX-29 queued-chip copy
@@ -919,15 +966,46 @@ extension ArcWebUITestRoot {
                     "message actions must stay in the tab order; focus-within reveals the footer")
             #expect(copyBtn?.contains("title=\"Copy message\"") == true,
                     "the copy action must keep its tooltip")
-            let overlay = Self.overlay
-            #expect(overlay.contains("function visibleSessionRows()"),
-                    "the overlay must rove across visible rows only")
-            #expect(overlay.contains("roveRowFocus("),
-                    "roving must move tabindex with focus")
-            #expect(overlay.contains("if (e.key === 'Menu' || (e.shiftKey && e.key === 'F10'))"),
-                    "the Menu key must open a row's ⋮ menu")
-            #expect(overlay.contains(".sess-row[tabindex]')) return;"),
-                    "the transcript-scroll keys must never steal a session row's arrows")
+
+            // `data-roving` container. The overlay's own row walker and
+            // tabindex mover are gone. a11 (2.13.0): the reading keys are the
+            // engine's too — `data-reading-keys` acts only while its own
+            // region contains focus (`webui-engine.js:1828`), and the session
+            // list is outside `#chat-scroll`, so the two never fight and the
+            // overlay's document-level walker (with its `.sess-row[tabindex]`
+            // guard) is gone.
+            let chatMain = await RenderedMarkup.chatMain()
+            let scrollerTag = chatMain.range(of: #"<div [^>]*id=\"chat-scroll\"[^>]*>"#,
+                                             options: .regularExpression).map { String(chatMain[$0]) }
+            #expect(scrollerTag?.contains("data-follow=\"bottom\"") == true,
+                    "the scroller must state the follow policy: \(scrollerTag ?? "no tag")")
+            #expect(scrollerTag?.contains("data-reading-keys") == true,
+                    "the scroller must carry the reading-keys region: \(scrollerTag ?? "no tag")")
+            #expect(scrollerTag?.contains("data-scroll-key=\"sess-a\"") == true,
+                    "the scroll memory must be keyed by session: \(scrollerTag ?? "no tag")")
+            #expect(scrollerTag?.contains("tabindex=\"0\"") == true,
+                    "a reading-keys region must be focusable: \(scrollerTag ?? "no tag")")
+            #expect(scrollerTag?.contains("data-follow-state") != true,
+                    "data-follow-state is the engine's output — the server must never emit it")
+            let sessionsPanel = await RenderedMarkup.panelWithRows()
+            // UX-07: the roving OWNER is the list body, not each date bucket.
+            // Per-bucket owners made every non-empty bucket one Tab stop (4–5
+            // measured at 1440), so the budget tracked the data instead of the
+            // chrome. One owner for the whole list; the rows keep the tabindex
+            // contract (active 0, others -1).
+            let listTag = sessionsPanel.range(of: #"<div [^>]*id="sess-list-body"[^>]*>"#,
+                                              options: .regularExpression).map { String(sessionsPanel[$0]) }
+            #expect(listTag?.contains("data-roving") == true,
+                    "the session list body must declare data-roving, or the engine never binds: \(listTag ?? "no tag")")
+            let rowsTag = sessionsPanel.range(of: #"<div [^>]*class="sess-group-rows"[^>]*>"#,
+                                              options: .regularExpression).map { String(sessionsPanel[$0]) }
+            #expect(rowsTag?.contains("data-roving") != true,
+                    "a date bucket must not be its own roving group — that is one Tab stop per bucket: \(rowsTag ?? "no tag")")
+            let shell = await RenderedMarkup.page()
+            let railTag = shell.range(of: #"<aside [^>]*id="iconbar"[^>]*>"#,
+                                      options: .regularExpression).map { String(shell[$0]) }
+            #expect(railTag?.contains("data-roving") == true,
+                    "the icon rail must declare data-roving, or the engine never binds: \(railTag ?? "no tag")")
             let sheet = Self.sheetSource
             #expect(sheet.contains(".skip-link:focus { left: 0; }"),
                     "the skip link must be invisible until focused, then visible")
@@ -1063,11 +1141,29 @@ extension ArcWebUITestRoot {
             #expect(html.contains("id=\"modal-title\""), "the label target must exist")
             #expect(html.contains("id=\"modal-cancel\""), "the cancel button renders")
             #expect(html.contains("id=\"modal-confirm\""), "the confirm button renders")
-            #expect(Self.overlay.contains("function syncModalFocus()"))
-            #expect(Self.overlay.contains("if (e.key === 'Escape') {"),
-                    "Escape used to do nothing at all in the modal")
-            #expect(Self.overlay.contains("card.contains(document.activeElement)"),
-                    "Tab escaped the dialog to a control behind the scrim")
+            let cancelTag = html.range(of: #"<button [^>]*id="modal-cancel"[^>]*>"#,
+                                       options: .regularExpression).map { String(html[$0]) }
+            #expect(cancelTag?.contains("data-dismiss") == true,
+                    "Cancel must be the [data-dismiss] control the engine's Escape fires — never Delete")
+            // focus ENTERS and RETURNS by emission: 3.1.0's `FocusInto` on the
+            // dialog's region root is the entry (first and every later open —
+            // `autofocus` was once per document), and `data-focus-return` names
+            // the opener the engine focuses once the removal patch lands.
+            #expect(!(cancelTag?.contains("autofocus") ?? false),
+                    "`autofocus` is once per document — the second open would strand focus")
+            #expect(html.contains("data-focus-into=\"modal-cancel\""),
+                    "the dialog's region root must carry the 3.1.0 entry declaration")
+            #expect(cancelTag?.contains("data-focus-return=") == true,
+                    "Cancel must name the control focus returns to — the engine's opener memo stays empty without it")
+            // Escape with focus INSIDE the dialog and the Tab wrap are the
+            // engine's at 2.14.0; arc keeps neither, so both are pinned in the
+            // engine it serves.
+            let engine = WebUIAssets.engine
+            #expect(engine.contains("var control = overlay.querySelector('[data-dismiss]');"),
+                    "Escape inside `.modal-overlay` must still fire the layer's dismiss control")
+            #expect(engine.contains("var modal = e.target.closest('.modal-overlay');") &&
+                    engine.contains("if (e.shiftKey && e.target === f[0])"),
+                    "the Tab wrap inside `.modal-overlay` must be the engine's — arc's block that held the trap is deleted")
         }
 
         // MARK: - A15/F27/F58/F60 the guarded deletes
@@ -1217,16 +1313,36 @@ extension ArcWebUITestRoot {
             #expect(chat.contains("data-component-id=\"outline-close\""))
             #expect(Self.appState.contains("var outlineOpen = false"))
             #expect(Self.actions.contains("@Wired(\"outline-toggle\""), "outline toggle is wired")
-            #expect(Self.overlay.contains("function syncOutline()"),
-                    "the overlay still owns the entry list, keyed off the server-rendered shell")
-            #expect(!Self.overlay.contains("panel.hidden = !panel.hidden"),
+            // The entry list is server-rendered. Each entry names the
+            // transcript row's own anchor id (`msg-user-<rawIdx>`) and rides the
+            // engine's `data-scroll-to` consequence — so the pin checks the id
+            // against the row the transcript actually rendered, not against a
+            // second convention.
+            #expect(chat.contains("id=\"msg-user-0\""),
+                    "the transcript row's anchor id is what an entry must point at")
+            #expect(chat.contains("data-scroll-to=\"msg-user-0\""),
+                    "the outline entry must jump through the engine's data-scroll-to consequence")
+            #expect(chat.contains("class=\"outline-entry\""), "entries render server-side")
+            // A17: the panel is an engine LAYER — closed means the attribute is
+            // absent, not a server `hidden`, because the dismiss stack (Escape,
+            // click-away) clears it on the client and never tells the server.
+            let outlineTag = chat.range(of: "<div[^>]* id=\"outline-panel\"[^>]*>",
+                                        options: .regularExpression).map { String(chat[$0]) }
+            #expect(outlineTag != nil, "the outline panel must render")
+            #expect(outlineTag?.contains(" hidden") == false,
+                    "a server `hidden` on the outline fights the engine's `data-open`")
+            #expect(outlineTag?.contains("data-open") == false,
+                    "the default outline render is CLOSED — no attribute")
+            #expect(!Self.views.contains("buildOutline") && !Self.views.contains("syncOutline"),
+                    "no client builder may rebuild the entry list")
+            #expect(!Self.views.contains("panel.hidden = !panel.hidden"),
                     "the client must not flip `hidden` behind the server's back")
         }
 
         @Test("the open outline moves the reading column clear of itself")
         func outlineReservesSpace() {
             let css = Self.sheetSource
-            #expect(css.contains(".chat-scroll-wrap:has(#outline-panel:not([hidden])) .chat-scroll { padding-right: 348px !important; }"),
+            #expect(css.contains(".chat-scroll-wrap:has(#outline-panel[data-open]) .chat-scroll { padding-right: 348px !important; }"),
                     "the panel floated over the transcript; `!important` is needed to outrank '#main .chat-scroll'")
             #expect(css.contains("@media (max-width: 1200px) {"),
                     "below 1200px there is no room to shift, so the panel overlays by design")
@@ -1418,7 +1534,7 @@ extension ArcWebUITestRoot {
 
         // MARK: - UX-19 responsive chrome: overlay drawer + compact rail (T12)
 
-        @Test("below 1024px the panel is an overlay drawer with a topbar toggle and scrim")
+        @Test("at or below 860px the panel is an overlay drawer the engine owns")
         func responsiveDrawerChrome() async {
             // the toggle and the scrim are read from rendered bytes now, not from a
             // source spelling: the property is that the control reaches the page,
@@ -1431,15 +1547,30 @@ extension ArcWebUITestRoot {
                     "the toggle must be labelled")
             #expect(page.contains("aria-expanded=\"false\""),
                     "the toggle must start aria-expanded=false")
+            // no-webui 2.15.0: `data-drawer-toggle` NAMES the root whose
+            // `data-open` the click flips, and the engine reads it with no
+            // round-trip — so the toggle has no component id and no server half.
+            #expect(page.contains("data-drawer-toggle=\"app\""),
+                    "the toggle must name #app through the engine's drawer behavior")
+            #expect(!page.contains("data-component-id=\"drawer-toggle\""),
+                    "the toggle is not wired: the drawer's state never round-trips")
             // The scrim is the outside-click dismissal surface; it must live in
-            // the shell so every tab gets one.
+            // the shell so every tab gets one, and it carries the same toggle.
             #expect(page.contains("id=\"drawer-scrim\""),
                     "the drawer scrim must be part of the app shell, not one tab")
+            let scrim = page.range(of: #"<div[^>]*id="drawer-scrim"[^>]*>"#, options: .regularExpression)
+                .map { String(page[$0]) } ?? ""
+            #expect(scrim.contains("data-drawer-toggle=\"app\""),
+                    "a click on the scrim is a close: it names the same root")
+            // the engine focuses `.drawer__panel`'s first control on open, so the
+            // panel carries that class and the sheet clears the framework's box.
+            #expect(page.contains("class=\"drawer__panel\""),
+                    "the panel is the engine's drawer focus target")
             let css = Self.sheetSource
-            // Below 1024px the panel docks over the chat (fixed, off-canvas at
+            // Below 860px the panel docks over the chat (fixed, off-canvas at
             // rest, `visibility: hidden` so closed controls leave the tab order).
-            #expect(css.contains("@media (max-width: 1023.98px) {"),
-                    "the drawer breakpoint must exist")
+            #expect(css.contains("@media (max-width: 860px) {"),
+                    "the drawer breakpoint must be the engine's own (860px)")
             #expect(css.contains("position: fixed; top: 38px; bottom: 0; left: var(--iconbar-w);"),
                     "the panel must become a fixed overlay below the topbar, clear of the rail")
             // UX-61: the drawer starts AFTER the rail so the rail is never the
@@ -1452,14 +1583,16 @@ extension ArcWebUITestRoot {
                     "the scrim must dim the content column but never the rail")
             #expect(css.contains("visibility: hidden;"),
                     "the closed drawer's controls must leave the tab order (visibility, not just transform)")
-            #expect(css.contains("#app.drawer-open #panel {\n        transform: translateX(0);\n        visibility: visible;"),
-                    "the open state must live on #app (survives panel re-renders) and reveal the drawer")
-            #expect(css.contains("#app.drawer-open .drawer-scrim { opacity: 1; pointer-events: auto; }"),
+            #expect(css.contains("#app[data-open] #panel {\n        transform: translateX(0);\n        visibility: visible;"),
+                    "the open state is the engine's data-open on #app (it survives panel re-renders) and reveals the drawer")
+            #expect(css.contains("#app[data-open] .drawer-scrim { opacity: 1; pointer-events: auto; }"),
                     "the scrim must dim the chat and swallow outside clicks only while open")
-            #expect(css.contains("@media (min-width: 1024px) { .drawer-toggle-btn { display: none; } }"),
-                    "at >= 1024px the toggle must be gone (and with it its tab stop)")
-            #expect(css.contains("@media (min-width: 1024px) { .drawer-scrim { display: none; } }"),
-                    "at >= 1024px the scrim must not exist")
+            #expect(!css.contains("drawer-open"),
+                    "the old `.drawer-open` class spelling is gone: the attribute is the only key")
+            #expect(css.contains("@media (min-width: 861px) { .drawer-toggle-btn { display: none; } }"),
+                    "at >= 861px the toggle must be gone (and with it its tab stop)")
+            #expect(css.contains("@media (min-width: 861px) { .drawer-scrim { display: none; } }"),
+                    "at >= 861px the scrim must not exist")
         }
 
         @Test("below 720px the rail compacts but keeps >= 40px hit targets, and the floats re-anchor")
@@ -1481,54 +1614,46 @@ extension ArcWebUITestRoot {
                     "jump-to-latest is centred above the composer, not parked in a right lane")
         }
 
-        @Test("the overlay owns drawer open/close: Escape, outside click, session pick, breakpoint reset")
-        func overlayDrawerLogic() {
-            let overlay = Self.overlay
-            #expect(overlay.contains("function openDrawer()"), "an open path must exist")
-            #expect(overlay.contains("function closeDrawer(returnFocus)"), "a close path must exist")
-            #expect(overlay.contains("a.classList.add('drawer-open')"),
-                    "open must flip the class on #app, not #panel (the panel node is replaced by patches)")
-            #expect(overlay.contains("a.classList.remove('drawer-open')"), "close must undo the class")
-            #expect(overlay.contains("if (drawerOpen()) closeDrawer(true);\n      else openDrawer();"),
-                    "the toggle must toggle (and return focus on close)")
-            #expect(overlay.contains("t.closest('#drawer-scrim')"), "outside click (the scrim) must close")
-            #expect(overlay.contains("t.closest('.sess-row') || t.closest('#chat-new')"),
-                    "picking a conversation (or minting one) must close the drawer")
-            #expect(overlay.contains("t.closest('#iconbar')"),
-                    "a rail switch must close the drawer so the chosen view owns the canvas (UX-61)")
-            #expect(overlay.contains("if (isNarrow() && drawerOpen()) { closeDrawer(true); return; }"),
-                    "Escape must own the drawer while it is open, before the other Escape targets")
-            #expect(overlay.contains("mq.addEventListener('change'"),
-                    "growing past the breakpoint must reset the drawer state so aria stays honest")
-            // Focus moves into the drawer on open and back to the toggle on close —
-            // the keyboard path in and out of the drawer.
-            #expect(overlay.contains("p.querySelector('input') || p.querySelector('a[href], button, select, textarea, [tabindex]')"),
-                    "open must focus a real control inside the drawer (search input preferred, anchors for settings)")
-            #expect(overlay.contains("if (returnFocus && t && t.focus) t.focus({ preventScroll: true });"),
-                    "close must return focus to the toggle")
+        @Test("the engine owns the drawer: no client drawer code and no client Escape remainder")
+        func drawerIsTheEngines() {
+            // every client-side drawer path is GONE: the open state is the
+            // engine's `data-open` on #app, and its `data-drawer-toggle` flips it
+            // (focus in on open, back on the toggle on close) with no round-trip.
+            // The toggle and the scrim both name `app`, and the sheet keys the
+            // scrim on the attribute — no client code in the chain.
+            let views = Self.views
+            #expect(views.contains("data-drawer-toggle=\"app\""),
+                    "the topbar toggle is the engine's drawer control")
+            #expect(views.contains(".data(\"drawer-toggle\", \"app\")"),
+                    "and the scrim is the second one — its own click is the close")
+            #expect(Self.sheetSource.contains("#app[data-open] .drawer-scrim { opacity: 1; pointer-events: auto; }"),
+                    "the scrim is the sheet's, keyed on the engine's attribute")
+            // A17 closed the remainder too: the two panels are `data-open`
+            // layers, so the dismiss stack owns their Escape. A capture-phase
+            // document listener anywhere would be a second owner of one key —
+            // the exact defect the whole program deleted.
+            #expect(!views.contains("addEventListener"),
+                    "no client event listener may survive: the engine owns every consequence")
+            #expect(Self.sheetSource.contains(".ws-panel[data-open] {"),
+                    "the workspace panel's open state is the engine's layer attribute")
+            #expect(Self.sheetSource.contains("#outline-panel[data-open] {"),
+                    "the outline's open state is the engine's layer attribute")
         }
 
         // MARK: - UX-60/61/62 (round 8): the "stuck in Settings" freeze, the
         // drawer covering the rail, and the empty-draft clutter.
 
         /// UX-60 — the S1 freeze. A Settings sub-nav row is `<a href="#appearance">`.
-        /// Left to the browser the hash jump pushes a history entry and fires
-        /// `popstate`; the engine reports that as a `navigate` frame, and the
-        /// server's navigate re-render RESETS the render session arc registered its
-        /// handlers in at boot. Every control then goes dead — the rail, the
-        /// settings chips, the composer — until the server restarts. The overlay
-        /// must intercept the jump so the URL (and the history stack) never move.
-        @Test("in-page #anchors are intercepted so they can never fire a navigate")
-        func inPageAnchorsDoNotNavigate() async {
-            let overlay = Self.overlay
-            #expect(overlay.contains("closest('a[href^=\"#\"]')"),
-                    "the overlay must intercept same-page anchors before the browser navigates")
-            #expect(overlay.contains("e.preventDefault();"),
-                    "the jump must be prevented (no hash change → no popstate → no navigate frame)")
-            #expect(overlay.contains("target.scrollIntoView"),
-                    "the anchor must still move the view to its target")
-            #expect(overlay.contains("target.focus({ preventScroll: true })"),
-                    "a control target must receive focus (that is the skip link's whole job)")
+        /// The overlay used to intercept every same-page `#` click because a
+        /// navigate re-render was said to RESET the render session arc registered
+        /// its handlers in at boot. That premise died at this package's pin:
+        /// `WebUIServer.answerNavigate` re-renders with
+        /// `begin(..., preservingRegistrations: true)` since `a5fa7bb`, and the
+        /// interception was deleted 2026-11-07. What still has to hold is the
+        /// markup a browser jump needs — real, named, focusable anchors. The
+        /// router half of the premise is pinned behaviourally by `AnchorJumpTests`.
+        @Test("settings sub-nav rows stay real named anchors a browser can jump to")
+        func settingsSubNavRowsAreRealAnchors() async {
             // The settings sub-nav rows must stay real, named, focusable links.
             // asserted on the RENDERED panel: the rows are a typed composite now,
             // and a source grep would keep passing if the anchor stopped emitting.
@@ -1596,8 +1721,13 @@ extension ArcWebUITestRoot {
         func drawerClearsRail() {
             #expect(Self.sheetSource.contains(".drawer-scrim { left: var(--iconbar-w); }"),
                     "the scrim must not cover the rail")
-            #expect(Self.overlay.contains("t.closest('#iconbar')"),
-                    "a rail switch must close the drawer")
+            // the rail tap used to be the overlay's own close rule. the engine's
+            // drawer closes on its toggle/scrim and on any outside click — a rail
+            // icon is outside `#app`'s open layer, so the tap still leaves the
+            // drawer without a class flip, and the scrim's offset is what keeps
+            // the tap reaching the rail at all.
+            #expect(Self.sheetSource.contains("@media (max-width: 860px) {"),
+                    "and the drawer split is the engine's 860px")
         }
 
         /// A placeholder is not a label: it vanishes on input and is not an
@@ -1770,70 +1900,69 @@ extension ArcWebUITestRoot {
         /// <body> because the modal's own focus moves overwrote the generic
         /// patch-restore's memory.
         ///
-        /// The focus fix is pinned at the mechanism, not the symptom: the very
-        /// patch that OPENS the dialog re-renders the chat header and disconnects
-        /// the focused trigger, so the trigger has to be snapshotted by a
-        /// capture-phase click listener BEFORE that patch (focus-time recording
-        /// already sees <body>), and restore has to resolve the snapshot through
-        /// the session row's data-sid because the trigger's node gets replaced.
-        ///
-        /// Wave-2: the close round-trip delivers several fragment patches in one
-        /// batch, so restore is keyed to syncModalFocus's open→closed transition
-        /// (modalWasOpen) — it fires exactly on the pass where the card is first
-        /// gone, and no early-clear guard may wipe the memory while an earlier
-        /// fragment still has the dialog in the DOM.
+        /// Both halves are the engine's now. The table carries the typed
+        /// `data-table-enhance="sort filter"` and a named filter field; the dialog
+        /// returns focus by ID — the trigger names the dialog it opens, the
+        /// dialog's close names the control focus goes back to, and the engine
+        /// re-queries that id after the patch. Pinned on the round trip the CHAT
+        /// delete actually takes: the menu entry is gone with the menu that the
+        /// same click closed, so the return target is the row's ⋮ button, which
+        /// owns the menu and stays rendered.
         @Test("table sort/filter controls are named and the modal returns focus to its trigger")
-        func tableControlsNamedAndModalRestoresFocus() {
-            let overlay = Self.overlay
-            #expect(overlay.contains("sort.setAttribute('aria-label', 'Sort by '"),
-                    "the sort button must announce the column it sorts (UX-08)")
-            #expect(overlay.contains("hc.removeAttribute('aria-sort')"),
-                    "aria-sort must be cleared from the other columns on each sort (UX-08)")
-            #expect(overlay.contains("target.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending')"),
-                    "the sorted column must announce ascending/descending (UX-08)")
-            #expect(overlay.contains("filter.setAttribute('aria-label', 'Filter table rows')"),
+        func tableControlsNamedAndModalRestoresFocus() async {
+            // The engine owns table sorting and filtering now (`data-table-enhance`
+            // dispatch). What this page owes is the typed attribute, a filter
+            // field the handler can find by its documented selector, and a
+            // header control whose accessible name is the column — the overlay
+            // no longer mints any of it.
+            let app = AppState(renderFixture: AppState.RenderFixture())
+            let enhance = await app.chatTableEnhance
+            let table = await app.mdBox("| Name | Size |\n|---|---|\n| beta | 20 |", tableEnhance: enhance)
+            #expect(table.contains("data-table-enhance=\"sort filter\""),
+                    "the chat table must carry the framework's typed behavior value (UX-08: sort AND filter)")
+            #expect(table.contains("input") && table.contains("data-table-filter"),
+                    "the engine looks for input[data-table-filter] inside the enhanced region")
+            #expect(table.contains("aria-label=\"Filter table rows\""),
                     "the filter field needs an accessible name — a placeholder is not one (UX-08)")
-            // The modal block: state, pointer capture, sync, restore, then the
-            // Escape/Tab trap. Scoped so the pins cannot match lookalike code
-            // elsewhere in the overlay (six other document click listeners).
-            guard let m0 = overlay.range(of: "var modalReturnFocus = null;"),
-                  let m1 = overlay.range(of: "document.addEventListener('keydown', function (e) {",
-                                         range: m0.upperBound..<overlay.endIndex) else {
-                #expect(Bool(false), "the modal focus block (state + capture + sync + restore) must exist (UX-08)")
-                return
+            #expect(table.contains("aria-label=\"Sort by Name\""),
+                    "the sort control must announce the column it sorts (UX-08)")
+            let plain = await app.mdBox("| a |\n|---|\n| 1 |")
+            #expect(!plain.contains("data-table-enhance"),
+                    "surfaces that did not opt in keep the inert wrapper")
+            // The chat-delete round trip, both ends on rendered bytes: the menu
+            // entry names the dialog it opens, and the dialog's Cancel names the
+            // control focus returns to. For a chat that target is the row's ⋮
+            // button — the entry is gone with the menu the same click closed, so
+            // naming it would leave focus on <body> with nowhere to go back to.
+            func openTag(_ html: String, _ id: String) -> String? {
+                html.range(of: "<[a-z]+[^>]* id=\"\(id)\"[^>]*>", options: .regularExpression)
+                    .map { String(html[$0]) }
             }
-            let modal = overlay[m0.lowerBound..<m1.lowerBound]
-            #expect(modal.contains("document.addEventListener('click', function (e) {") &&
-                    modal.contains("closest('[id]')") &&
-                    modal.contains("}, true);"),
-                    "the trigger must be snapshotted by a capture-phase click listener, before the patch that adds the dialog replaces it (UX-08)")
-            #expect(modal.contains("modalReturnFocus = { id: (t.id || '').trim(), sid: rowSidOf(t) };"),
-                    "the snapshot must remember the activated control by id and session-row sid (UX-08)")
-            #expect(modal.contains("card.contains(e.target)"),
-                    "clicks inside the dialog itself must not overwrite the remembered trigger (UX-08)")
-            #expect(modal.contains("!modalReturnFocus && document.activeElement") &&
-                    !modal.contains("document.activeElement !== document.body &&"),
-                    "when the modal patch has already dropped focus to <body>, syncModalFocus must keep/proceed with the pointer snapshot instead of skipping — the old body-excluding gate is what lost the trigger (UX-08)")
-            #expect(modal.contains("rowSidOf(document.activeElement)"),
-                    "a live non-body trigger is still recorded by sid as a fallback (UX-08)")
-            #expect(modal.contains("var modalWasOpen = false;") && modal.contains("modalWasOpen = true;"),
-                    "syncModalFocus must track the open/closed transition so the restore fires only after the removal patch lands (UX-08)")
-            #expect(modal.contains("if (modalWasOpen) {") &&
-                    modal.contains("restoreFocusToTrigger();") &&
-                    modal.contains("modalWasOpen = false;"),
-                    "the restore must run exactly once, on the pass where the card is first gone (UX-08)")
-            #expect(!modal.contains("document.activeElement !== document.body) { modalReturnFocus = null"),
-                    "no early-clear guard may wipe the trigger memory while the dialog is still present in the DOM (UX-08)")
-            #expect(modal.contains("function restoreFocusToTrigger()"),
-                    "a restore path for the dialog's trigger must exist (UX-08)")
-            #expect(modal.contains(".sess-row[data-sid]") && modal.contains("getAttribute('data-sid') === sid"),
-                    "restore must resolve the trigger's replacement through the session row's data-sid (UX-08)")
-            #expect(modal.contains("nu.setAttribute('tabindex', '0')"),
-                    "a re-focused session row must become keyboard-focusable (UX-08)")
-            #expect(modal.contains("if (!nu) return;"),
-                    "an unresolvable trigger (the session was actually deleted) must no-op, not throw (UX-08)")
-            #expect(!overlay.contains("restoreModalFocus();"),
-                    "the restore must ride syncModalFocus's transition — no separate post-patch call that could double-fire (UX-08)")
+            var fixture = AppState.RenderFixture()
+            fixture.sessions = [
+                Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                        updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Chat A",
+                        messageCount: 2, messages: [Message(role: .user, content: "hi")]),
+            ]
+            fixture.activeSessionID = "sess-a"
+            let panel = await AppState(renderFixture: fixture).chatPanel().markup.html
+            let entry = openTag(panel, "sm-del-\(enc("sess-a"))")
+            #expect(entry?.contains("data-focus-return=\"modal-overlay\"") == true,
+                    "the row menu's Delete must name the dialog it opens — without the declaration the engine records no opener for this dialog (UX-08)")
+            #expect(openTag(panel, "s-menu-\(enc("sess-a"))") != nil,
+                    "the return target must exist in the render the dialog returns to: the chat's target is the row's ⋮ button (UX-08)")
+
+            var armed = fixture
+            armed.pendingConfirm = ConfirmRequest(
+                kind: "chat", id: "sess-a",
+                title: "Delete conversation?",
+                body: "The chat “A” will be deleted.")
+            let html = await AppState(renderFixture: armed).modalHTML().markup.html
+            let cancel = openTag(html, "modal-cancel")
+            #expect(cancel?.contains("data-focus-return=\"s-menu-\(enc("sess-a"))\"") == true,
+                    "a chat delete must return focus to the row's ⋮ button, not the menu entry it was armed from (UX-08)")
+            #expect(html.hasPrefix("<div id=\"modal-overlay\"") && html.contains("data-focus-into=\"modal-cancel\""),
+                    "the dialog's region root must carry `data-focus-into=\"modal-cancel\"` — 3.1.0's entry path (UX-08)")
         }
 
         // MARK: - UX-07 (2026-10-18 wave 2) collapse the rail on narrow widths
@@ -1941,16 +2070,9 @@ extension ArcWebUITestRoot {
             let header = await RenderedMarkup.chatHeader()
             #expect(header.contains("id=\"chat-del\""), "the chat header's trash must still render for desktop")
 
-            let overlay = Self.overlay
-            #expect(overlay.contains("if (t.closest('.menu-dots') || t.closest('.chat-menu')) return;"),
-                    "the drawer must exempt the row menu from its row-tap dismissal")
-            guard let exempt = overlay.range(of: "t.closest('.menu-dots')"),
-                  let rowClose = overlay.range(of: "t.closest('.sess-row') || t.closest('#chat-new')") else {
-                Issue.record("the drawer's row-close rule or the menu exemption is missing")
-                return
-            }
-            #expect(exempt.lowerBound < rowClose.lowerBound,
-                    "the exemption must run BEFORE the row-close rule, or tapping ⋮ still closes the drawer")
+            // the drawer no longer has a row-tap dismissal to exempt the menu
+            // from: the engine closes the drawer only on its OWN toggle/scrim,
+            // and the row menu is a `[data-open]` layer of the dismiss stack.
         }
 
         @Test("the filter fields carry accessible names")
@@ -1968,37 +2090,33 @@ extension ArcWebUITestRoot {
             #expect(composer.contains("aria-label=\"Search models\""), "the model search must be named")
         }
 
-        @Test("outline entries are client-side links that keep the panel open")
-        func outlineEntriesKeepPanelOpen() {
-            let overlay = Self.overlay
-            #expect(overlay.contains("var b = document.createElement('a')"),
-                    "outline entries must be <a> links, not <button>s (UX-20)")
-            #expect(overlay.contains("b.href = '#' + m.id"),
-                    "each entry must point at its message anchor (UX-20)")
-            #expect(overlay.contains("e.preventDefault();"),
-                    "entry click must be prevented from server round-trip (UX-20)")
-            #expect(overlay.contains("e.preventDefault();"),
-                    "outline entry click must be prevented from server round-trip (UX-20)")
-            #expect(overlay.contains("m.scrollIntoView({ block: 'start', behavior: 'smooth' })"),
-                    "outline entry click must scroll the target message into view (UX-20)")
-            #expect(overlay.contains("m.scrollIntoView({ block: 'start', behavior: 'smooth' })"),
-                    "entry click must scroll the target message into view (UX-20)")
+        @Test("outline entries jump through the engine and keep the panel open")
+        func outlineEntriesKeepPanelOpen() async {
+            // UX-20 asked for a jump with no server round-trip that leaves the
+            // panel open. That jump is the engine's `data-scroll-to`
+            // consequence now (preventDefault + smooth scroll + 1.4 s flash),
+            // and the entries themselves are rendered by the server — so there
+            // is no client link builder left to pin.
+            let chat = await RenderedMarkup.chatMain()
+            #expect(chat.contains("data-scroll-to=\"msg-user-0\""),
+                    "each entry must carry the engine's scroll consequence (UX-20)")
+            #expect(chat.contains("class=\"outline-entry\""),
+                    "the entries are server-rendered (UX-20)")
         }
 
         // MARK: - UX-21 (wave 4) rename seeds from the full stored title
 
-        @Test("rename input seeds from data-full-title, not the truncated row text")
+        @Test("rename seeds from the full stored title, not the truncated row text")
         func renameSeedsFromFullTitle() async {
-            let overlay = Self.overlay
-            // the row is typed now: the attribute is emitted by `.attribute`,
-            // so the proof is the RENDERED row, not a source spelling.
+            // the seed moved from the client to the SERVER at A16a: the dialog's
+            // field is rendered with `sessionTitle(...)`, so the proof is the
+            // rendered card — and the row attribute it can no longer get wrong.
             let panel = await RenderedMarkup.panelWithRows()
             #expect(panel.contains("data-full-title=\""),
                     "the session row must carry the full stored title (UX-06/UX-21)")
-            #expect(overlay.contains("row.getAttribute('data-full-title')"),
-                    "rename must seed from the row's data-full-title (UX-21)")
-            #expect(overlay.contains("data-full-title"),
-                    "rename must not seed from the truncated row text (UX-21)")
+            let card = await RenderedMarkup.renameDialog(openOn: "sess-a")
+            #expect(card.contains("value=\"A conversation title long enough to be truncated by the row clamp\""),
+                    "the dialog's field must seed from the FULL stored title — the 40-char row clamp would commit truncation (UX-21)")
         }
 
     // MARK: - Round 3 (2026-10-19) — state, empty states, pinning
@@ -2070,22 +2188,36 @@ extension ArcWebUITestRoot {
             #expect(graph.contains("peak "), "the peak callout carries the number once")
         }
 
-        @Test("form fragments can ask the post-patch seam for the caret")
-        func formFocusHandoff() {
-            #expect(Self.overlay.contains("data-focus-after-patch"),
-                    "overlay must honour data-focus-after-patch (round-3 UX-34/35)")
-            #expect(Self.views.contains("data-focus-after-patch"),
-                    "the add-card / skill forms must request focus after a patch")
+        @Test("form fragments take the caret through the engine's FocusOnAppear")
+        func formFocusHandoff() async {
+            let views = Self.views
+            // 3.1.0 replaced the `[data-focus-after-patch]` seam consumer: the
+            // add-card form and the first-invalid skill field ask with the
+            // behaviour, and the composer carries it too (the new-chat caret).
+            #expect(!views.contains("data-focus-after-patch"),
+                    "the retired post-patch marker is back — `FocusOnAppear` owns the consequence")
+            #expect(views.contains("FocusOnAppear().attribute()"),
+                    "the form fragments must request focus through the typed behaviour")
+            let composer = await RenderedMarkup.composer()
+            #expect(composer.contains("data-focus-on-appear"),
+                    "the composer textarea must carry `data-focus-on-appear` (boot + new-chat caret)")
         }
 
-        @Test("the skip link is hidden where its target is absent")
-        func skipLinkScopedToChat() {
-            // The shell renders once, so a tab switch cannot remove the link
-            // server-side; the boot overlay hides it wherever #composer-input
-            // is not on the page (round-3 UX-42).
-            #expect(Self.overlay.contains("function syncSkipLink()"))
-            #expect(Self.overlay.contains("link.hidden = !document.getElementById('composer-input')"),
-                    "the skip link must hide when no composer exists")
+        @Test("the skip link carries the engine's skip target")
+        func skipLinkScopedToChat() async {
+            // 2.6.0: the skip link is a `data-skip-to` declaration, not a
+            // client-side visibility pass. The engine's handler focuses and
+            // scrolls the target on activation; when the composer is absent
+            // (a rail view) the handler returns before preventDefault, so the
+            // anchor's own `href="#composer-input"` is what a browser falls back
+            // to. The overlay no longer hides the link.
+            let shell = await RenderedMarkup.page()
+            let link = shell.range(of: #"<a [^>]*class="skip-link"[^>]*>"#,
+                                   options: .regularExpression).map { String(shell[$0]) }
+            #expect(link?.contains("data-skip-to=\"composer-input\"") == true,
+                    "the skip link must declare the target the engine focuses: \(link ?? "no link")")
+            #expect(link?.contains("href=\"#composer-input\"") == true,
+                    "the anchor keeps its href for a no-JS browser")
         }
 
         // MARK: - Session menu rows: a selection spans the menu

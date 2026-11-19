@@ -5,346 +5,206 @@ import WebUIState
 
 @testable import ArcWebUI
 
-// The push door, tested at its own boundary.
+// The producer door, tested at its own boundary.
 //
-// `PushEdge` is the single seam between every producer in arc (an action
-// handler, the turn presenter, a streamer) and the wire. Two kinds of batch
-// cross it and they must be treated differently:
+// `PushEdge` is the single seam between the producers that have no dispatch
+// session to borrow — the turn loop's structural boundaries, a background task —
+// and the wire. Two kinds of batch cross it and they must be treated
+// differently:
 //
-//   - structural (`nil` / `.replace`): the producer's html is an opinion. What
-//     the client needs is the difference between what it holds and a fresh
-//     render, so the edge renders and ships the differ's frames.
+//   - structural (`nil` / `.replace`, or an empty batch): the producer's html is
+//     an opinion. The client needs the difference between what it holds and a
+//     fresh render, and only the server can derive that — it served the page, so
+//     it owns the baseline. The door asks the server to refresh the pages it
+//     served and forwards nothing at all.
 //   - delta (`.text` / `.append`): a write against a node another producer owns.
-//     It crosses verbatim, and it must not cost a render.
+//     It crosses verbatim, and it must not cost a refresh.
 //
-// The fixtures are arc's own shape: `#app` is the root the client patches by,
-// `#panel` is a chrome region, and `#live-turn` carries the two spans the token
-// writer owns — the spans the policy excludes from every diff.
-
-/// a page in arc's shape, one line so a region's bytes are exactly the string a
-/// frame has to carry.
-private func page(
-    panel: String = "p",
-    text: String = "",
-    thinking: String = "",
-    busy: String = "0",
-    toasts: String = ""
-) -> String {
-    #"<div id="app" class="app" data-size="m"><div id="live-turn" class="live-turn" data-busy="\#(busy)"><span id="live-turn-text">\#(text)</span><b id="live-turn-thinking">\#(thinking)</b></div><div id="panel" class="panel">\#(panel)</div><div id="toasts" data-component-id="toast-dismiss">\#(toasts)</div></div>"#
-}
-
-/// `#panel`'s element bytes — what a derived frame for that region must carry.
-private func panelElement(_ body: String) -> String {
-    #"<div id="panel" class="panel">\#(body)</div>"#
-}
-
-/// one derived-frame case: the render the edge is asked to describe, and the
-/// frames it must answer.
-/// internal, not private: a `@Test` parameter may not use a fileprivate type.
-struct FrameCase: Sendable, CustomTestStringConvertible {
-    let name: String
-    /// the render after the change.
-    let after: String
-    /// the frame ids, in wire order. empty means nothing may cross.
-    let expected: [String]
-    /// true when the answer must be the whole root: bytes no region covers have
-    /// no patch shape, so a partial patch would leave the client stale.
-    let fullPage: Bool
-    var testDescription: String { name }
-}
-
-private let frameCases: [FrameCase] = [
-    // the token writer owns this span; a structural render that carries the
-    // token's bytes must send nothing at all.
-    FrameCase(
-        name: "text-only change in a token-owned span",
-        after: page(text: "abc"),
-        expected: [],
-        fullPage: false
-    ),
-    // the changed bytes are the live node's own (its busy attribute), so the
-    // node ships and the excluded children never appear on the wire.
-    FrameCase(
-        name: "structural change inside #live-turn",
-        after: page(busy: "1"),
-        expected: ["live-turn"],
-        fullPage: false
-    ),
-    // bytes outside every region: nothing can carry them but the root.
-    FrameCase(
-        name: "change outside every region",
-        after: page() + #"<p>tail</p>"#,
-        expected: ["app"],
-        fullPage: true
-    ),
-]
+// ## What was retired here, and why (A10b)
+//
+// - **`edge.seed` and the `PageDiffer` construction.** A host-side differ meant
+//   two owners of one page's baseline. The server has owned the baseline the
+//   client actually holds since 2.9.0 (`WebUIServerConfig.refreshPolicy` +
+//   `lastRender`), so a seed was a second, unprovable copy — and every assertion
+//   built on it pinned the differ's internals rather than the page.
+// - **`seededFirstPushStaysMinimal`** — it proved that a seeded differ patches a
+//   region instead of the root. Minimality is the server's now, and
+//   `TwoPopulationDispatchTests.refreshShipsTheChangedRegion` proves a refresh
+//   ships exactly the region whose bytes moved.
+// - **`removalEscalatesToTheRoot`, `toastsChangeCarriesTheContainer`,
+//   `derivedFramesRespectExclusions`** — they asked the door what a render
+//   *would* ship. They moved to `ProducerRefreshWireTests`, which asks a real
+//   `WebUIServer` over a real socket: same questions, answered by the component
+//   that answers them in production.
+//
+// The policy itself did not move out of reach: `AppShell.refreshPolicy` carries
+// the exact value the retired door policy did, and one test below pins it field
+// by field.
 
 extension ArcWebUITestRoot {
-    /// The push door: what crosses the wire, and what the producer's html is
+    /// The producer door: what crosses the wire, and what the producer's html is
     /// worth.
     @Suite("Push diff", .serialized)
     struct PushDiffTests {
 
-        /// The render side: the markup a fresh `app.appShell()` would answer, and
-        /// a count, so a delta batch can prove it never rendered at all.
-        private actor RenderBox {
-            private(set) var renders = 0
-            private var markup: String
-
-            init(_ markup: String) { self.markup = markup }
-
-            func set(_ next: String) { markup = next }
-
-            func render() -> String {
-                renders += 1
-                return markup
-            }
-        }
-
-        /// The wire: every batch, in order.
-        private actor Wire {
+        /// The door's two sinks as one journal, so "structure before deltas" is
+        /// an ordered fact rather than two totals that cannot be compared.
+        private actor Door {
+            private(set) var events: [String] = []
             private(set) var batches: [[FragmentUpdate]] = []
 
             var flat: [FragmentUpdate] { batches.flatMap { $0 } }
+            var refreshes: Int { events.filter { $0 == "refresh" }.count }
 
-            func record(_ batch: [FragmentUpdate]) { batches.append(batch) }
+            func refresh() { events.append("refresh") }
+
+            func record(_ updates: [FragmentUpdate]) {
+                events.append("delta:" + updates.map(\.id).joined(separator: ","))
+                batches.append(updates)
+            }
         }
 
         private struct Rig {
             let edge: PushEdge
-            let wire: Wire
-            let box: RenderBox
+            let door: Door
         }
 
-        /// a door seeded with `seed`, whose next render answers `render`.
-        private func makeRig(seed: String, render: String) -> Rig {
-            let box = RenderBox(render)
-            let wire = Wire()
+        private func makeRig() -> Rig {
+            let door = Door()
             let edge = PushEdge(
-                differ: PageDiffer(policy: PushEdge.livePolicy),
-                render: { await box.render() },
-                broadcast: { await wire.record($0) }
+                refresh: { await door.refresh() },
+                broadcast: { await door.record($0) }
             )
-            edge.seed(seed)
-            return Rig(edge: edge, wire: wire, box: box)
+            return Rig(edge: edge, door: door)
         }
 
-        @Test("a replace-html batch is derived, not forwarded")
-        func replaceBatchIsDerived() async {
-            let rig = makeRig(seed: page(panel: "old"), render: page(panel: "fresh"))
+        @Test("a structural batch asks the server to refresh, and forwards no html")
+        func structuralBatchRefreshesAndForwardsNothing() async {
+            let rig = makeRig()
             // a producer's html is stale by construction: it was assembled before
             // the render that describes the same change.
-            await rig.edge.push([FragmentUpdate(id: "panel", html: panelElement("STALE INPUT"))])
+            await rig.edge.push([FragmentUpdate(id: "panel", html: "<div id=\"panel\">STALE INPUT</div>")])
 
-            let batches = await rig.wire.batches
-            #expect(batches.count == 1)
-            #expect(batches.first?.map(\.id) == ["panel"])
+            let events = await rig.door.events
+            #expect(events == ["refresh"], "a structural batch is one refresh and nothing else, got \(events)")
+            let wireHTML = await rig.door.flat.map(\.html).joined()
+            #expect(!wireHTML.contains("STALE INPUT"), "the producer's html reached the wire")
             #expect(
-                batches.first?.first?.html == panelElement("fresh"),
-                "the frame must carry the render's bytes, not the producer's")
-            let wireHTML = await rig.wire.flat.map(\.html).joined()
-            #expect(!wireHTML.contains("STALE INPUT"), "the producer's html never reaches the wire")
-            #expect(await rig.box.renders == 1, "one structural batch is one render")
+                await rig.door.batches.isEmpty,
+                "the door broadcast a structural frame: the refresh's diff decides what ships, never the producer")
         }
 
         @Test("a text batch passes through untouched")
         func textBatchPassesThrough() async {
             let update = FragmentUpdate.text(id: "live-turn-text", value: "abc", transition: false)
-            // the render disagrees on purpose: a delta is not re-derived, so the
-            // edge must never look at it.
-            let rig = makeRig(seed: page(), render: page(text: "zzz"))
+            let rig = makeRig()
             await rig.edge.push([update])
 
-            let batches = await rig.wire.batches
+            let batches = await rig.door.batches
             #expect(batches == [[update]], "a delta is written verbatim, transition flag included")
             #expect(batches.first?.first?.op == .text)
             #expect(batches.first?.first?.text == "abc")
             #expect(
-                await rig.box.renders == 0,
-                "a delta must never cost a render: the token path is the hot one")
+                await rig.door.refreshes == 0,
+                "a delta must never cost a refresh: the token path is the hot one")
         }
 
-        @Test("an empty batch still asks the edge to look at the page")
+        @Test("an empty batch still asks the door to look at the page")
         func emptyBatchAsksTheEdgeToLook() async {
             // the nudge: a producer that changed structure says nothing else. an
-            // empty batch that the door ignored would leave the page stale, which
-            // is the one failure mode this slice must not introduce.
-            let rig = makeRig(seed: page(panel: "old"), render: page(panel: "old"))
+            // empty batch the door ignored would leave the page stale, which is
+            // the one failure mode this slice must not introduce. Whether bytes
+            // moved is the server's answer, and a refresh that reproduces the
+            // page sends nothing — `ProducerRefreshWireTests` proves that half.
+            let rig = makeRig()
             await rig.edge.push([])
 
-            #expect(await rig.box.renders == 1, "the nudge costs exactly one render")
-            #expect(
-                await rig.wire.batches.isEmpty,
-                "an unchanged page ships nothing at all — not even an empty batch")
+            #expect(await rig.door.refreshes == 1, "the nudge costs exactly one refresh")
+            #expect(await rig.door.batches.isEmpty, "an empty batch ships nothing at all — not even an empty batch")
 
-            // and the look is not wasted: a change made while the door was asked
-            // still ships, because the baseline advanced with the render it saw.
-            await rig.box.set(page(panel: "fresh"))
+            // and the look is never skipped, however quiet the page is.
             await rig.edge.push([])
-
-            let batches = await rig.wire.batches
-            #expect(batches.map { $0.map(\.id) } == [["panel"]], "a real change in the meantime does ship")
-            #expect(batches.first?.first?.html == panelElement("fresh"))
+            #expect(await rig.door.refreshes == 2, "a second nudge must ask again: the door does not debounce the server")
         }
 
-        @Test("a toasts change never ships markup that deletes the container")
-        func toastsChangeCarriesTheContainer() async {
-            // the engine's `replaceElement` removes a node whose replacement is
-            // empty, so an inner-only toasts frame deletes `#toasts` for the rest of
-            // the session and every later toast is swallowed. This is the
-            // behavioural replacement for the source grep that used to police the
-            // push spellings (it went vacuous the moment producers stopped writing
-            // toasts html at all).
-            let toast = #"<div class="toast info"><span class="toast-dot"></span><span>Saved</span><button id="t-1" class="toast-x"></button></div>"#
-            let empty = page()
-            let withToast = page(toasts: toast)
-
-            // 1. a toast APPEARS: the region ships, and its html is the container.
-            let appear = makeRig(seed: empty, render: withToast)
-            await appear.edge.push([])
-            let appearFrames = await appear.wire.flat
-            #expect(appearFrames.map(\.id) == ["toasts"],
-                    "a toast appearing must ship its region: \(appearFrames.map(\.id))")
-            #expect(appearFrames.first?.html.contains("id=\"toasts\"") == true,
-                    "an inner-only frame deletes the node for the session")
-            #expect(appearFrames.first?.html.contains("Saved") == true,
-                    "the frame must carry the new toast inside the container")
-
-            // 2. the LAST toast goes away. `#t-1` is a tracked region and it
-            //    vanishes, which the differ cannot express (see
-            //    `removalEscalatesToTheRoot`), so this answers the whole page —
-            //    measured on the real shell too. The invariant that matters is the
-            //    one the engine enforces: whatever ships must carry the container,
-            //    or `#toasts` dies with the first dismiss. This is the path that
-            //    produced ten live `Element not found: #toasts` warnings in one
-            //    session.
-            let dismiss = makeRig(seed: withToast, render: empty)
-            await dismiss.edge.push([])
-            let dismissFrames = await dismiss.wire.flat
-            #expect(!dismissFrames.isEmpty, "a dismissed toast must reach the page")
-            #expect(dismissFrames.allSatisfy { $0.html.contains("id=\"toasts\"") },
-                    "every frame must carry the container: an empty replacement removes #toasts")
-            #expect(dismissFrames.allSatisfy { !$0.html.contains("<button id=\"t-1\"") },
-                    "the dismissed toast must not be repeated back to the client")
-        }
-
-        @Test("a settings click reaches the wire only through the door")
-        func handlerClickBecomesAFrame() async {
-            // The plumbing the sweep depends on, end to end: a real @Wired handler,
-            // dispatched by a real router, pushing through a real PushEdge, with the
-            // frame derived from the real shell. A handler's returned batch is
-            // written to the originating socket by no-webui and never diffed — if
-            // its signal never reaches the door, the page goes stale and no other
-            // test in this suite would see it.
+        @Test("a handler's .refresh never crosses the producer door")
+        func handlerClickAnswersRefresh() async {
+            // 2.9.0/2.12.0: a render-time or `@Wired` handler answers
+            // `HandlerOutcome.refresh`, and the SERVER re-renders the dispatch
+            // session's page against the baseline it owns. The interaction
+            // therefore never crosses `PushEdge` — a second diff regime over one
+            // page is exactly what D2 rejects. The end-to-end frame proof is
+            // `TwoPopulationDispatchTests.refreshShipsTheChangedRegion()`.
             let app = AppState(renderFixture: .init())
-            let wire = Wire()
-            let edge = PushEdge(
-                differ: PageDiffer(policy: PushEdge.livePolicy),
-                render: { await app.appShell().markup.html },
-                broadcast: { await wire.record($0) }
-            )
-            edge.seed(await app.appShell().markup.html)
+            let rig = makeRig()
             let router = EventRouter()
-            let controller = Controller(app: app, push: { await edge.push($0) })
-            await controller.wireAll(router)
+            _ = await RenderContext.$current.withValue(
+                RenderContext(router: router, session: .default)
+            ) {
+                await app.settingsMain().markup.html
+            }
 
+            let before = await app.settings.textSize
             let outcome = await router.dispatch(EventData(
                 component: ComponentID("font-size-pick"),
                 event: "click",
                 data: ["targetId": .string("fsz-lg")]))
 
-            let frames = await wire.flat
+            #expect(outcome.isRefresh,
+                    "a render-time handler's structural signal is the framework outcome now")
             #expect(outcome.fragments.isEmpty,
-                    "the server has nothing to write: the batch crossed the door, not the socket")
-            #expect(!frames.isEmpty, "the click must reach the wire, or the page is stale")
-            #expect(frames.map(\.id) == ["app"],
-                    "data-size lives on #app, so the root is the only frame that can carry it")
-            #expect(frames.first?.html.contains("data-size=\"lg\"") == true,
-                    "the frame must be the render's bytes, after the click")
+                    "the originating socket has nothing to write: the server owns the re-render")
+            #expect(await app.settings.textSize != before,
+                    "the click must move the setting the server's re-render reads")
+            #expect(await rig.door.events.isEmpty,
+                    "a handler's refresh crossed the producer door: two diff regimes over one page drift two baselines")
         }
 
-        @Test("a removal the differ cannot express escalates to the whole page")
-        func removalEscalatesToTheRoot() async {
-            // measured, and named so the cost is visible: a vanished region has no
-            // wire shape (a baseline keeps hashes, never offsets), so a deletion is
-            // answered with `#app`. A toast dismiss and a modal close both answer
-            // ["app"] on the real shell; their INSERTIONS answer a region. An
-            // upstream escalation for removals would turn these into region frames —
-            // this pin is the shape to beat, not a shape to keep.
-            let rig = makeRig(
-                seed: page(toasts: #"<button id="t-1" class="toast-x"></button>"#),
-                render: page())
-            await rig.edge.push([])
-            let frames = await rig.wire.flat
-            #expect(frames.map(\.id) == ["app"])
-            #expect(frames.first?.html == page())
-        }
-
-        @Test("a mixed batch ships the structure, then the deltas")
+        @Test("a mixed batch refreshes first, then ships the deltas")
         func mixedBatchPartitions() async {
-            let rig = makeRig(seed: page(panel: "old"), render: page(panel: "fresh"))
+            let rig = makeRig()
             let delta = FragmentUpdate.text(id: "live-turn-text", value: "abc", transition: false)
-            // the producer names #main — a region the render did not change. The
-            // derived batch must describe what actually moved.
-            await rig.edge.push([FragmentUpdate(id: "main", html: #"<div id="main">STALE</div>"#), delta])
+            // the producer names #main — a region the render did not change. Its
+            // html must not appear either side of the door.
+            await rig.edge.push([FragmentUpdate(id: "main", html: "<div id=\"main\">STALE</div>"), delta])
 
-            let batches = await rig.wire.batches
-            #expect(batches.count == 2, "a mixed batch is two broadcasts, not one")
-            #expect(batches.first?.map(\.id) == ["panel"], "structure first, and derived")
-            #expect(
-                batches.first?.allSatisfy { $0.op == nil || $0.op == .replace } == true,
-                "the structural broadcast carries structure only")
-            #expect(batches.last == [delta], "the delta follows verbatim")
+            let events = await rig.door.events
+            #expect(events == ["refresh", "delta:live-turn-text"],
+                    "structure must reach the page before the delta that may target a node it re-mounted, got \(events)")
+            let batches = await rig.door.batches
+            #expect(batches.count == 1, "the deltas are one broadcast")
+            #expect(batches.first == [delta], "the delta follows verbatim")
+            let wireHTML = await rig.door.flat.map(\.html).joined()
+            #expect(!wireHTML.contains("STALE"), "a structural producer's html crossed the wire in a mixed batch")
         }
 
-        @Test("a seeded first push stays minimal")
-        func seededFirstPushStaysMinimal() async {
-            let rig = makeRig(seed: page(panel: "old"), render: page(panel: "fresh"))
-            // the pre-slice shape of a chrome refresh: the producer names the whole
-            // root. The seed is what turns that into a region.
-            await rig.edge.push([FragmentUpdate(id: "app", html: page(panel: "STALE"))])
-
-            let batches = await rig.wire.batches
-            #expect(batches.count == 1)
-            #expect(
-                batches.first?.map(\.id) == ["panel"],
-                "a seeded differ patches the region that moved, not the root")
-            #expect(batches.first?.first?.html == panelElement("fresh"))
-        }
-
-        @Test("derived frames never target an excluded region", arguments: frameCases)
-        func derivedFramesRespectExclusions(_ state: FrameCase) async {
-            let before = page()
-            let rig = makeRig(seed: before, render: state.after)
-            await rig.edge.push([FragmentUpdate(id: "app", html: before)])
-
-            let frames = await rig.wire.flat
-            #expect(frames.map(\.id) == state.expected)
-            #expect(
-                frames.allSatisfy { $0.id != "live-turn-text" && $0.id != "live-turn-thinking" },
-                "the token-owned spans are written by op:text; a replace would fight that writer")
-            for frame in frames {
-                #expect(
-                    state.after.contains(frame.html),
-                    "every frame must carry bytes the render actually produced")
-                #expect(
-                    !before.contains(frame.html),
-                    "a frame for a changed region must not repeat what the client already holds")
-            }
-            if state.fullPage {
-                #expect(frames.count == 1, "bytes no region covers escalate to one root frame")
-                #expect(frames.first?.html == state.after)
-            }
+        @Test("the server re-renders this page under one policy, and the shell owns it")
+        func refreshPolicyIsTheShells() {
+            // the value the edge's `livePolicy` carried, moved to a neutral home
+            // when the door stopped diffing. It is the ONLY dial on which regions
+            // a re-render may ship, and both refresh doors (an outcome and a
+            // producer push) read it here — so a restated literal, or a drift
+            // between the shell and the config, is red.
+            let policy = WebUIHost.serverConfig(host: "127.0.0.1", port: 8890).refreshPolicy
+            #expect(policy == AppShell.refreshPolicy,
+                    "the server config restates a policy instead of carrying the shell's")
+            #expect(policy.identity == .elementID, "a frame must address a DOM id: the engine resolves with getElementById")
+            #expect(policy.coverage == .finest, "coarse coverage drags #app onto the wire for one chrome change")
+            #expect(policy.escalation == .nearestTrackedAncestor, "an appeared node must be a parent replace, not a whole page")
+            #expect(policy.excluded == ["live-turn-text", "live-turn-thinking"],
+                    "the token-owned spans must stay excluded: their bytes must not escalate an ancestor to a page patch")
+            #expect(policy.transition == false, "a diff is not a navigation and must not animate")
         }
     }
 }
 
-/// the seeding contract, proved on the REAL page rather than a synthetic one.
+/// the shell's render is the input to every refresh diff, so it has to be
+/// deterministic: two renders of the same state must be byte-identical.
 ///
-/// `PushEdge` seeds from one render and diffs the next, so two renders of the
-/// same state have to be byte-identical. if they are not, every structural push
-/// is answered with a whole-root replace: correct, and useless — the client
-/// re-mounts its entire page on each interaction.
+/// this used to justify `PushEdge`'s seed. It survives the seed because the
+/// server's baseline is a snapshot of exactly this render — a render that varies
+/// on its own makes every refresh escalate to a page patch, which is correct and
+/// useless (the client re-mounts its page on each interaction).
 
 extension ArcWebUITestRoot {
 	@Suite("push seeding on the real page", .serialized)
@@ -353,17 +213,7 @@ extension ArcWebUITestRoot {
 		func shellRenderIsStable() async {
 			let first = await RenderedMarkup.page()
 			let second = await RenderedMarkup.page()
-			#expect(first == second, "a non-deterministic render invalidates seeding")
-		}
-
-		@Test("a seeded differ answers an unchanged render with nothing")
-		func seededDiffOfTheRealPageIsEmpty() async {
-			let page = await RenderedMarkup.page()
-			let differ = PageDiffer(policy: PushEdge.livePolicy)
-			differ.seed(withMarkup: page)
-			#expect(
-				differ.messages(forMarkup: page, root: "app").isEmpty,
-				"the boot page is what the client already holds; nothing may be pushed for it")
+			#expect(first == second, "a non-deterministic render makes every refresh a whole-page patch")
 		}
 	}
 }

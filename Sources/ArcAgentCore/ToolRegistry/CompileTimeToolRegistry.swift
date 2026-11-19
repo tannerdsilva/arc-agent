@@ -23,7 +23,8 @@ import ArcToolKit
 /// try registry.register(readFileEntry)
 /// try registry.register(writeFileEntry)
 ///
-/// let schemas = registry.buildToolSchemas(enabled: ["file"], disabled: [])
+/// let schemas = ToolSchemaRenderer.eagerSchemas(
+///     registry: registry, enablement: ToolEnablementConfig(), enabled: ["file"])
 /// ```
 public struct CompileTimeToolRegistry: ToolRegistry {
 
@@ -85,6 +86,9 @@ public struct CompileTimeToolRegistry: ToolRegistry {
         // output we sort by name.
         tools.values.sorted { $0.name < $1.name }
     }
+
+    /// `0`: the compiled surface is immutable after the builder returns.
+    public var revision: Int { 0 }
 
     /// A copy with `replacements` taking the place of the built-ins that share
     /// their name (an unknown name is added).

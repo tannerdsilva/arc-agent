@@ -27,7 +27,7 @@ public enum SendMessageTool {
     ) -> ToolEntry {
         ToolEntry(
             name: "send_message",
-            toolset: "messaging",
+            toolset: .messaging,
             description: "Send a message to a connected messaging platform, or list available targets.\n\n"
                 + "IMPORTANT: When the user asks to send to a specific channel or person "
                 + "(not just a bare platform name), call send_message(action='list') FIRST to see "

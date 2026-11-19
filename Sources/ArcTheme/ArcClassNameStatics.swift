@@ -118,16 +118,11 @@ extension ClassName {
 	public static var clarifyQuestion: ClassName { ClassName(ArcClass.clarifyQuestion.token) }
 	public static var clarifyResponse: ClassName { ClassName(ArcClass.clarifyResponse.token) }
 	public static var clarifySubmit: ClassName { ClassName(ArcClass.clarifySubmit.token) }
-	public static var cmdDropdown: ClassName { ClassName(ArcClass.cmdDropdown.token) }
-	public static var cmdItem: ClassName { ClassName(ArcClass.cmdItem.token) }
-	public static var cmdItemArg: ClassName { ClassName(ArcClass.cmdItemArg.token) }
-	public static var cmdItemBadge: ClassName { ClassName(ArcClass.cmdItemBadge.token) }
-	public static var cmdItemBadgeSkill: ClassName { ClassName(ArcClass.cmdItemBadgeSkill.token) }
-	public static var cmdItemDesc: ClassName { ClassName(ArcClass.cmdItemDesc.token) }
-	public static var cmdItemName: ClassName { ClassName(ArcClass.cmdItemName.token) }
-	public static var cmdList: ClassName { ClassName(ArcClass.cmdList.token) }
 	public static var codeWrap: ClassName { ClassName(ArcClass.codeWrap.token) }
 	public static var collapsed: ClassName { ClassName(ArcClass.collapsed.token) }
+	public static var combo: ClassName { ClassName(ArcClass.combo.token) }
+	public static var comboOption: ClassName { ClassName(ArcClass.comboOption.token) }
+	public static var comboPanel: ClassName { ClassName(ArcClass.comboPanel.token) }
 	public static var composerBar: ClassName { ClassName(ArcClass.composerBar.token) }
 	public static var composerFlyout: ClassName { ClassName(ArcClass.composerFlyout.token) }
 	public static var composerToolbar: ClassName { ClassName(ArcClass.composerToolbar.token) }
@@ -144,7 +139,6 @@ extension ClassName {
 	public static var ctxLabel: ClassName { ClassName(ArcClass.ctxLabel.token) }
 	public static var ctxMenu: ClassName { ClassName(ArcClass.ctxMenu.token) }
 	public static var ctxMid: ClassName { ClassName(ArcClass.ctxMid.token) }
-	public static var ctxOpen: ClassName { ClassName(ArcClass.ctxOpen.token) }
 	public static var ctxPaneBar: ClassName { ClassName(ArcClass.ctxPaneBar.token) }
 	public static var ctxPaneCard: ClassName { ClassName(ArcClass.ctxPaneCard.token) }
 	public static var ctxPaneClose: ClassName { ClassName(ArcClass.ctxPaneClose.token) }
@@ -207,10 +201,8 @@ extension ClassName {
 	public static var dotErr: ClassName { ClassName(ArcClass.dotErr.token) }
 	public static var dotInfo: ClassName { ClassName(ArcClass.dotInfo.token) }
 	public static var dotWarn: ClassName { ClassName(ArcClass.dotWarn.token) }
-	public static var drag: ClassName { ClassName(ArcClass.drag.token) }
 	public static var dragSrc: ClassName { ClassName(ArcClass.dragSrc.token) }
 	public static var dragging: ClassName { ClassName(ArcClass.dragging.token) }
-	public static var drawerOpen: ClassName { ClassName(ArcClass.drawerOpen.token) }
 	public static var drawerScrim: ClassName { ClassName(ArcClass.drawerScrim.token) }
 	public static var drawerToggleBtn: ClassName { ClassName(ArcClass.drawerToggleBtn.token) }
 	public static var dropAfter: ClassName { ClassName(ArcClass.dropAfter.token) }
@@ -233,7 +225,6 @@ extension ClassName {
 	public static var fszLabel: ClassName { ClassName(ArcClass.fszLabel.token) }
 	public static var fszPreview: ClassName { ClassName(ArcClass.fszPreview.token) }
 	public static var ghostBtn: ClassName { ClassName(ArcClass.ghostBtn.token) }
-	public static var hidden: ClassName { ClassName(ArcClass.hidden.token) }
 	public static var iconBtn: ClassName { ClassName(ArcClass.iconBtn.token) }
 	public static var iconMini: ClassName { ClassName(ArcClass.iconMini.token) }
 	public static var iconbarBottom: ClassName { ClassName(ArcClass.iconbarBottom.token) }
@@ -377,7 +368,6 @@ extension ClassName {
 	public static var off: ClassName { ClassName(ArcClass.off.token) }
 	public static var on: ClassName { ClassName(ArcClass.on.token) }
 	public static var once: ClassName { ClassName(ArcClass.once.token) }
-	public static var `open`: ClassName { ClassName(ArcClass.`open`.token) }
 	public static var outlineCloseBtn: ClassName { ClassName(ArcClass.outlineCloseBtn.token) }
 	public static var outlineEmpty: ClassName { ClassName(ArcClass.outlineEmpty.token) }
 	public static var outlineEntries: ClassName { ClassName(ArcClass.outlineEntries.token) }
@@ -505,6 +495,7 @@ extension ClassName {
 	public static var kbPopAnchor: ClassName { ClassName(ArcClass.kbPopAnchor.token) }
 	public static var kbErrorBanner: ClassName { ClassName(ArcClass.kbErrorBanner.token) }
 	public static var kbPop: ClassName { ClassName(ArcClass.kbPop.token) }
+	public static var kbTopbarActions: ClassName { ClassName(ArcClass.kbTopbarActions.token) }
 	public static var sessGroup: ClassName { ClassName(ArcClass.sessGroup.token) }
 	public static var sessGroupHead: ClassName { ClassName(ArcClass.sessGroupHead.token) }
 	public static var sessGroupRows: ClassName { ClassName(ArcClass.sessGroupRows.token) }
@@ -580,7 +571,6 @@ extension ClassName {
 	public static var taskHistRow: ClassName { ClassName(ArcClass.taskHistRow.token) }
 	public static var kbTopbar: ClassName { ClassName(ArcClass.kbTopbar.token) }
 	public static var kbTopbarName: ClassName { ClassName(ArcClass.kbTopbarName.token) }
-	public static var kbTopbarActions: ClassName { ClassName(ArcClass.kbTopbarActions.token) }
 	public static var kbLanes: ClassName { ClassName(ArcClass.kbLanes.token) }
 	public static var kbLanesSingle: ClassName { ClassName(ArcClass.kbLanesSingle.token) }
 	public static var kbLane: ClassName { ClassName(ArcClass.kbLane.token) }
@@ -657,6 +647,7 @@ extension ClassName {
 	public static var toolBtn: ClassName { ClassName(ArcClass.toolBtn.token) }
 	public static var toolCard: ClassName { ClassName(ArcClass.toolCard.token) }
 	public static var toolGroup: ClassName { ClassName(ArcClass.toolGroup.token) }
+	public static var toolOff: ClassName { ClassName(ArcClass.toolOff.token) }
 	public static var toolPills: ClassName { ClassName(ArcClass.toolPills.token) }
 	public static var topbarBolt: ClassName { ClassName(ArcClass.topbarBolt.token) }
 	public static var topbarCenter: ClassName { ClassName(ArcClass.topbarCenter.token) }
@@ -679,10 +670,7 @@ extension ClassName {
 	public static var wsBody: ClassName { ClassName(ArcClass.wsBody.token) }
 	public static var wsCaret: ClassName { ClassName(ArcClass.wsCaret.token) }
 	public static var wsDel: ClassName { ClassName(ArcClass.wsDel.token) }
-	public static var wsClosing: ClassName { ClassName(ArcClass.wsClosing.token) }
 	public static var wsDockBtn: ClassName { ClassName(ArcClass.wsDockBtn.token) }
-	public static var wsDockOpen: ClassName { ClassName(ArcClass.wsDockOpen.token) }
-	public static var wsEnter: ClassName { ClassName(ArcClass.wsEnter.token) }
 	public static var wsForm: ClassName { ClassName(ArcClass.wsForm.token) }
 	public static var wsIc: ClassName { ClassName(ArcClass.wsIc.token) }
 	public static var wsMenuWrap: ClassName { ClassName(ArcClass.wsMenuWrap.token) }

@@ -74,21 +74,23 @@ func fmtTps(_ v: Double) -> String {
 ///
 /// **This helper is for direct broadcasts only.** Anything that flows through the
 /// push door (`Controller.push` → `PushEdge`) must NOT assemble html: it returns
-/// `structuralChange()` and the edge derives every region from a fresh render.
+/// `structuralChange()` and the door asks the server to re-render the pages it
+/// served, whose diff decides every region.
 /// The surviving callers are the producers that never reach that door:
 ///
 /// - `liveLogFragments()` (`log-lines`) and `liveWorkspaceFragments()` (`ws-tree`)
 ///   are broadcast straight to `WebUIServer.broadcast` by `WebUIHost`'s
-///   interval streamers, so the edge never sees or diffs them;
-/// - `liveFragments()`' two nodes (`live-turn`, `composer-flyout`) are pinned at
-///   the source by the streaming contract (B5 moves that pin to the wire).
+///   interval streamers, so the door never sees or refreshes them;
+/// - `liveFragments()`' three nodes (`live-turn`, `composer-flyout`, `ctx-meter`)
+///   are replaced inside a batch the door treats as structural, so their bytes
+///   are discarded and the server's render carries them.
 ///
 /// Deltas (`FragmentUpdate.text`) are the other sanctioned explicit shape: they
-/// target a node another producer owns, and the edge forwards them untouched.
+/// target a node another producer owns, and the door forwards them untouched.
 ///
-/// Every frame this helper builds carries `transition: false` — the differ that
-/// serves the push door stamps the same flag on its own frames ("the diff is not
-/// a navigation and must not animate", `PushEdge.livePolicy`), and these frames
+/// Every frame this helper builds carries `transition: false` — the server's
+/// refresh frames carry the same flag from the diff policy ("the diff is not a
+/// navigation and must not animate", `AppShell.refreshPolicy`), and these frames
 /// bypass that door. An un-flagged broadcast frame opts INTO the engine's
 /// `startViewTransition` wrapper, whose update callback starves in a
 /// compositor-starved tab: `callbackPending` sticks and the engine refuses every
@@ -107,3 +109,51 @@ func render<V: WebUI.View>(_ view: V) -> String { view.markup.html }
 /// still needs to become bytes at the push edge.
 @inlinable
 func render(_ view: any WebUI.View) -> String { view.markup.html }
+
+// MARK: - Vocabulary attributes
+
+extension WebUI.View {
+    /// `data-open` + `data-dismiss` in one contribution: no-webui 2.15.0's
+    /// dismiss arming makes the pair one contract (a layer arms only while its
+    /// `data-open` holder is open, so the state and the membership can never be
+    /// stated apart), and one contribution instead of two modifiers keeps a
+    /// popover's chain from growing a second cliff — D-5(a′) measured that
+    /// modifier chains at this seam can segfault the whole shell render.
+    ///
+    /// - parameter serial: the open serial to render, or nil for the closed
+    ///   state. The engine reads the attribute's PRESENCE; the changing value is
+    ///   what makes an open render byte-different from the previous one, so the
+    ///   diff ships it even when the server rendered that popover open before
+    ///   the client dismissed it (see `AppState.composerPopoverSerial`).
+    func dismissibleOpen(_ serial: Int?) -> ModifiedView<Self, AttributeContribution> {
+        guard let serial else {
+            return ModifiedView(content: self, modifier: AttributeContribution(""))
+        }
+        return ModifiedView(content: self, modifier: AttributeContribution(
+            " data-open=\"\(serial)\" data-dismiss=\"\""))
+    }
+
+    /// emit `data-focus-into="<id>"` when `id` is non-nil, and nothing otherwise
+    /// — the same contribution shape as `dismissibleOpen`, for a one-render
+    /// focus statement (the new-chat caret). Typed: the attribute text comes
+    /// from `FocusInto`, never a hand-written string.
+    func focusInto(_ id: String?) -> ModifiedView<Self, AttributeContribution> {
+        guard let id else {
+            return ModifiedView(content: self, modifier: AttributeContribution(""))
+        }
+        return ModifiedView(content: self, modifier: AttributeContribution(
+            FocusInto(id: id).attribute().attributeText))
+    }
+
+    /// attach an `AttributeRepresentable` value (a behavior's attribute, e.g.
+    /// `UploadDestination`) to this element.
+    ///
+    /// the vocabulary owns the name *and* the spelling: `attributeText` escapes
+    /// the value and emits the bare form for an empty one, so a call site never
+    /// writes a `data-` literal (the attribute census fails on those) and an
+    /// empty value cannot become the second spelling `name=""`. this is the same
+    /// text the framework's own components splice into a tag.
+    func attribute<A: AttributeRepresentable>(_ value: A) -> ModifiedView<Self, AttributeContribution> {
+        ModifiedView(content: self, modifier: AttributeContribution(value.attributeText))
+    }
+}

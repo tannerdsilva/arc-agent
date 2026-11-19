@@ -1,3 +1,4 @@
+import ArcAgentCore
 import Foundation
 import Testing
 @testable import ArcWebUI
@@ -8,8 +9,16 @@ import Testing
 @Suite("Attachment chip discard", .serialized)
 struct AttachmentChipDiscardTests {
 
+    /// Boot the real state, then put the process-global gate back: the boot
+    /// reads the operator's live `~/.arc/config.json` and installs its
+    /// agent-powers locks, which would otherwise outlive this suite and refuse
+    /// writes in every later suite sharing the process (memory panel scope).
+    /// These tests exercise uploads, never the gate, so the live locks are not
+    /// part of what they pin.
     private func makeAppState() async throws -> AppState {
-        try await AppState()
+        let gate = AgentPowers.config
+        defer { AgentPowers.configure(gate) }
+        return try await AppState()
     }
 
     @Test func removingStagedChipDeletesTheFile() async throws {
@@ -21,7 +30,7 @@ struct AttachmentChipDiscardTests {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         await app.addAttachment(file.path)
-        await app.removeAttachment(0)
+        await app.removeAttachment(file.path)
 
         #expect(!FileManager.default.fileExists(atPath: file.path))
         // the emptied staging folder is tidied away too
@@ -36,7 +45,7 @@ struct AttachmentChipDiscardTests {
         defer { try? FileManager.default.removeItem(at: tmp) }
 
         await app.addAttachment(tmp.path)
-        await app.removeAttachment(0)
+        await app.removeAttachment(tmp.path)
 
         #expect(FileManager.default.fileExists(atPath: tmp.path))
     }

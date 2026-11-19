@@ -14,19 +14,20 @@ public enum ToolSearchTool {
     static let toolsets = "tools"
     static let forms = ["listing", "names", "mixed"]
 
-    /// The tool, bound to the slot naming the registry it searches.
+    /// The tool, bound to the slot naming the catalog it searches.
     ///
     /// The slot replaces the `ToolSearchTool.registry` process global
-    /// (GROUNDZERO slice 6). It is the self-reference the plan listed as a
-    /// blocker: the builder fills it with the surface it just built, and
-    /// ``ArcAgent`` re-points it at the agent's own registry (which may carry
-    /// plugin tools) when it adopts the bundle — no special case needed.
+    /// (GROUNDZERO slice 6). It holds the narrow ``ToolCatalogReader``, not a
+    /// registry: searching is a read, and a reader cannot mutate a copy it was
+    /// handed. Whoever produces the newest surface fills the slot — the builder
+    /// with its product, ``MutableToolRegistry/make`` again with the surface
+    /// that carries the plugins it installed, and ``ArcAgent`` last.
     public static func entry(
-        registry: ToolDependency<any ToolRegistry> = ToolDependency()
+        registry: ToolDependency<any ToolCatalogReader> = ToolDependency()
     ) -> ToolEntry {
         ToolEntry(
             name: "tool_search",
-            toolset: "tools",
+            toolset: .tools,
             description: "Search the available tool catalog for a keyword/phrase, or list all tools. "
                 + "Returns tool names with short descriptions so you can pick the right tool. "
                 + "Parameters: query (omit for the full listing), limit (default 5), form "
@@ -56,7 +57,7 @@ public enum ToolSearchTool {
                 }
                 let tools = registry.allTools
                 let catalog: [CatalogEntry] = tools.map {
-                    CatalogEntry(name: $0.name, description: $0.description, toolset: $0.toolset)
+                    CatalogEntry(name: $0.name, description: $0.description, toolset: $0.toolsetName)
                 }
                 let results: [CatalogEntry]
                 if query.isEmpty {
@@ -70,16 +71,17 @@ public enum ToolSearchTool {
         )
     }
 
-    /// The registry the handler searches.
+    /// The catalog the handler searches.
     ///
-    /// The slot is filled by the surface's builder; when it is empty (a caller
-    /// that assembled a registry some other way) the handler builds one for a
-    /// default scoped context. The tool only lists names and descriptions, so
-    /// the scope it is built with cannot leak into a result. The fallback used
-    /// to reuse the live `session_search` store; with per-agent slots there is
-    /// no shared store to reuse — the fallback surface gets its own, and
-    /// cannot re-point a live tool (which is what the old comment feared).
-    static func resolveRegistry(_ slot: ToolDependency<any ToolRegistry>) -> (any ToolRegistry)? {
+    /// The slot is filled by whoever owns the newest surface; when it is empty
+    /// (a caller that assembled a registry some other way) the handler builds
+    /// one for a default scoped context. The tool only lists names and
+    /// descriptions, so the scope it is built with cannot leak into a result.
+    /// The fallback used to reuse the live `session_search` store; with
+    /// per-agent slots there is no shared store to reuse — the fallback surface
+    /// gets its own, and cannot re-point a live tool (which is what the old
+    /// comment feared).
+    static func resolveRegistry(_ slot: ToolDependency<any ToolCatalogReader>) -> (any ToolCatalogReader)? {
         if let registry = slot.get() { return registry }
         return try? ArcAgentCore.buildRegistry(
             context: ToolContext(

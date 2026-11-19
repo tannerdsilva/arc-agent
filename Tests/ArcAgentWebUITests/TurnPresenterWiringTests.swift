@@ -70,12 +70,19 @@ private actor CardBox {
 /// shell — "did the command run?" is a count, not a filesystem effect.
 private struct RecordingTool: AgentTool {
     let name: String
-    let toolset: String
+    let toolset: Toolset
     let handler: ToolHandler
 
     var description: String { "A recording stub tool." }
     var schema: JSONSchema { .object(properties: [:]) }
-    var checkFn: ToolRequirementCheck? { nil }
+
+    /// the fixture spells its toolset as text; a name outside the catalog
+    /// normalises to the narrowest reach.
+    init(name: String, toolset: String, handler: @escaping ToolHandler) {
+        self.name = name
+        self.toolset = Toolset(claimed: toolset)
+        self.handler = handler
+    }
 }
 
 /// a scripted streaming provider: round one (no tool result yet) emits the tool

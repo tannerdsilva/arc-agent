@@ -28,24 +28,32 @@ extension ArcWebUITestRoot {
 		/// the tokens the enum deliberately does not carry.
 		///
 		/// empty, and that is the measured answer rather than an omission: every
-		/// one of the 618 tokens the sheet declares can be a case. the two whose
-		/// camelCase name is a swift keyword (`open`, `switch`) are backticked and
-		/// still spell `.open`/`.switch` at a call site, so they need no exception.
+		/// one of the tokens the sheet declares can be a case. the one whose
+		/// camelCase name is a swift keyword (`switch`) is backticked and still
+		/// spells `.switch` at a call site, so it needs no exception.
 		///
 		/// a name belongs here only when it cannot be a case at all — the shape
 		/// that would justify one is a class no rule declares, added only by client
 		/// js at runtime and kept in the sheet for that reason. each entry added
 		/// here carries its reason in a comment, and this set is the only place
 		/// such a name may live.
-		static let exceptions: Set<String> = []
+		static let exceptions: Set<String> = [
+		// the kb-popover visibility class, applied client-side when the + Column /
+		// + Row popover is toggled (`.kb-pop.open`); no Swift rule declares it.
+		"open",
+	]
 
 		/// the sheet's declared token count, measured when the enum was generated
-		/// — a throwaway script over the built `ThemeSheetAssets.text`, 627 tokens.
+		/// — a throwaway script over the built `ThemeSheetAssets.text`, 672 tokens
+		/// in the merged tree (upstream's kanban and attachment rules included,
+		/// less the tokens the engine's behaviours retire as they arrive — the
+		/// kanban `+ Column` / `+ Row` popover's four classes went with it; T6's
+		/// per-tool row added `tool-off`).
 		///
 		/// this literal is not the guard by itself: `sheetStillMatchesTheMeasurement`
 		/// re-counts the live sheet, so a sheet edit fails there with the difference
 		/// rather than quietly redefining what the enum was built from.
-		static let declaredTokenCount = 688
+		static let declaredTokenCount = 677
 
 		// MARK: - both directions
 

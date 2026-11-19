@@ -79,16 +79,18 @@ extension AppState {
 
     /// a structural change happened; the push edge decides what crosses the wire.
     ///
-    /// the empty batch is the signal, not a payload: `PushEdge` derives every
-    /// replace from a fresh render and never forwards a producer's html. an empty
-    /// batch still asks the edge to look (see its `hasStructure`), which is why
-    /// this is not a no-op.
+    /// the empty batch is the signal, not a payload: `PushEdge` asks the server to
+    /// re-render every page this host served and never forwards a producer's
+    /// html. an empty batch still asks the door to look (see its `structural`),
+    /// which is why this is not a no-op.
     ///
-    /// producers that can reach the door spell this through
-    /// `Controller.changed()`, which pushes it *and* returns `[]`: a handler's
-    /// returned batch is written to the originating socket by no-webui's
-    /// dispatcher and never diffed, so returning the signal alone would be
-    /// silence.
+    /// producers that can reach a dispatch spell this through
+    /// `Controller.changed()`, which answers `.refresh`: the server re-renders
+    /// the dispatch session's page against the baseline it served and ships the
+    /// diff itself (no-webui 2.12.0). a producer with no dispatch session — the
+    /// turn loop, a background task — has no page to name, so it hands this
+    /// empty batch to the pusher it was given and the door refreshes the served
+    /// pages by their recorded render tokens instead.
     func structuralChange() -> [FragmentUpdate] { [] }
 
     func setCreateSkill(_ on: Bool) {
@@ -137,7 +139,9 @@ extension AppState {
         if let old = activeSessionID { pendingAttachmentsBySession[old] = attachments }
         activeSessionID = id
         pendingDelete = false
-        filePopOpen = false
+        // a session switch closes the transient composer surfaces with it
+        closeComposerSelectors()
+        closeRowMenu()
         // UX-10: leaving an untouched draft drops it — the client-side draft
         // created by `+` never reaches the store unless a message is sent.
         if let draft = draftSessionID, draft != id {
@@ -152,7 +156,6 @@ extension AppState {
             AppState.removeChatUploads(sessionID: draft)
         }
         attachments = pendingAttachmentsBySession[id] ?? []
-        forceScrollBottom = true
         // Follow the chat's own workspace (right panel + composer selector).
         if let id = activeSessionID {
             selectedWorkspace = settings.sessionWorkspaces[id] ?? settings.activeWorkspace
@@ -207,12 +210,6 @@ extension AppState {
 
     func clearPendingDelete() {
         pendingDelete = false
-    }
-
-    /// Mark the next chat-scroll render with `data-follow="bottom"` so a
-    /// full page load always opens the active conversation at the bottom.
-    func armScrollToBottom() {
-        forceScrollBottom = true
     }
 
     /// Open a shared conversation link (`?s=<id>`): select the session (also
@@ -286,60 +283,54 @@ extension AppState {
 
     // MARK: Chat composer
 
-    func toggleFilePop() {
-        filePopOpen.toggle()
-        // Opening the attach popover closes any open composer selector; the
-        // selectors do the symmetric thing via closeComposerSelectors.
-        if filePopOpen { closeSelectorPanels() }
+    /// Open the attach popover for the next render (the paperclip's `on` class
+    /// and the popover's `data-open` both come from that one latch).
+    ///
+    /// The chip is an opener, not a toggle: the engine's dismiss stack closes
+    /// the popover (Escape / outside click) with no round-trip, so the server
+    /// has no copy of the open state to flip. Re-clicking the chip re-arms the
+    /// same popover — a no-op while it is open, because the engine's own
+    /// outside-click already closed it on that same click.
+    func openFilePop() {
+        armComposerPopover(.file)
     }
 
     // MARK: Composer dropdowns (arc parity)
 
-    /// Close only the four selector-chip panels (workspace/profile/model/
-    /// thinking), leaving the attach popover alone. Used by the file-pop
-    /// opener, which must not re-close itself through the full dismissal.
-    private func closeSelectorPanels() {
-        wsSelectOpen = false
-        profileSelectOpen = false
-        modelSelectOpen = false
-        thinkSelectOpen = false
+    /// Arm one composer popover for the next render, closing every other
+    /// transient composer surface. Mutually exclusive by construction: one
+    /// latch, so opening a selector closes the attach popover and its siblings.
+    ///
+    /// The live-search filters reset on a switch, so the next open is fresh —
+    /// an opener that re-arms ITS OWN popover (a keystroke in its search field)
+    /// keeps its query.
+    func armComposerPopover(_ which: ComposerPopover) {
+        if composerPopover != which {
+            if which != .workspace { wsSelectQuery = "" }
+            if which != .model { modelSelectQuery = "" }
+        }
+        composerPopoverSerial += 1
+        composerPopover = which
+    }
+
+    /// Close every composer dropdown and reset the live-search filters.
+    ///
+    /// "Close" here means "stop arming": the popover the engine already
+    /// dismissed is closed in the DOM, and the next render states it closed.
+    func closeComposerSelectors() {
+        composerPopover = nil
         wsSelectQuery = ""
         modelSelectQuery = ""
     }
 
-    /// Close every composer dropdown (openers close their siblings) and
-    /// reset the live-search filters so the next open is fresh. The attach
-    /// popover is part of the same dismissal system: any close here also
-    /// hides it, so file-pop and the selector chips can never overlap.
-    func closeComposerSelectors() {
-        closeSelectorPanels()
-        filePopOpen = false
-    }
+    /// Open a composer selector chip's popover.
+    func openWSSelect() { armComposerPopover(.workspace) }
 
-    /// Toggle a composer dropdown: re-clicking an open trigger closes it.
-    func toggleWSSelect() {
-        let wasOpen = wsSelectOpen
-        closeComposerSelectors()
-        if !wasOpen { wsSelectOpen = true }
-    }
+    func openProfileSelect() { armComposerPopover(.profile) }
 
-    func toggleProfileSelect() {
-        let wasOpen = profileSelectOpen
-        closeComposerSelectors()
-        if !wasOpen { profileSelectOpen = true }
-    }
+    func openModelSelect() { armComposerPopover(.model) }
 
-    func toggleModelSelect() {
-        let wasOpen = modelSelectOpen
-        closeComposerSelectors()
-        if !wasOpen { modelSelectOpen = true }
-    }
-
-    func toggleThinkSelect() {
-        let wasOpen = thinkSelectOpen
-        closeComposerSelectors()
-        if !wasOpen { thinkSelectOpen = true }
-    }
+    func openThinkSelect() { armComposerPopover(.thinking) }
 
     func setWSSelectQuery(_ q: String) {
         wsSelectQuery = q
@@ -347,6 +338,60 @@ extension AppState {
 
     func setModelSelectQuery(_ q: String) {
         modelSelectQuery = q
+    }
+
+    // MARK: Session row menu (the same one-render latch)
+
+    /// Arm the row menu for `sessionID`.
+    ///
+    /// The ⋮ is an OPENER, not a toggle: the engine's dismiss stack owns closing
+    /// a `data-open` layer (it removes the attribute with no round-trip), so the
+    /// server cannot know whether the menu on screen is open — a toggle would
+    /// spend its first click after a dismissal closing something already closed.
+    /// Re-clicking ⋮ therefore re-states the same menu, and the outside click on
+    /// that same gesture has already closed it.
+    func openRowMenu(_ sessionID: String) {
+        if rowMenu != sessionID { rowMenuShowsCategories = false }
+        armRowMenu(sessionID)
+    }
+
+    /// Re-arm the open menu without touching its panel mode: a keep-open
+    /// handler (the category panel swap) that must not close it.
+    func armRowMenu(_ sessionID: String) {
+        rowMenuSerial += 1
+        rowMenu = sessionID
+    }
+
+    /// Swap the open menu to its "Move to Category" panel (server state), and
+    /// re-arm it: the swap renders through the same latch, so the menu would
+    /// otherwise close on the render that shows the panel.
+    func showRowMenuCategories(_ sessionID: String) {
+        rowMenuShowsCategories = true
+        armRowMenu(sessionID)
+    }
+
+    func hideRowMenuCategories(_ sessionID: String) {
+        rowMenuShowsCategories = false
+        armRowMenu(sessionID)
+    }
+
+    func closeRowMenu() {
+        rowMenu = nil
+        rowMenuShowsCategories = false
+    }
+
+    /// Arm the workspace ⋮ menu for the next workspace-panel render (A16d).
+    /// Same contract as `openRowMenu`: the ⋮ is an OPENER, the engine's dismiss
+    /// stack closes it client-side, so the server states one open render and
+    /// every later render states it closed.
+    func armWsMenu() {
+        wsMenuSerial += 1
+        wsMenuArmed = wsMenuSerial
+    }
+
+    /// Arm the composer's one-render `FocusInto` (the new-chat caret, A16d).
+    func armComposerFocus() {
+        composerFocusArmed = true
     }
 
     /// Mark the HTTP/WS server as bound (shown in the profile card).
@@ -362,13 +407,15 @@ extension AppState {
         settings.recentFiles.insert(path, at: 0)
         if settings.recentFiles.count > 10 { settings.recentFiles = Array(settings.recentFiles.prefix(10)) }
         saveSettings()
-        filePopOpen = false
+        if composerPopover == .file { composerPopover = nil }
         formValues["file-path-input"] = ""
     }
 
-    func removeAttachment(_ index: Int) {
-        guard attachments.indices.contains(index) else { return }
-        let path = attachments.remove(at: index)
+    /// Remove an attachment by PATH — the chip's ✕ is keyed by the path so the
+    /// button's id survives its siblings being removed (T26, A16c).
+    func removeAttachment(_ path: String) {
+        guard attachments.contains(path) else { return }
+        attachments.removeAll { $0 == path }
         if let id = activeSessionID { pendingAttachmentsBySession[id] = attachments }
         // The X on an attachment chip means "discarded": when the path was a
         // staged composer upload (inside the uploads root), the file is now
@@ -615,6 +662,10 @@ extension AppState {
     /// this collision only became reachable with that fix.
     func toggleOutline() {
         outlineOpen.toggle()
+        // the panel is an engine layer: its `data-open` value must move on every
+        // open, or a re-open after an engine dismissal is a byte-identical
+        // render that never ships (see `outlineSerial`).
+        if outlineOpen { outlineSerial += 1 }
         if outlineOpen { workspaceOpen = false }
     }
 
@@ -632,6 +683,17 @@ extension AppState {
             settings.sessionTitles[id] = trimmed
         }
         saveSettings()
+    }
+
+    /// Arm the rename dialog for `id`. The row menu closes on the same click
+    /// (its items are server state), so the dialog is the only surface left.
+    func openRenameDialog(_ id: String) {
+        renameSessionID = id
+    }
+
+    /// Dismiss the rename dialog without touching the title.
+    func cancelRenameDialog() {
+        renameSessionID = nil
     }
 
     func setShowArchived(_ on: Bool) {
@@ -777,6 +839,8 @@ extension AppState {
     // MARK: Kanban
 
     func setAddingColumn(_ on: Bool) { addingColumn = on }
+
+    func setAddingLane(_ on: Bool) { addingLane = on }
 
     /// The id of the board the Kanban page is showing (nil selection reads
     /// as the default board, matching legacy data).
@@ -1204,17 +1268,20 @@ extension AppState {
 
     // MARK: Workspace panel
 
-    func toggleWorkspace() {
-        workspaceOpen.toggle()
+    /// Open the panel. Not a toggle: the dock's tab is only visible while the
+    /// panel is closed (the sheet hides it on `#ws-panel[data-open]`), and after
+    /// an engine dismissal the server may still hold `workspaceOpen == true` —
+    /// an "open" that re-armed the serial is the one action that always ships.
+    func openWorkspace() {
+        workspaceOpen = true
+        wsPanelSerial += 1
         // Mutual exclusion with the outline (see `toggleOutline`): both float
         // over the same right-hand strip.
-        if workspaceOpen { outlineOpen = false }
+        outlineOpen = false
         wsNewMode = ""
-        // One-shot slide-in for the open transition (consumed by the render).
-        if workspaceOpen { wsEnterAnim = true }
         // A fresh open always reflects the current disk: drop the render cache
         // so the panel rescans (it was never scanned while hidden).
-        if workspaceOpen { clearWorkspaceTreeCache() }
+        clearWorkspaceTreeCache()
     }
 
     func closeWorkspace() {
@@ -1627,6 +1694,170 @@ extension AppState {
         }
         let next = disabled
         await updateConfig { $0.tools.disabledToolsets = next }
+    }
+
+    /// Switch one tool on top of the toolset switch — the exception, where
+    /// ``setToolset(_:enabled:)`` is the norm.
+    ///
+    /// Writes `tools.disabledTools` (and drops the name from `enabledTools`:
+    /// an explicit enable beats a disable, so a stale entry there would make
+    /// the switch appear to do nothing when turned off). Both arrays are kept
+    /// sorted and written as `nil` when empty, so a toggle off and back on
+    /// leaves the file exactly as it was.
+    func setTool(_ name: String, enabled: Bool) async {
+        var disabled = arcConfig.tools.disabledTools ?? []
+        var enabledList = arcConfig.tools.enabledTools ?? []
+        // the default is enabled, and the later list wins: a name must never
+        // be in both after an explicit switch.
+        enabledList.removeAll { $0 == name }
+        if enabled {
+            disabled.removeAll { $0 == name }
+        } else if !disabled.contains(name) {
+            disabled.append(name)
+        }
+        let nextDisabled = disabled.sorted()
+        let nextEnabled = enabledList.sorted()
+        await updateConfig { config in
+            config.tools.disabledTools = nextDisabled.isEmpty ? nil : nextDisabled
+            config.tools.enabledTools = nextEnabled.isEmpty ? nil : nextEnabled
+        }
+    }
+
+    // MARK: Tool policy
+
+    /// Settings → Tool policy writes `toolPolicy` in `~/.arc/config.json`.
+    ///
+    /// Precedence, documented and NOT resolved here: three layers decide whether
+    /// a tool runs — the global `tools` block (toolset + per-tool switches), a
+    /// profile's own enable/disable lists, and these rules. **Disabled wins at
+    /// every layer, and a policy deny wins over enablement** — the rules can
+    /// refuse a tool the switches left on, never the other way round. This slice
+    /// owns the rules' storage and surface only; the resolver that composes the
+    /// three lives with the turn loop.
+    ///
+    /// The form's fields, named once: the ids the engine collects on submit are
+    /// the same keys a refused save restores from.
+    static let toolPolicyFieldKeys = ["tp-match-input", "tp-toolset-input", "tp-action-input", "tp-reason-input"]
+
+    /// The three verdicts, in the order `ToolPolicyAction` declares them. The
+    /// labels state what each one DOES — `denyWithHint` refuses and hands its
+    /// reason to the agent, it does not prompt a human.
+    static let toolPolicyActionOptions: [SelectOption] = [
+        SelectOption(value: ToolPolicyAction.allow.rawValue, label: "Allow — let the call through"),
+        SelectOption(value: ToolPolicyAction.deny.rawValue, label: "Deny — refuse the call"),
+        SelectOption(value: ToolPolicyAction.denyWithHint.rawValue,
+                     label: "Deny with hint — refuse and tell the agent why"),
+    ]
+
+    /// Open the rule editor on `editor`, or close it with `nil`.
+    ///
+    /// Opening always starts clean: a draft left by a cancelled edit would
+    /// otherwise seed the next form with the wrong rule.
+    func openToolPolicyEditor(_ editor: ToolPolicyEditor?) {
+        toolPolicyEditor = editor
+        for key in Self.toolPolicyFieldKeys {
+            formValues[FieldID(key)] = nil
+        }
+    }
+
+    /// Turn the whole policy on or off. The rules stay in the file untouched —
+    /// off is "allow all", and turning it back on restores exactly what was
+    /// there. `ToolPolicy.decide` short-circuits on the same flag.
+    func setToolPolicyEnabled(_ enabled: Bool) async {
+        await updateConfig { $0.security.toolPolicy.enabled = enabled }
+    }
+
+    /// Append a rule at the END of the list.
+    ///
+    /// `ToolPolicy.decide` is last-wins, so the end is the strongest position:
+    /// a new rule has the final say over every rule above it. Refuses (and
+    /// writes nothing) when the match is blank — a rule that matches no tool
+    /// name is a control that does nothing.
+    @discardableResult
+    func appendToolPolicyRule(
+        match: String, toolset: String, action: ToolPolicyAction, reason: String
+    ) async -> Bool {
+        guard let rule = Self.toolPolicyRule(match: match, toolset: toolset, action: action, reason: reason) else {
+            _ = hint("A rule needs a tool name or glob to match — nothing was added.", kind: "error")
+            return false
+        }
+        return await updateConfig { $0.security.toolPolicy.rules.append(rule) }
+    }
+
+    /// Replace the rule at `index` IN PLACE — the row keeps its position, and
+    /// therefore its precedence. A rule that is no longer at that position (the
+    /// row it was opened on has since been removed) refuses instead of writing
+    /// somewhere else.
+    @discardableResult
+    func updateToolPolicyRule(
+        at index: Int, match: String, toolset: String, action: ToolPolicyAction, reason: String
+    ) async -> Bool {
+        guard let rule = Self.toolPolicyRule(match: match, toolset: toolset, action: action, reason: reason) else {
+            _ = hint("A rule needs a tool name or glob to match — nothing was changed.", kind: "error")
+            return false
+        }
+        guard arcConfig.security.toolPolicy.rules.indices.contains(index) else {
+            _ = hint("That rule is no longer at position \(index + 1) — nothing was changed.", kind: "error")
+            return false
+        }
+        return await updateConfig { config in
+            guard config.security.toolPolicy.rules.indices.contains(index) else { return }
+            config.security.toolPolicy.rules[index] = rule
+        }
+    }
+
+    /// Remove one rule. The rest keep their relative order.
+    func removeToolPolicyRule(at index: Int) async {
+        await updateConfig { config in
+            guard config.security.toolPolicy.rules.indices.contains(index) else { return }
+            config.security.toolPolicy.rules.remove(at: index)
+        }
+    }
+
+    /// Move the rule at `source` to `destination`, shifting the rows between
+    /// them. This is the one operation that reorders the list, and it does so
+    /// because the operator asked: `decide` is last-wins, so an order change IS
+    /// a policy change. Nothing here sorts, and nothing may.
+    func moveToolPolicyRule(from source: Int, to destination: Int) async {
+        await updateConfig { config in
+            var rules = config.security.toolPolicy.rules
+            guard rules.indices.contains(source), rules.indices.contains(destination),
+                  source != destination else { return }
+            let rule = rules.remove(at: source)
+            rules.insert(rule, at: destination)
+            config.security.toolPolicy.rules = rules
+        }
+    }
+
+    /// One step towards the top of the list — towards the WEAKER end, because
+    /// the last matching rule is the one that decides.
+    func moveToolPolicyRuleUp(_ index: Int) async {
+        await moveToolPolicyRule(from: index, to: index - 1)
+    }
+
+    /// One step towards the bottom — towards the STRONGER end.
+    func moveToolPolicyRuleDown(_ index: Int) async {
+        await moveToolPolicyRule(from: index, to: index + 1)
+    }
+
+    /// Build a rule from the form's text, or nil when it cannot mean anything.
+    ///
+    /// Trimming is the whole normalization: an empty toolset must be ABSENT, not
+    /// blank (a blank toolset would never equal a real toolset name, so the rule
+    /// would silently match nothing), and the same for the reason. The match is
+    /// required.
+    nonisolated static func toolPolicyRule(
+        match: String, toolset: String, action: ToolPolicyAction, reason: String
+    ) -> ToolPolicyRule? {
+        let trimmedMatch = match.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedMatch.isEmpty else { return nil }
+        let trimmedToolset = toolset.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ToolPolicyRule(
+            match: trimmedMatch,
+            toolset: trimmedToolset.isEmpty ? nil : trimmedToolset,
+            action: action,
+            reason: trimmedReason.isEmpty ? nil : trimmedReason)
     }
 
     // MARK: Workspaces
@@ -2214,7 +2445,7 @@ extension AppState {
     /// Best-effort chat-title generation via the title_gen auxiliary model.
     /// Only fires when a title_gen assignment exists and the chat has no
     /// custom title yet; the default stays the first-message auto title.
-    /// Stores the title and nudges the door: the render names the topbar and
+    /// Stores the title and nudges the door: the re-render names the topbar and
     /// panel regions that moved, and leaves the streaming chat area untouched.
     func maybeGenerateTitle(
         sessionID: String,

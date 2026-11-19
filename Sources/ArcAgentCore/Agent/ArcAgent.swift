@@ -34,6 +34,14 @@ public actor ArcAgent: Service {
         public var baseURL: URL
         /// The API key.
         public var apiKey: String
+        /// Preflight reachability for `baseURL`.
+        ///
+        /// When set, `prime()` asks the endpoint for `/models` (memoized per
+        /// process by ``EndpointReachability``) and throws
+        /// ``LLMError/endpointUnreachable(endpoint:detail:)`` when it does not
+        /// answer — a dead base URL then costs one probe instead of a retry
+        /// cycle. `nil` (tests, fixtures) skips the check.
+        public var endpointProbe: (any EndpointProbing)? = nil
         /// The tool registry (built-ins plus any runtime-discovered plugin
         /// tools; see ``MutableToolRegistry``).
         public var registry: any ToolRegistry
@@ -228,6 +236,7 @@ public actor ArcAgent: Service {
             provider: String = "openai",
             baseURL: URL = URL(string: "https://api.openai.com/v1")!,
             apiKey: String,
+            endpointProbe: (any EndpointProbing)? = nil,
             registry: any ToolRegistry,
             sessionStore: SessionStore = FileSessionStore(),
             memoryProvider: MemoryProvider? = FileMemoryProvider(),
@@ -273,6 +282,8 @@ public actor ArcAgent: Service {
             agentPowers: AgentPowersConfig = AgentPowersConfig(),
             mcpServers: [String: MCPServerConfig] = [:],
             disabledToolsets: Set<String> = [],
+            disabledTools: Set<String> = [],
+            enabledTools: Set<String> = [],
             delegation: DelegationConfig = DelegationConfig(),
             llmClient: (any LLMClient)? = nil,
             contextRecipe: ResolvedContextRecipe? = nil,
@@ -284,6 +295,7 @@ public actor ArcAgent: Service {
             self.provider = provider
             self.baseURL = baseURL
             self.apiKey = apiKey
+            self.endpointProbe = endpointProbe
             self.registry = registry
             self.sessionStore = sessionStore
             self.memoryProvider = memoryProvider
@@ -331,6 +343,8 @@ public actor ArcAgent: Service {
             self.autoCompression = autoCompression
             self.mcpServers = mcpServers
             self.disabledToolsets = disabledToolsets
+            self.disabledTools = disabledTools
+            self.enabledTools = enabledTools
             self.delegation = delegation
             self.llmClient = llmClient
             self.contextRecipe = contextRecipe
@@ -342,6 +356,25 @@ public actor ArcAgent: Service {
 
         /// Toolsets to disable for this agent run (reference `--toolsets`).
         public var disabledToolsets: Set<String>
+
+        /// Individual tools removed from this run, on top of the toolset
+        /// switch (`tools.disabledTools`).
+        public var disabledTools: Set<String>
+
+        /// Individual tools pinned on (`tools.enabledTools`). Beats
+        /// ``disabledTools`` for the same name — never a disabled toolset.
+        public var enabledTools: Set<String>
+
+        /// The three lists as the one value the schema renderer and dispatch
+        /// both read. Built on demand from the fields above so there is no
+        /// second copy of the enablement policy to keep in step.
+        public var toolEnablement: ToolEnablementConfig {
+            ToolEnablementConfig(
+                disabledToolsets: disabledToolsets,
+                disabledTools: disabledTools,
+                enabledTools: enabledTools
+            )
+        }
 
         /// Delegation settings (child concurrency, turn budget, timeout).
         public var delegation: DelegationConfig
@@ -733,6 +766,29 @@ public actor ArcAgent: Service {
     /// wiring. Idempotent — safe to call from `run()` and `streamConversation`.
     public func prime() async throws {
         if httpClient != nil { return }
+        // preflight: a base URL that cannot answer must be reported by name
+        // before a turn is built on it. Failures are never memoized, so a
+        // repaired endpoint works on the very next turn.
+        //
+        // an injected client (`config.llmClient`) means the transport is decided
+        // elsewhere — the URL will never be dialed, so probing it would refuse
+        // turns that a stub or a router serves perfectly well.
+        if config.llmClient == nil, let probe = config.endpointProbe {
+            let endpoint = ProviderEndpoint(
+                baseURL: config.baseURL,
+                model: config.model,
+                provider: config.provider,
+                source: .config
+            )
+            let reachability = await EndpointReachability.shared.result(
+                for: endpoint, apiKey: config.apiKey, probe: probe
+            )
+            if case .unreachable(let detail) = reachability.outcome {
+                throw LLMError.endpointUnreachable(
+                    endpoint: config.baseURL.absoluteString, detail: detail
+                )
+            }
+        }
         let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
         self.httpClient = httpClient
         makeAuxRouter()
@@ -1346,7 +1402,7 @@ public actor ArcAgent: Service {
     /// Tool index text for the ShareGPT trajectory system preamble.
     public func toolsIndexText() async -> String {
         config.registry.allTools
-            .filter { !config.disabledToolsets.contains($0.toolset) }
+            .filter { ToolEnablement.isEnabled(tool: $0.name, toolset: $0.toolset, config: config.toolEnablement) }
             .map { "\($0.name): \($0.description)" }
             .joined(separator: "\n")
     }
@@ -1740,9 +1796,9 @@ public actor ArcAgent: Service {
     /// Token estimate for the tool schemas, cached (schema set is static).
     private func toolSchemaTokens() -> Int {
         if let cached = toolSchemaTokenEstimate { return cached }
-        let schemas = ProgressiveToolDisclosure.buildPromptSchemas(
+        let schemas = ToolSchemaRenderer.promptSchemas(
             registry: config.registry,
-            disabled: config.disabledToolsets,
+            enablement: config.toolEnablement,
             config: config.toolSearch,
             contextLength: config.maxContextTokens
         )
@@ -1768,29 +1824,29 @@ public actor ArcAgent: Service {
             ProgressiveToolDisclosure.estimateTokens(schemas: schemas)
         }
         func schemaTokens(_ tool: any AgentTool) -> Int {
-            est([ProgressiveToolDisclosure.schema(for: tool)])
+            est([ToolSchemaRenderer.schema(for: tool)])
         }
 
         let candidates = config.registry.allTools
-            .filter { !config.disabledToolsets.contains($0.toolset) }
+            .filter { ToolEnablement.isEnabled(tool: $0.name, toolset: $0.toolset, config: config.toolEnablement) }
             .map { $0.tool }
         let (visible, deferred) = DeferredToolPolicy.plan(entries: candidates, config: config.toolSearch)
 
         var builtin = 0
         var mcp = 0
         for tool in visible {
-            if tool.toolset == "mcp" { mcp += schemaTokens(tool) } else { builtin += schemaTokens(tool) }
+            if tool.toolsetName == "mcp" { mcp += schemaTokens(tool) } else { builtin += schemaTokens(tool) }
         }
 
         if !deferred.isEmpty, config.toolSearch.enabled != "off" {
             // Bridge trio envelope (tool_search without its manifest rides in
             // builtin; the manifest is split by diff below).
             builtin += est([
-                ProgressiveToolDisclosure.toolSearchSchema(manifest: nil),
-                ProgressiveToolDisclosure.toolDescribeSchema(),
-                ProgressiveToolDisclosure.toolCallSchema(),
+                ToolSchemaRenderer.toolSearchSchema(manifest: nil),
+                ToolSchemaRenderer.toolDescribeSchema(),
+                ToolSchemaRenderer.toolCallSchema(),
             ])
-            let nonMCP = deferred.filter { $0.toolset != "mcp" }
+            let nonMCP = deferred.filter { $0.toolsetName != "mcp" }
             if let full = ProgressiveToolDisclosure.manifest(
                 deferred: deferred, config: config.toolSearch, contextLength: config.maxContextTokens
             ) {
@@ -2512,9 +2568,9 @@ public actor ArcAgent: Service {
 
             // 3. Build tool schemas (progressive disclosure: deferred tools
             // appear as tool_search/tool_describe/tool_call + manifest).
-            let toolSchemas = ProgressiveToolDisclosure.buildPromptSchemas(
+            let toolSchemas = ToolSchemaRenderer.promptSchemas(
                 registry: config.registry,
-                disabled: config.disabledToolsets,
+                enablement: config.toolEnablement,
                 config: config.toolSearch,
                 contextLength: config.maxContextTokens
             )
@@ -2827,9 +2883,9 @@ public actor ArcAgent: Service {
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
             messages.append(contentsOf: Self.sanitizeMessages(messageHistory).map { $0.replayAPI() })
 
-            let toolSchemas = ProgressiveToolDisclosure.buildPromptSchemas(
+            let toolSchemas = ToolSchemaRenderer.promptSchemas(
                 registry: config.registry,
-                disabled: config.disabledToolsets,
+                enablement: config.toolEnablement,
                 config: config.toolSearch,
                 contextLength: config.maxContextTokens
             )
@@ -3696,13 +3752,6 @@ public actor ArcAgent: Service {
         return value == action
     }
 
-    /// Tools that are safe to run concurrently within one batch: read-only,
-    /// no shared mutable state, no side effects observable by a sibling call.
-    static let parallelSafeTools: Set<String> = [
-        "read_file", "web_search", "web_extract", "skill_view",
-        "kanban_list", "kanban_show", "list_profiles", "get_profile",
-    ]
-
     /// Bounded recovery budgets. Each limits how many times a synthetic nudge
     /// is injected for a failure mode before the loop falls through to plain
     /// re-prompting (overall bounded by ``Configuration.maxIterations``).
@@ -3788,15 +3837,16 @@ public actor ArcAgent: Service {
         // Disabled-toolset enforcement for the bridge: tool_describe/tool_call
         // accept ANY registry tool by name (never the enabled/deferred manifest),
         // so a model can address a disabled tool and burn a turn on the rejection.
-        // Reject disabled targets here, before routing into full dispatch.
+        // Reject disabled targets here, before routing into full dispatch — with
+        // the same verdict and text dispatch uses.
         guard let entry = config.registry.lookup(name: tool) else {
             return "Error: Unknown tool '\(tool)'."
         }
-        guard !config.disabledToolsets.contains(entry.toolset) else {
-            return "Error: Tool '\(tool)' is disabled (toolset '\(entry.toolset)' is disabled by configuration)."
+        if let refusal = disabledToolRefusal(tool: tool, entry: entry) {
+            return refusal
         }
         if name == "tool_describe" {
-            let schema = ProgressiveToolDisclosure.schema(for: entry.tool)
+            let schema = ToolSchemaRenderer.schema(for: entry.tool)
             guard let pretty = try? JSONSerialization.data(withJSONObject: schema, options: [.prettyPrinted, .sortedKeys]),
                   let text = String(data: pretty, encoding: .utf8) else {
                 return "Error: could not serialize schema for '\(tool)'."
@@ -3825,7 +3875,26 @@ public actor ArcAgent: Service {
     }
 
     // MARK: Tool invocation
-    //
+
+    /// The refusal text for a tool the enablement policy removed, or nil when
+    /// the tool is on.
+    ///
+    /// ``dispatchToolCall`` and the `tool_describe`/`tool_call` bridge both
+    /// route through this, so the two paths cannot disagree about either the
+    /// verdict (``ToolEnablement/isEnabled(tool:toolset:config:)``) or the
+    /// wording — and the wording names the rule that actually fired: the
+    /// toolset switch, or the per-tool entry.
+    private func disabledToolRefusal(tool: String, entry: RegisteredTool) -> String? {
+        let enablement = config.toolEnablement
+        guard !ToolEnablement.isEnabled(tool: tool, toolset: entry.toolset, config: enablement) else {
+            return nil
+        }
+        if enablement.disabledToolsets.contains(entry.toolsetName) {
+            return "Error: Tool '\(tool)' is disabled (toolset '\(entry.toolsetName)' is disabled by configuration)."
+        }
+        return "Error: Tool '\(tool)' is disabled (the tool itself is disabled by configuration)."
+    }
+
     // Workspace anchoring (arc parity): every handler runs with
     // `WorkspacePath.root` bound to the CLI's launch directory (the CLI has
     // no per-conversation workspace registry — reference' CLI equivalent is
@@ -3844,26 +3913,31 @@ public actor ArcAgent: Service {
         guard let entry = config.registry.lookup(name: toolCall.function.name) else {
             return "Error: Unknown tool '\(toolCall.function.name)'."
         }
-        // Disabled-toolset enforcement (reference `--toolsets`: disabled
-        // toolsets are removed from the registry). Schemas are filtered by
-        // ProgressiveToolDisclosure; dispatch must enforce the same set so a
-        // disabled tool can never execute even when the model names it.
-        guard !config.disabledToolsets.contains(entry.toolset) else {
-            return "Error: Tool '\(toolCall.function.name)' is disabled (toolset '\(entry.toolset)' is disabled by configuration)."
+        // Disabled-tool enforcement (reference `--toolsets`: disabled toolsets
+        // are removed from the registry, and `tools.disabledTools` narrows one
+        // tool further). Schemas are filtered by ToolSchemaRenderer through the
+        // same `ToolEnablement` verdict; dispatch must enforce it so a disabled
+        // tool can never execute even when the model names it. The refusal
+        // names which of the two rules fired.
+        if let refusal = disabledToolRefusal(tool: toolCall.function.name, entry: entry) {
+            return refusal
         }
 
         // ── Tool policy (reference managed tool scope): policy is
         // evaluated before any approval/danger logic and before execution. ──
         let gate = ToolPolicy.decide(
             toolName: toolCall.function.name,
-            toolset: entry.toolset,
+            toolset: entry.toolsetName,
             config: config.toolPolicy
         )
         switch gate.action {
         case .deny:
             return "[BLOCKED by tool policy: \(toolCall.function.name) is not permitted\(gate.reason.map { " — \($0)" } ?? "")]"
-        case .requireApproval:
-            return "[REQUIRES APPROVAL (tool policy): \(toolCall.function.name)\(gate.reason.map { " — \($0)" } ?? "") — enable the rule's scope or switch the rule to deny/allow]"
+        case .denyWithHint:
+            // no approval prompt exists for a tool invocation: the seam is
+            // command-shaped and resolves an unflagged tool name `.approved`
+            // without asking anyone. Refuse, and say what the rule wanted.
+            return "[BLOCKED by tool policy: \(toolCall.function.name) matches a rule that requires human approval, which this runtime cannot request\(gate.reason.map { " — \($0)" } ?? "") — switch the rule to allow, or deny it explicitly]"
         case .allow:
             break
         }
@@ -3942,11 +4016,19 @@ public actor ArcAgent: Service {
     /// of parallel-safe calls, with every other call as its own single-call
     /// segment. Callers execute segments sequentially and the calls within a
     /// parallel segment concurrently, preserving emission order of results.
-    static func planToolBatch(_ toolCalls: [ToolCall]) -> [[ToolCall]] {
+    ///
+    /// - Parameter isParallelSafe: Whether a tool name may run concurrently
+    ///   with its siblings. The caller supplies the live surface's answer
+    ///   (``AgentTool/parallelSafe``) rather than this planner reading a name
+    ///   table that could drift from the declarations.
+    static func planToolBatch(
+        _ toolCalls: [ToolCall],
+        isParallelSafe: (String) -> Bool
+    ) -> [[ToolCall]] {
         var segments: [[ToolCall]] = []
         var run: [ToolCall] = []
         for call in toolCalls {
-            if parallelSafeTools.contains(call.function.name) {
+            if isParallelSafe(call.function.name) {
                 run.append(call)
             } else {
                 if !run.isEmpty {
@@ -3978,7 +4060,9 @@ public actor ArcAgent: Service {
     ) async -> [(ToolCall, String)] {
         var outcomes: [(ToolCall, String)] = []
         toolCallsThisTurn += toolCalls.count
-        for segment in Self.planToolBatch(toolCalls) {
+        for segment in Self.planToolBatch(toolCalls, isParallelSafe: { name in
+            toolDependencies.toolSearchRegistry.get()?.lookup(name: name)?.parallelSafe ?? false
+        }) {
             for call in segment {
                 emit(.toolCallStarted(
                     id: call.id, name: call.function.name, arguments: call.function.arguments
@@ -4382,10 +4466,12 @@ public actor ArcAgent: Service {
         // Parity with the schema disclosure: disabled toolsets are not
         // advertised in the tool index either (ProgressiveToolDisclosure
         // filters the same set for schemas).
-        let tools = config.registry.allTools.filter { !config.disabledToolsets.contains($0.toolset) }
+        let tools = config.registry.allTools.filter {
+            ToolEnablement.isEnabled(tool: $0.name, toolset: $0.toolset, config: config.toolEnablement)
+        }
         return tools.map { tool in
             let emoji = tool.emoji ?? "🔧"
-            return "\(emoji) `\(tool.name)` [\(tool.toolset)] — \(tool.description)"
+            return "\(emoji) `\(tool.name)` [\(tool.toolsetName)] — \(tool.description)"
         }.joined(separator: "\n")
     }
 }

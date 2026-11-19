@@ -81,7 +81,7 @@ extension LLMClient {
 // MARK: - Errors
 
 /// Errors that can occur during LLM API calls.
-public enum LLMError: Error, Sendable, CustomStringConvertible {
+public enum LLMError: Error, Sendable, CustomStringConvertible, LocalizedError {
 
     /// The API returned an error response.
     case apiError(statusCode: Int, message: String)
@@ -101,6 +101,12 @@ public enum LLMError: Error, Sendable, CustomStringConvertible {
     /// A network error occurred.
     case networkError(String)
 
+    /// The configured endpoint did not answer at all — refused, unroutable, or
+    /// silent past the preflight deadline. Distinct from ``networkError`` so a
+    /// dead `baseURL` is reported by name instead of as an anonymous transport
+    /// failure, and permanent so a retry cycle cannot multiply the wait.
+    case endpointUnreachable(endpoint: String, detail: String)
+
     /// The response could not be parsed.
     case decodingError(String)
 
@@ -114,6 +120,11 @@ public enum LLMError: Error, Sendable, CustomStringConvertible {
 
     /// The request was rejected due to content policy.
     case contentPolicyViolation(String)
+
+    /// Every surface renders `"\(error)"` (the CLI prints it, the web UI
+    /// toasts it). Without this conformance that interpolation bridges to
+    /// NSError and prints "LLMError error 5", which names nothing.
+    public var errorDescription: String? { description }
 
     public var description: String {
         switch self {
@@ -129,6 +140,8 @@ public enum LLMError: Error, Sendable, CustomStringConvertible {
             return "Request timed out after \(interval)s."
         case .networkError(let message):
             return "Network error: \(message)"
+        case .endpointUnreachable(let endpoint, let detail):
+            return "Cannot reach the model endpoint \(endpoint): \(detail)"
         case .decodingError(let message):
             return "Failed to decode response: \(message)"
         case .emptyResponse:

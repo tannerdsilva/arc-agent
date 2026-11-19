@@ -24,11 +24,11 @@ private struct UploadHarness {
     let uploaded: UploadRecorder
 
     /// GET the page and read the render token out of the `webui-config` meta —
-    /// the exact value the browser would echo on an upload.
+    /// the exact value the browser echoes on every event and on an upload.
     func pageToken() async throws -> String {
         let page = try await get("/")
         let token = try #require(
-            UploadHarness.token(inPage: page),
+            UploadHarness.renderToken(inPage: page),
             "the served page carried no renderToken in its webui-config meta"
         )
         return token
@@ -93,17 +93,33 @@ private struct UploadHarness {
         }
     }
 
+    /// The token as the engine sees it: `renderToken` inside the page's
+    /// `webui-config` meta (attribute-unescaped json).
+    static func renderToken(inPage page: String) -> String? {
+        guard let name = page.range(of: "name=\"webui-config\"") else { return nil }
+        let rest = page[name.upperBound...]
+        guard let open = rest.range(of: "content=\"") else { return nil }
+        let tail = rest[open.upperBound...]
+        guard let close = tail.range(of: "\">") else { return nil }
+        let json = String(tail[..<close.lowerBound])
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&#39;", with: "'")
+        guard let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = object["renderToken"] as? String,
+              !token.isEmpty
+        else { return nil }
+        return token
+    }
+
+    /// The upload route's credential is the page's render token — the value the
+    /// engine reads from `config.renderToken` and sends as `X-Render-Token`.
+    /// There is no separate meta to parse since no-webui 2.11.0.
     static func token(inPage page: String) -> String? {
-        // The upload token rides its own meta (`arc-upload-token`), never the
-        // `webui-config` runtime config: a `renderToken` there is echoed on every
-        // event frame, and the server then dispatches into a render session a
-        // hand-wired host has no handlers in.
-        let marker = "<meta name=\"arc-upload-token\" content=\""
-        guard let start = page.range(of: marker) else { return nil }
-        let rest = page[start.upperBound...]
-        guard let end = rest.range(of: "\"") else { return nil }
-        let value = String(rest[..<end.lowerBound])
-        return value.isEmpty ? nil : value
+        renderToken(inPage: page)
     }
 }
 
@@ -127,10 +143,9 @@ private func withUploadServer(
     let tokens = UploadTokenStore(capacity: capacity)
     let recorder = UploadRecorder()
     let router = Router {
-        WorkspaceUpload.pageRoute("/", tokens: tokens) { _, token in
+        WorkspaceUpload.pageRoute("/", tokens: tokens) { _, token, _ in
             AppShell.makeDocument(
                 sheetURL: "/ui/style.css",
-                overlayURL: "/ui/init.js",
                 renderToken: token
             )(
                 UnsafeMarkup.trusted("<p id=\"upload-probe\">upload harness</p>"),
@@ -411,31 +426,44 @@ struct UploadRouteTests {
     func pageCarriesTheTokenItRecorded() async throws {
         try await withUploadServer { harness in
             let page = try await harness.get("/")
-            let token = try #require(UploadHarness.token(inPage: page), "no renderToken in the page meta")
+            let token = try #require(
+                UploadHarness.renderToken(inPage: page),
+                "no renderToken in the page's webui-config meta"
+            )
             #expect(!token.isEmpty)
             #expect(await harness.tokenStore.contains(token), "the page's token was not recorded by the page route")
+            // one credential, one copy: 2.11.0's upload transport reads the
+            // render token out of `engine.config.renderToken`, so the page must
+            // carry it there and NOWHERE else. a meta left behind would be a
+            // second copy of a credential, free to disagree with the first.
             #expect(
-                page.contains("name=\"arc-upload-token\" content=\"\(token)\""),
-                "the page did not publish its upload token in the arc-upload-token meta"
+                !page.contains("arc-upload-token"),
+                "the page still carries the deleted upload meta — the render token is the upload token"
             )
-            // The token must NOT ride the runtime config. `RuntimeConfig.renderToken`
-            // makes the engine echo it on every event frame, and the server then
-            // resolves each frame to the render session that token names — where a
-            // host that wires once at boot (arc's `Controller.wireAll`) has no
-            // handlers. The observable failure is total: every click, send and menu
-            // is answered with nothing at all and no error on either side.
             #expect(
-                !page.contains("&quot;renderToken&quot;:&quot;"),
-                "the token must not ride webui-config: token-bound frames route to an empty render session"
+                UploadHarness.token(inPage: page) == token,
+                "the upload credential must be the render token the page publishes"
+            )
+            // The token MUST ride the runtime config. no-webui 2.8.0's host
+            // table is what makes that safe: the engine echoes the token on
+            // every event, the server resolves the frame to this render's
+            // session, and every id the render did not wire still answers
+            // from the sealed host table (§22.1/D1 — `Controller.wireAll`
+            // lands there). Before 2.8.0 the boot wiring lived in `.default`,
+            // so a token-bound frame reached a session with no handlers and
+            // the whole page went dead.
+            #expect(
+                page.contains("&quot;renderToken&quot;:&quot;\(token)&quot;"),
+                "the token must ride webui-config: it is what routes a frame to this render's session"
             )
             // the token reaches the page through `makeDocument`, and only when
             // it is handed one — a page rendered without a token must not
             // carry an empty credential the client could echo back.
             let markup = UnsafeMarkup.trusted("<p>probe</p>")
             let attrs = "data-scheme=\"poseidon\" data-theme=\"dark\""
-            let without = AppShell.makeDocument(sheetURL: "/ui/style.css", overlayURL: "/ui/init.js")(markup, attrs)
+            let without = AppShell.makeDocument(sheetURL: "/ui/style.css")(markup, attrs)
             let with = AppShell.makeDocument(
-                sheetURL: "/ui/style.css", overlayURL: "/ui/init.js", renderToken: token
+                sheetURL: "/ui/style.css", renderToken: token
             )(markup, attrs)
             #expect(
                 !without.markup.html.contains(token),
@@ -445,6 +473,53 @@ struct UploadRouteTests {
                 with.markup.html.contains(token),
                 "a page rendered with a token must publish it"
             )
+            #expect(
+                without.markup.html.contains("name=\"webui-config\" content=\"{}\""),
+                "a page with no runtime knob must keep the empty-config shape"
+            )
+        }
+    }
+
+    /// The framework's counted ceiling is the one the route cannot answer for:
+    /// a chunked body declares no length, so arc's own pre-check has nothing to
+    /// read and `Route.upload(limit:)` refuses the moment the count overruns.
+    /// The body below is 1 MiB + 1 against the harness's 1 MiB — the same
+    /// `limit:` the route is mounted with, which is why the sentence names
+    /// 1048576 bytes. Its text is the framework's, observed and pinned verbatim;
+    /// the `.part` the route opened is removed on the rethrown overrun.
+    @Test("a body past the route's limit is refused 413 by the framework and writes nothing")
+    func overLimitUploadIsRefusedByTheFrameworkAndWritesNothing() async throws {
+        try await withUploadServer { harness in
+            let token = try await harness.pageToken()
+            let limit = 1 << 20
+            let body = patternBytes(limit + 1)
+            var request = URLRequest(
+                url: URL(string: "http://127.0.0.1:\(harness.port)\(WorkspaceUpload.routePath)")!)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 30
+            request.setValue("http://127.0.0.1:\(harness.port)", forHTTPHeaderField: "Origin")
+            request.setValue("over-limit.bin", forHTTPHeaderField: "X-Upload-Path")
+            request.setValue("over-limit.bin", forHTTPHeaderField: "X-Upload-Name")
+            request.setValue(token, forHTTPHeaderField: "X-Render-Token")
+            request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            // a stream body, not `httpBody`: URLSession must not declare a
+            // Content-Length, or arc's declared-length pre-check answers first
+            // with its own JSON 413 and the framework's ceiling goes untested.
+            request.httpBodyStream = InputStream(data: Data(body))
+            let (data, response) = try await URLSession(configuration: .ephemeral).data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let text = String(decoding: data, as: UTF8.self)
+            #expect(status == 413, "a \(body.count)-byte upload against a \(limit)-byte limit answered \(status): \(text)")
+            #expect(
+                text == "413 — request body too large: Route.upload(limit:) is \(limit) bytes; received \(limit)",
+                "the framework's over-limit refusal read `\(text)`"
+            )
+            // nothing landed and nothing was left half-written: the route's
+            // catch removes the `.part` before the framework answers.
+            #expect(harness.rootEntries().isEmpty,
+                    "an over-limit upload wrote \(harness.rootEntries())")
+            let uploads = await harness.uploaded.count
+            #expect(uploads == 0, "the repaint hook ran \(uploads) times for a refused upload")
         }
     }
 

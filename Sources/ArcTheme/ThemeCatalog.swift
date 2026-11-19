@@ -23,10 +23,22 @@ import WebUIDesignSystem
 //    literal: a token invented to cover them would be a name that lies. `--warning` is
 //    literal for a sharper reason: no-webui emits every alias into every block, and its
 //    token is not defined in every scheme, so the indirection would resolve to nothing
-//    where the property used to inherit the base sheet's orange. `--accent-fg` is the
+//    where the property used to inherit the base sheet's orange. `--warning-strong` is
+//    the same story one step darker — the text-grade amber `.log-line.lvl-warn` paints
+//    with (AA on the light surface, where the bright `--warning` is for dots) — and it
+//    is a *catalog* token rather than a `:root` literal so every scheme states it:
+//    a property the chrome sheet alone declares is invisible to a scheme block, which
+//    is how the old `:root[data-theme=…]` copy could drift from `ArcBaseTheme` unseen.
+//    `--accent-fg` is the
 //    same class of literal: the `.primary-btn` label colour, chosen per scheme and per
 //    mode against that scheme's `--accent` (WCAG AA >= 4.5:1, enforced by
 //    PrimaryButtonAccentContrastTests) — it is not any framework token's value.
+//    `--link` is a literal for a third reason: it is the one ink measured against the
+//    page's own surface, and every scheme has a different one. It is chosen per scheme
+//    AND per mode against that scheme's `--bg` (and `--surface`, where `.detail-body a`
+//    paints), so the same value cannot be copied between schemes: `#3D647D` reads
+//    5.44:1 on slate's light background and 2.75:1 on its dark one. `LinkContrastTests`
+//    resolves all 108 served scheme×mode blocks and asserts 4.5:1 on each.
 
 /// arc's own property vocabulary, declared against no-webui's tokens.
 ///
@@ -63,12 +75,16 @@ public struct ArcBaseTheme {
 				tokens: [.colorBg: "#FFFFFF", .colorBgInset: "#F7F7F7", .colorBgRaised: "#FFFFFF",
 					.colorBgSubtle: "#F3F3F3", .colorBorder: "#CDCDCD", .colorBorderStrong: "#B8B8B8",
 					.colorDanger: "#C43C3C", .colorDangerSoft: "rgba(196, 60, 60, 0.10)",
-					.colorPrimarySolid: "#D97757", .colorPrimarySolidHover: "#6D28D9", .colorSuccess: "#3D8B52",
+					.colorPrimarySolid: "#D97757", .colorPrimarySolidHover: "#6D28D9", .colorSuccess: "#2A6F3B",
 					.colorText: "#1D1D24", .colorTextMuted: "#5D5D65", .scrollbarThumb: "#D4D4DC",
 				],
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-border": "rgba(217,119,87,0.18)",
-					"--accent-soft": "rgba(184, 134, 11, 0.10)", "--code-bg": "#F0F0F4", "--link": "#0288A8",
+					"--accent-soft": "rgba(184, 134, 11, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
+					"--code-bg": "#F0F0F4", "--code-inline-bg": "rgba(0, 0, 0, 0.05)",
+					"--code-text": "#1D1D24", "--hover-bg": "rgba(0, 0, 0, 0.04)",
+					"--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#027E9B",
 					"--shadow": "0 2px 12px rgba(30, 30, 40, 0.08)", "--user-bubble": "#EFEFEF",
+					"--warning-strong": "#8A5B00",
 				],
 			)
 
@@ -80,8 +96,12 @@ public struct ArcBaseTheme {
 					.colorText: "#E6E6EC", .colorTextMuted: "#9D9DA8", .scrollbarThumb: "#33333E",
 				],
 				customTokens: ["--accent-strong-ink": "#1D1D24", "--accent-border": "rgba(217, 164, 65, 0.5)",
-					"--accent-soft": "rgba(217, 164, 65, 0.14)", "--code-bg": "#23232C", "--link": "#C9C8C0",
+					"--accent-soft": "rgba(217, 164, 65, 0.14)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
+					"--code-bg": "#23232C", "--code-inline-bg": "rgba(0, 0, 0, 0.35)",
+					"--code-text": "#E6E6EC", "--hover-bg": "rgba(255, 255, 255, 0.06)",
+					"--input-bg": "rgba(255, 255, 255, 0.04)", "--link": "#C9C8C0",
 					"--shadow": "0 2px 14px rgba(0, 0, 0, 0.35)", "--user-bubble": "#2E302D",
+					"--warning-strong": "#E68A00",
 				],
 			)
 }
@@ -139,7 +159,7 @@ public struct AresTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#000000", "--accent-border": "rgba(229, 72, 77, 0.45)",
 					"--accent-soft": "rgba(229, 72, 77, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.05)", "--code-text": "#1D1D24",
-					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#C6373C",
+					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#C4373C",
 					"--user-bubble": "rgba(229, 72, 77, 0.10)",
 				],
 			)
@@ -153,7 +173,7 @@ public struct AresTheme {
 					"--accent-soft": "rgba(229, 72, 77, 0.15)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.35)", "--code-text": "#E6E6EC",
 					"--hover-bg": "rgba(255, 255, 255, 0.06)", "--input-bg": "rgba(255, 255, 255, 0.04)",
-					"--link": "#C6373C", "--user-bubble": "rgba(229, 72, 77, 0.13)",
+					"--link": "#D46568", "--user-bubble": "rgba(229, 72, 77, 0.13)",
 				],
 			)
 }
@@ -176,7 +196,7 @@ public struct MonoTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#1D1D24", "--accent-border": "rgba(139, 139, 147, 0.45)",
 					"--accent-soft": "rgba(139, 139, 147, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.05)", "--code-text": "#1D1D24",
-					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#6E6E76",
+					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#6B6B73",
 					"--user-bubble": "rgba(139, 139, 147, 0.10)",
 				],
 			)
@@ -190,7 +210,7 @@ public struct MonoTheme {
 					"--accent-soft": "rgba(139, 139, 147, 0.15)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.35)", "--code-text": "#E6E6EC",
 					"--hover-bg": "rgba(255, 255, 255, 0.06)", "--input-bg": "rgba(255, 255, 255, 0.04)",
-					"--link": "#6E6E76", "--user-bubble": "rgba(139, 139, 147, 0.13)",
+					"--link": "#888891", "--user-bubble": "rgba(139, 139, 147, 0.13)",
 				],
 			)
 }
@@ -207,7 +227,7 @@ public struct GraphiteTheme {
 
 	public static let palette = ThemePalette(
 				tokens: [.colorDanger: "#D44D4D", .colorPrimarySolid: "#303030",
-					.colorPrimarySolidHover: "#303030", .colorSuccess: "#0F8F70", .colorText: "#242424",
+					.colorPrimarySolidHover: "#303030", .colorSuccess: "#0E8468", .colorText: "#242424",
 					.colorTextMuted: "#636363", .colorWarning: "#B87916",
 				],
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#FFFFFF", "--accent-border": "rgba(0,0,0,0.13)", "--accent-soft": "rgba(0,0,0,0.07)",
@@ -285,7 +305,7 @@ public struct CodexTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#FFFFFF", "--accent-border": "rgba(46,122,96,0.16)",
 					"--accent-soft": "rgba(46,122,96,0.08)", "--border-subtle": "#E8E8E8", "--code-bg": "#F3F3F3",
 					"--code-inline-bg": "rgba(0,0,0,0.06)", "--code-text": "#252523",
-					"--hover-bg": "rgba(0,0,0,0.04)", "--input-bg": "#FFFFFF", "--link": "#4D8DFF",
+					"--hover-bg": "rgba(0,0,0,0.04)", "--input-bg": "#FFFFFF", "--link": "#196BFF",
 					"--user-bubble": "#EBEBEB", "--warning": "#B87916",
 				],
 			)
@@ -316,12 +336,12 @@ public struct TerracottaTheme {
 	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#FAF9F5", .colorBgInset: "#F7F4EC", .colorBgRaised: "#FFFEFA",
 					.colorBgSubtle: "#F0EEE6", .colorBorder: "#CBC9C0", .colorBorderStrong: "#B8B4A8",
-					.colorDanger: "#C15F3C", .colorPrimarySolidHover: "#A14B32", .colorSuccess: "#6EA100",
+					.colorDanger: "#C15F3C", .colorPrimarySolidHover: "#A14B32", .colorSuccess: "#588000",
 					.colorText: "#30302E", .colorTextMuted: "#65655F", .colorWarning: "#B87916",
 				],
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#000000", "--accent-soft": "rgba(217,119,87,0.10)", "--border-subtle": "#F0EDE4",
 					"--code-bg": "#F0EEE6", "--code-inline-bg": "rgba(48,48,46,0.065)", "--code-text": "#30302E",
-					"--hover-bg": "rgba(48,48,46,0.05)", "--input-bg": "#FFFEFA", "--link": "#6396D6",
+					"--hover-bg": "rgba(48,48,46,0.05)", "--input-bg": "#FFFEFA", "--link": "#3373C2",
 					"--user-bubble": "#F0EEE6", "--warning": "#B87916",
 				],
 			)
@@ -374,7 +394,7 @@ public struct SlateTheme {
 					"--accent-soft": "rgba(78, 124, 153, 0.15)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.35)", "--code-text": "#E6E6EC",
 					"--hover-bg": "rgba(255, 255, 255, 0.06)", "--input-bg": "rgba(255, 255, 255, 0.04)",
-					"--link": "#3D647D", "--user-bubble": "rgba(78, 124, 153, 0.13)",
+					"--link": "#5A8EAE", "--user-bubble": "rgba(78, 124, 153, 0.13)",
 				],
 			)
 }
@@ -430,7 +450,7 @@ public struct SisyphusTheme {
 				tokens: [.colorBg: "#FEFCF7", .colorBgInset: "#F3EEE3", .colorBgSubtle: "#FAF7F0",
 					.colorBorder: "#D0C8BA", .colorBorderStrong: "#BBB4A6", .colorDanger: "#C62828",
 					.colorDangerSoft: "rgba(198, 40, 40, 0.10)", .colorPrimarySolid: "#7C3AED",
-					.colorSuccess: "#3D8B40", .colorText: "#1A1610", .colorTextMuted: "#5C5344",
+					.colorSuccess: "#3A843D", .colorText: "#1A1610", .colorTextMuted: "#5C5344",
 					.scrollbarThumb: "#D8D0BE",
 				],
 				customTokens: ["--accent-fg": "#FEFCF7", "--accent-border": "rgba(124, 58, 237, 0.40)",
@@ -488,7 +508,7 @@ public struct CharizardTheme {
 					"--accent-soft": "rgba(249, 115, 22, 0.15)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.35)", "--code-text": "#E6E6EC",
 					"--hover-bg": "rgba(255, 255, 255, 0.06)", "--input-bg": "rgba(255, 255, 255, 0.04)",
-					"--link": "#C2410C", "--user-bubble": "rgba(249, 115, 22, 0.13)",
+					"--link": "#F05210", "--user-bubble": "rgba(249, 115, 22, 0.13)",
 				],
 			)
 }
@@ -549,7 +569,7 @@ public struct CatppuccinTheme {
 				customTokens: ["--accent-strong-ink": "#EFF1F5", "--accent-fg": "#EFF1F5", "--accent-border": "rgba(136,57,239,0.18)",
 					"--accent-soft": "rgba(136,57,239,0.09)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-bg": "#E6E9EF", "--code-inline-bg": "rgba(30,30,46,0.06)", "--code-text": "#8839EF",
-					"--hover-bg": "rgba(30,30,46,0.05)", "--input-bg": "rgba(30,30,46,0.035)", "--link": "#1E66F5",
+					"--hover-bg": "rgba(30,30,46,0.05)", "--input-bg": "rgba(30,30,46,0.035)", "--link": "#1761F5",
 					"--user-bubble": "#E6E9EF",
 				],
 			)
@@ -558,7 +578,7 @@ public struct CatppuccinTheme {
 				tokens: [.colorBg: "#1E1E2E", .colorBgInset: "#23232C", .colorBgRaised: "#313244",
 					.colorBgSubtle: "#181825", .colorBorder: "#47495C", .colorBorderStrong: "#585B70",
 					.colorPrimarySolid: "#CBA6F7", .colorPrimarySolidHover: "#CBA6F7", .colorText: "#CDD6F4",
-					.colorTextMuted: "#A6ADC8",
+					.colorSuccess: "#4AB15D", .colorTextMuted: "#A6ADC8",
 				],
 				customTokens: ["--accent-strong-ink": "#1E1E2E", "--accent-fg": "#1E1E2E", "--accent-border": "rgba(203,166,247,0.22)",
 					"--accent-soft": "rgba(203,166,247,0.12)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
@@ -583,14 +603,14 @@ public struct HepburnTheme {
 				tokens: [.colorBg: "#fff3f7", .colorBgInset: "rgba(242,120,173,0.04)", .colorBgRaised: "#fff9fb",
 					.colorBgSubtle: "#fbe4ed", .colorBorder: "#DEBCC9",
 					.colorBorderStrong: "rgba(242,120,173,0.18)", .colorDanger: "#c0392b",
-					.colorPrimarySolid: "#d44a7a", .colorPrimarySolidHover: "#BA2264", .colorSuccess: "#3d8b40",
+					.colorPrimarySolid: "#d44a7a", .colorPrimarySolidHover: "#BA2264", .colorSuccess: "#39813c",
 					.colorText: "#3d1a28", .colorTextMuted: "#815864", .colorWarning: "#e67e22",
 				],
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#000000", "--accent-border": "rgba(242,120,173,0.20)",
 					"--accent-soft": "rgba(242,120,173,0.10)", "--border-subtle": "rgba(242,120,173,0.10)",
 					"--code-bg": "#fbe6ef", "--code-inline-bg": "rgba(242,120,173,0.12)", "--code-text": "#d44a7a",
 					"--hover-bg": "rgba(242,120,173,0.08)", "--input-bg": "rgba(242,120,173,0.06)",
-					"--link": "#8671e5", "--user-bubble": "rgba(242, 120, 173, 0.10)", "--warning": "#e67e22",
+					"--link": "#725AE1", "--user-bubble": "rgba(242, 120, 173, 0.10)", "--warning": "#e67e22",
 				],
 			)
 
@@ -623,13 +643,13 @@ public struct NousTheme {
 	public static let palette = ThemePalette(
 				tokens: [.colorBgInset: "rgba(0,0,0,.025)", .colorBgSubtle: "#F5F5F5", .colorBorder: "#C8D0D8",
 					.colorBorderStrong: "rgba(0,0,0,0.15)", .colorDanger: "#C62828", .colorPrimarySolid: "#4682B4",
-					.colorPrimarySolidHover: "#2C5F88", .colorSuccess: "#3D8B40", .colorText: "#1A2A3A",
+					.colorPrimarySolidHover: "#2C5F88", .colorSuccess: "#3A843D", .colorText: "#1A2A3A",
 					.colorTextMuted: "#5B6977", .colorWarning: "#E68A00",
 				],
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#000000", "--accent-border": "rgba(70,130,180,0.12)",
 					"--accent-soft": "rgba(70,130,180,0.06)", "--border-subtle": "rgba(0,0,0,.08)",
 					"--code-bg": "#F0F2F5", "--code-inline-bg": "rgba(70,130,180,.08)", "--code-text": "#2C5F88",
-					"--hover-bg": "rgba(0,0,0,.05)", "--input-bg": "rgba(0,0,0,.03)", "--link": "#4682B4",
+					"--hover-bg": "rgba(0,0,0,.05)", "--input-bg": "rgba(0,0,0,.03)", "--link": "#427AAA",
 					"--user-bubble": "rgba(70, 130, 180, 0.10)", "--warning": "#E68A00",
 				],
 			)
@@ -664,11 +684,11 @@ public struct NeonTheme {
 				tokens: [.colorBg: "#F7F9FB", .colorBgInset: "#ECF0F4", .colorBgSubtle: "#F1F4F7",
 					.colorBorder: "#C5CBD2", .colorBorderStrong: "#ADB7C2", .colorDanger: "#E6386E",
 					.colorDangerSoft: "rgba(230, 56, 110, 0.10)", .colorPrimarySolid: "#0896C2",
-					.colorPrimarySolidHover: "#067294", .colorSuccess: "#00A97F", .colorText: "#1B2230",
+					.colorPrimarySolidHover: "#067294", .colorSuccess: "#008564", .colorText: "#1B2230",
 					.colorTextMuted: "#5B697B", .scrollbarThumb: "#CAD5E0",
 				],
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#1B2230", "--accent-border": "rgba(0, 152, 214, 0.42)",
-					"--accent-soft": "rgba(0, 184, 255, 0.09)", "--code-bg": "#E9EFF5", "--link": "#7B61FF",
+					"--accent-soft": "rgba(0, 184, 255, 0.09)", "--code-bg": "#E9EFF5", "--link": "#7053FF",
 					"--shadow": "0 2px 12px rgba(0, 80, 140, 0.08)", "--user-bubble": "rgba(0, 184, 255, 0.09)",
 				],
 			)
@@ -700,7 +720,7 @@ public struct NeonSoftTheme {
 	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#F8F7FC", .colorBgInset: "rgba(147,51,234,.025)", .colorBgSubtle: "#F0EEF8",
 					.colorBorder: "#CBC7DE", .colorBorderStrong: "rgba(0,0,0,0.12)", .colorDanger: "#DC2626",
-					.colorPrimarySolid: "#9333EA", .colorSuccess: "#059669", .colorText: "#1E1B2E",
+					.colorPrimarySolid: "#9333EA", .colorSuccess: "#04855D", .colorText: "#1E1B2E",
 					.colorTextMuted: "#686280", .colorWarning: "#D97706",
 				],
 				customTokens: ["--accent-fg": "#F8F7FC", "--accent-border": "rgba(147,51,234,0.12)",
@@ -740,13 +760,13 @@ public struct NeonPaintTheme {
 	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#F5F0FF", .colorBgInset: "rgba(255,45,149,.025)", .colorBgSubtle: "#EDE6F8",
 					.colorBorder: "#CABFE3", .colorBorderStrong: "rgba(0,0,0,0.12)", .colorDanger: "#FF1744",
-					.colorPrimarySolid: "#FF2D95", .colorPrimarySolidHover: "#BE1859", .colorSuccess: "#00E676",
+					.colorPrimarySolid: "#FF2D95", .colorPrimarySolidHover: "#BE1859", .colorSuccess: "#008745",
 					.colorText: "#1A1028", .colorTextMuted: "#6E5A88", .colorWarning: "#FFB300",
 				],
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#1A1028", "--accent-border": "rgba(255,45,149,0.12)",
 					"--accent-soft": "rgba(255,45,149,0.06)", "--border-subtle": "rgba(255,45,149,.08)",
 					"--code-bg": "#EDE6F8", "--code-inline-bg": "rgba(255,45,149,.08)", "--code-text": "#D81B60",
-					"--hover-bg": "rgba(255,45,149,.05)", "--input-bg": "rgba(255,45,149,.03)", "--link": "#00E5FF",
+					"--hover-bg": "rgba(255,45,149,.05)", "--input-bg": "rgba(255,45,149,.03)", "--link": "#007987",
 					"--user-bubble": "rgba(236, 72, 153, 0.10)", "--warning": "#FFB300",
 				],
 			)
@@ -825,7 +845,7 @@ public struct ZeusTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#1D1D24", "--accent-border": "rgba(229, 183, 93, 0.45)",
 					"--accent-soft": "rgba(229, 183, 93, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.05)", "--code-text": "#1D1D24",
-					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#C9A227",
+					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#856C1A",
 					"--user-bubble": "rgba(229, 183, 93, 0.10)",
 				],
 			)
@@ -897,11 +917,11 @@ public struct DraculaTheme {
 				tokens: [.colorBg: "#F8F7FC", .colorBgInset: "#EFEDF7", .colorBgSubtle: "#F4F2FA",
 					.colorBorder: "#CBC7D8", .colorBorderStrong: "#B7B1CB", .colorDanger: "#C94A5E",
 					.colorDangerSoft: "rgba(201, 74, 94, 0.10)", .colorPrimarySolid: "#6C4FA1",
-					.colorPrimarySolidHover: "#58408A", .colorSuccess: "#3B8C5A", .colorText: "#282433",
+					.colorPrimarySolidHover: "#58408A", .colorSuccess: "#378354", .colorText: "#282433",
 					.colorTextMuted: "#666278", .scrollbarThumb: "#C9C4DD",
 				],
 				customTokens: ["--accent-strong-ink": "#F8F7FC", "--accent-fg": "#F8F7FC", "--accent-border": "rgba(108, 79, 161, 0.42)",
-					"--accent-soft": "rgba(108, 79, 161, 0.10)", "--code-bg": "#ECEAF4", "--link": "#4E7CE0",
+					"--accent-soft": "rgba(108, 79, 161, 0.10)", "--code-bg": "#ECEAF4", "--link": "#386BDC",
 					"--shadow": "0 2px 12px rgba(60, 50, 100, 0.08)", "--user-bubble": "rgba(108, 79, 161, 0.10)",
 				],
 			)
@@ -939,7 +959,7 @@ public struct GruvboxTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#3C3836", "--accent-border": "rgba(215, 153, 33, 0.45)",
 					"--accent-soft": "rgba(215, 153, 33, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.05)", "--code-text": "#1D1D24",
-					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#B07E15",
+					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#8E6611",
 					"--user-bubble": "rgba(215, 153, 33, 0.10)",
 				],
 			)
@@ -948,13 +968,13 @@ public struct GruvboxTheme {
 				tokens: [.colorBg: "#282828", .colorBgInset: "#45403D", .colorBgRaised: "#3C3836",
 					.colorBgSubtle: "#32302F", .colorBorder: "#5D5753", .colorBorderStrong: "#6E645D",
 					.colorPrimarySolid: "#D79921", .colorPrimarySolidHover: "#CBAB66", .colorText: "#EBDBB2",
-					.colorTextMuted: "#B9AD9C", .scrollbarThumb: "#504945",
+					.colorSuccess: "#53B766", .colorTextMuted: "#B9AD9C", .scrollbarThumb: "#504945",
 				],
 				customTokens: ["--accent-strong-ink": "#282828", "--accent-fg": "#282828", "--accent-border": "rgba(215, 153, 33, 0.50)",
 					"--accent-soft": "rgba(215, 153, 33, 0.15)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.35)", "--code-text": "#E6E6EC",
 					"--hover-bg": "rgba(255, 255, 255, 0.06)", "--input-bg": "rgba(255, 255, 255, 0.04)",
-					"--link": "#B07E15", "--user-bubble": "rgba(215, 153, 33, 0.15)",
+					"--link": "#D49819", "--user-bubble": "rgba(215, 153, 33, 0.15)",
 				],
 			)
 }
@@ -977,7 +997,7 @@ public struct OneDarkTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#1D1D24", "--accent-border": "rgba(97, 175, 239, 0.45)",
 					"--accent-soft": "rgba(97, 175, 239, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.05)", "--code-text": "#1D1D24",
-					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#4A93CC",
+					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#2F72A7",
 					"--user-bubble": "rgba(97, 175, 239, 0.10)",
 				],
 			)
@@ -1014,7 +1034,7 @@ public struct TokyoNightTheme {
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#1D1D24", "--accent-border": "rgba(122, 162, 247, 0.45)",
 					"--accent-soft": "rgba(122, 162, 247, 0.10)", "--border-subtle": "rgba(0, 0, 0, 0.08)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.05)", "--code-text": "#1D1D24",
-					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#5E88E8",
+					"--hover-bg": "rgba(0, 0, 0, 0.04)", "--input-bg": "rgba(0, 0, 0, 0.02)", "--link": "#2F65E1",
 					"--user-bubble": "rgba(122, 162, 247, 0.10)",
 				],
 			)
@@ -1047,11 +1067,11 @@ public struct RosepineTheme {
 				tokens: [.colorBg: "#FAF4F4", .colorBgInset: "#F3E9E9", .colorBgRaised: "#FFFBFB",
 					.colorBgSubtle: "#F7EEEE", .colorBorder: "#D0C4C4", .colorBorderStrong: "#C2ADAD",
 					.colorDanger: "#C04C4C", .colorDangerSoft: "rgba(192, 76, 76, 0.10)",
-					.colorPrimarySolid: "#B4637A", .colorPrimarySolidHover: "#9C4D63", .colorSuccess: "#6F9F5C",
+					.colorPrimarySolid: "#B4637A", .colorPrimarySolidHover: "#9C4D63", .colorSuccess: "#577D48",
 					.colorText: "#32211F", .colorTextMuted: "#736060", .scrollbarThumb: "#DCC7C6",
 				],
 				customTokens: ["--accent-strong-ink": "#FFFFFF", "--accent-fg": "#000000", "--accent-border": "rgba(180, 99, 122, 0.42)",
-					"--accent-soft": "rgba(180, 99, 122, 0.10)", "--code-bg": "#F2E7E7", "--link": "#9A7ED9",
+					"--accent-soft": "rgba(180, 99, 122, 0.10)", "--code-bg": "#F2E7E7", "--link": "#7E5ACE",
 					"--shadow": "0 2px 12px rgba(120, 60, 70, 0.08)", "--user-bubble": "rgba(180, 99, 122, 0.10)",
 				],
 			)
@@ -1102,7 +1122,7 @@ public struct SolarizedDarkTheme {
 					"--accent-soft": "rgba(38, 139, 210, 0.15)", "--border-subtle": "rgba(255, 255, 255, 0.075)",
 					"--code-inline-bg": "rgba(0, 0, 0, 0.35)", "--code-text": "#E6E6EC",
 					"--hover-bg": "rgba(255, 255, 255, 0.06)", "--input-bg": "rgba(255, 255, 255, 0.04)",
-					"--link": "#1B6FA8", "--user-bubble": "rgba(38, 139, 210, 0.13)",
+					"--link": "#238ED8", "--user-bubble": "rgba(38, 139, 210, 0.13)",
 				],
 			)
 }

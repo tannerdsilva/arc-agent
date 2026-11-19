@@ -79,12 +79,11 @@ private func withPageBudgetServer(
         // it was built from.
         let serverConfig = config
         let router = Router {
-            WorkspaceUpload.pageRoute("/", tokens: UploadTokenStore()) { _, token in
+            WorkspaceUpload.pageRoute("/", tokens: UploadTokenStore()) { _, token, _ in
                 // the production page seam: the same call `run()` makes.
                 WebUIHost.pageDocument(
                     config: serverConfig,
                     sheetURL: "/ui/style.css",
-                    overlayURL: "/ui/init.js",
                     renderToken: token
                 )(
                     UnsafeMarkup.trusted("<p id=\"budget-probe\">frame budget harness</p>"),
@@ -174,7 +173,6 @@ extension ArcWebUITestRoot {
         func budgetIsPublishedWithoutAToken() {
             let page = AppShell.makeDocument(
                 sheetURL: "/ui/style.css",
-                overlayURL: "/ui/init.js",
                 maxFrameBytes: 131_072
             )(
                 UnsafeMarkup.trusted("<p>probe</p>"),

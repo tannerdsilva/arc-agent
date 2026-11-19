@@ -165,7 +165,7 @@ enum TodoTool {
     static func entry(store: ToolDependency<TodoStore> = ToolDependency()) -> ToolEntry {
         ToolEntry(
             name: "todo",
-            toolset: "todo",
+            toolset: .todo,
             description: "Manage your task list for the current session. Use for complex tasks "
                 + "with 3+ steps or when the user provides multiple tasks. "
                 + "Call with no parameters to read the current list.\n\n"

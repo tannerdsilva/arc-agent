@@ -84,7 +84,7 @@ struct BatchCmd: AsyncParsableCommand {
             memory: FileMemoryProvider(),
             sessions: FileSessionStore()
         )
-        let allToolsets = Array(Set(registry.allTools.map(\.toolset))).sorted()
+        let allToolsets = Array(Set(registry.allTools.map(\.toolsetName))).sorted()
         let allToolNames = Set(registry.allTools.map(\.name))
 
         if listDistributions {

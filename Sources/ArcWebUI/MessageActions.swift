@@ -12,8 +12,8 @@ import WebUIDesignSystem
 /// answers.
 enum MessageAction: Equatable, Sendable {
 
-    /// copy the message's visible text. client-only: the overlay owns the
-    /// `[data-copy]` delegate, so this action carries no server identity.
+    /// copy the message's visible text. client-only: the engine's `data-copy`
+    /// dispatch owns the clipboard, so this action carries no server identity.
     case copy(text: String)
 
     /// ask the prompt that produced this reply again as a new turn. the reply

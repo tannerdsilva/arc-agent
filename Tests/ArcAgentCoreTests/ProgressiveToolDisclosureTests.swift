@@ -13,15 +13,16 @@ extension ArcCoreTestRoot {
             _ name: String,
             toolset: String,
             description: String = "Does useful things with parameters and returns a result.",
-            check: (@Sendable () -> Bool)? = nil
+            availability: ToolAvailability = .always
         ) -> ToolEntry {
             ToolEntry(
                 name: name,
-                toolset: toolset,
+                // the fixture names its toolset as text, as a pack would
+                toolset: Toolset(claimed: toolset),
                 description: description,
                 schema: .object(properties: [:], required: []),
                 handler: { _ in "ok" },
-                checkFn: check
+                availability: availability
             )
         }
 
@@ -29,39 +30,45 @@ extension ArcCoreTestRoot {
 
         @Test func coreToolsetsNeverDefer() {
             let config = ToolSearchConfig()
-            for toolset in ["core", "browser", "file", "terminal", "tools", "web", "skills"] {
+            for toolset in [Toolset.core, .browser, .file, .terminal, .tools, .web, .skills] {
                 #expect(!DeferredToolPolicy.isDeferred(name: "read_file", toolset: toolset, config: config))
             }
         }
 
         @Test func nonCoreToolsetsDefer() {
             let config = ToolSearchConfig()
-            #expect(DeferredToolPolicy.isDeferred(name: "kanban_show", toolset: "kanban", config: config))
-            #expect(DeferredToolPolicy.isDeferred(name: "mcp_tool", toolset: "mcp", config: config))
-            #expect(DeferredToolPolicy.isDeferred(name: "image_generate", toolset: "media", config: config) == false)
-            #expect(DeferredToolPolicy.isDeferred(name: "text_to_speech", toolset: "media", config: config) == false)
-            #expect(DeferredToolPolicy.isDeferred(name: "transcription", toolset: "media", config: config))
+            #expect(DeferredToolPolicy.isDeferred(name: "kanban_show", toolset: .kanban, config: config))
+            #expect(DeferredToolPolicy.isDeferred(name: "mcp_tool", toolset: .mcp, config: config))
+            // the per-tool exceptions hold inside a deferred toolset. `media` was
+            // reference vocabulary no arc toolset declares — T3b drops the six
+            // phantom names, so the deferred cases use a toolset arc actually has.
+            #expect(DeferredToolPolicy.isDeferred(name: "image_generate", toolset: .kanban, config: config) == false)
+            #expect(DeferredToolPolicy.isDeferred(name: "text_to_speech", toolset: .kanban, config: config) == false)
+            #expect(DeferredToolPolicy.isDeferred(name: "transcription", toolset: .kanban, config: config))
         }
 
         @Test func bridgeNeverDefersAndOffDisables() {
-            #expect(!DeferredToolPolicy.isDeferred(name: "tool_call", toolset: "tools", config: ToolSearchConfig()))
-            #expect(!DeferredToolPolicy.isDeferred(name: "tool_search", toolset: "tools", config: ToolSearchConfig()))
+            #expect(!DeferredToolPolicy.isDeferred(name: "tool_call", toolset: .tools, config: ToolSearchConfig()))
+            #expect(!DeferredToolPolicy.isDeferred(name: "tool_search", toolset: .tools, config: ToolSearchConfig()))
             let off = ToolSearchConfig(enabled: "off")
-            #expect(!DeferredToolPolicy.isDeferred(name: "kanban_show", toolset: "kanban", config: off))
+            #expect(!DeferredToolPolicy.isDeferred(name: "kanban_show", toolset: .kanban, config: off))
         }
 
         @Test func customDeferredToolsetsWin() {
             let config = ToolSearchConfig(deferredToolsets: ["kanban"])
-            #expect(DeferredToolPolicy.isDeferred(name: "kanban_show", toolset: "kanban", config: config))
-            #expect(!DeferredToolPolicy.isDeferred(name: "mcp_tool", toolset: "mcp", config: config))
+            #expect(DeferredToolPolicy.isDeferred(name: "kanban_show", toolset: .kanban, config: config))
+            #expect(!DeferredToolPolicy.isDeferred(name: "mcp_tool", toolset: .mcp, config: config))
         }
 
         @Test func unavailableEntriesAreExcludedFromBothLists() {
-            let withCheck = entry("gated", toolset: "kanban", check: { false })
+            let withCheck = entry(
+                "gated", toolset: "kanban",
+                availability: .requiresEnv(["ARC_T4_DISCLOSURE_UNSET"]))
             let config = ToolSearchConfig()
             let (visible, deferred) = DeferredToolPolicy.plan(
                 entries: [entry("core_tool", toolset: "core"), withCheck],
-                config: config)
+                config: config,
+                env: [:])
             #expect(visible.map(\.name) == ["core_tool"])
             #expect(deferred.isEmpty)
         }
@@ -135,8 +142,8 @@ extension ArcCoreTestRoot {
                 entry("read_file", toolset: "file"),
                 entry("kanban_show", toolset: "kanban"),
             ])
-            let schemas = ProgressiveToolDisclosure.buildPromptSchemas(
-                registry: registry, disabled: [], config: ToolSearchConfig(), contextLength: 200_000)
+            let schemas = ToolSchemaRenderer.promptSchemas(
+                registry: registry, enablement: ToolEnablementConfig(), config: ToolSearchConfig(), contextLength: 200_000)
             let names = schemas.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
             #expect(names.contains("read_file"))
             #expect(names.contains("tool_search"))
@@ -157,8 +164,8 @@ extension ArcCoreTestRoot {
                 entry("read_file", toolset: "file"),
                 entry("kanban_show", toolset: "kanban"),
             ])
-            let schemas = ProgressiveToolDisclosure.buildPromptSchemas(
-                registry: registry, disabled: [], config: ToolSearchConfig(enabled: "off"), contextLength: 200_000)
+            let schemas = ToolSchemaRenderer.promptSchemas(
+                registry: registry, enablement: ToolEnablementConfig(), config: ToolSearchConfig(enabled: "off"), contextLength: 200_000)
             let names = schemas.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
             #expect(names.contains("kanban_show"))
             #expect(!names.contains("tool_describe"))
@@ -174,8 +181,8 @@ extension ArcCoreTestRoot {
                 entry("terminal", toolset: "terminal"),
                 entry("kanban_show", toolset: "kanban"),
             ])
-            let schemas = ProgressiveToolDisclosure.buildPromptSchemas(
-                registry: registry, disabled: ["terminal"], config: ToolSearchConfig(), contextLength: 200_000)
+            let schemas = ToolSchemaRenderer.promptSchemas(
+                registry: registry, enablement: ToolEnablementConfig(disabledToolsets: ["terminal"]), config: ToolSearchConfig(), contextLength: 200_000)
             let names = schemas.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
             #expect(!names.contains("terminal"))   // disabled tool not advertised
             #expect(!names.contains("kanban_show")) // deferred tool deferred
@@ -191,7 +198,7 @@ extension ArcCoreTestRoot {
             func rich(_ name: String, toolset: String) -> ToolEntry {
                 ToolEntry(
                     name: name,
-                    toolset: toolset,
+                    toolset: Toolset(claimed: toolset),
                     description: "Synchronizes with a remote service: lists, creates, and mutates entities "
                         + "with detailed parameter documentation covering every field, default, and edge case.",
                     schema: .object(properties: [
@@ -209,21 +216,21 @@ extension ArcCoreTestRoot {
             }
             let all = (0..<15).map { rich("deferred_\($0)", toolset: "kanban") } + (0..<15).map { slim("core_\($0)") }
             let registry = StubRegistry(allTools: all)
-            let eager = registry.buildToolSchemas(enabled: [], disabled: [])
-            let deferred = ProgressiveToolDisclosure.buildPromptSchemas(
-                registry: registry, disabled: [], config: ToolSearchConfig(), contextLength: 200_000)
+            let eager = ToolSchemaRenderer.eagerSchemas(registry: registry, enablement: ToolEnablementConfig())
+            let deferred = ToolSchemaRenderer.promptSchemas(
+                registry: registry, enablement: ToolEnablementConfig(), config: ToolSearchConfig(), contextLength: 200_000)
             let eagerTokens = ProgressiveToolDisclosure.estimateTokens(schemas: eager)
             let deferredTokens = ProgressiveToolDisclosure.estimateTokens(schemas: deferred)
             #expect(deferredTokens < eagerTokens)
         }
 
         @Test func bridgeSchemasHaveExpectedShape() {
-            let describe = ProgressiveToolDisclosure.toolDescribeSchema()
+            let describe = ToolSchemaRenderer.toolDescribeSchema()
             let fn = describe["function"] as? [String: Any]
             #expect(fn?["name"] as? String == "tool_describe")
             let desc = fn?["description"] as? String
             #expect(desc?.contains("tool_call") == true)
-            let call = ProgressiveToolDisclosure.toolCallSchema()
+            let call = ToolSchemaRenderer.toolCallSchema()
             let callFn = call["function"] as? [String: Any]
             #expect(callFn?["name"] as? String == "tool_call")
         }
@@ -234,24 +241,13 @@ extension ArcCoreTestRoot {
 private struct StubRegistry: ToolRegistry {
     let allTools: [RegisteredTool]
 
+    /// `0`: a fixture surface, never mutated.
+    var revision: Int { 0 }
+
     init(allTools: [any AgentTool]) {
         self.allTools = allTools.map { RegisteredTool(tool: $0, origin: .builtin) }
     }
 
     func lookup(name: String) -> RegisteredTool? { allTools.first { $0.name == name } }
     mutating func register(_ tool: any AgentTool, origin: ToolOrigin) throws {}
-    func buildToolSchemas(enabled: Set<String>, disabled: Set<String>) -> [[String: Any]] {
-        allTools
-            .filter { !disabled.contains($0.toolset) }
-            .map { entry in
-                [
-                    "type": "function",
-                    "function": [
-                        "name": entry.name,
-                        "description": entry.description,
-                        "parameters": entry.schema.asDictionary(),
-                    ] as [String: Any],
-                ] as [String: Any]
-            }
-    }
 }

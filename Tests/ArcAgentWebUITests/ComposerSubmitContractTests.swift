@@ -14,29 +14,30 @@ extension ArcWebUITestRoot {
     @Suite("Composer submit contract", .serialized)
     struct ComposerSubmitContractTests {
 
-        private static func overlaySource() throws -> String {
-            let path = "Sources/ArcWebUI/Assets/overlay.js"
-            return try String(contentsOfFile: path, encoding: .utf8)
-        }
-
-        @Test("the submit clear runs after the engine's read (window, not document)")
-        func clearRunsAfterEngineRead() throws {
-            let source = try Self.overlaySource()
+        /// A15 (no-webui 2.17.0) + A16d (3.1.0): the ENGINE owns the gesture, the
+        /// clear and the draft store. `data-submit-on-enter="plain"` submits,
+        /// `data-clear-on-submit` empties the field, and 3.1.0's `onDocSubmit`
+        /// drops `webui-draft:<identity>` for a cleared
+        /// `[data-clear-on-submit][data-draft-id]` control — so the post-submit
+        /// replacing patch can no longer hand the sent text back. Arc's half is
+        /// the two attributes on the composer's open tag; the overlay registers
+        /// no submit listener at all (the A15 capture-phase echo guard is
+        /// deleted with the seam it fed).
+        @Test("the composer states submit-on-enter and clear-on-submit; the engine owns the submit path")
+        func submitAndClearAreTheEngines() async {
+            // A17 deleted the client file, so the negative half of this pin is
+            // structural now (`ZeroClientScriptTests`: no `.js` under Sources at
+            // all, which covers the submit listener, the echo guard, the
+            // requestSubmit path and the IME copy at once). What arc still owns
+            // is the two attributes on the composer's open tag.
+            let composer = await RenderedMarkup.composer()
             #expect(
-                source.contains("window.addEventListener('submit'"),
-                """
-                the composer clear must register on window: the engine's delegated \
-                submit listener lives on document, and a document-level clear \
-                (registered earlier) erases the value before the engine reads it
-                """
+                composer.contains("data-submit-on-enter=\"plain\""),
+                "a textarea opts in to Enter-to-submit by VALUE; the bare attribute leaves it exempt"
             )
             #expect(
-                !source.contains("document.addEventListener('submit'"),
-                """
-                a document-level submit listener runs before the engine's own and \
-                would clear the composer before the engine reads it — every send \
-                then carries an empty field
-                """
+                composer.contains("data-clear-on-submit"),
+                "the engine clears the field on the submit event"
             )
         }
 
