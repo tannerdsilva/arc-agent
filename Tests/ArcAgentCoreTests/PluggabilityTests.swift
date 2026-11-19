@@ -129,7 +129,7 @@ extension ArcCoreTestRoot {
             // built-in surface remains, with no plugin tools layered on.
             let made = try await ArcAgentCore.testMutableRegistry(pluginRegistry: PluginRegistry(pluginsDir: FileManager.default.temporaryDirectory.appendingPathComponent("none-\(UUID().uuidString)")))
             let schemas = made.buildToolSchemas(enabled: [], disabled: [])
-            #expect(schemas.count == 54)
+            #expect(schemas.count == 50)
         }
 
         @Test("plugin manifest tools carry schema/toolset/requires_env and install with real parameters")

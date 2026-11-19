@@ -141,6 +141,11 @@ public struct SessionHost: Service {
         // entirely). One waiter at a time makes the stream's semantics safe.
         let turnGate = SessionTurnGate()
         if let api {
+            // Card-write proxy: dispatch workers POST their `kanban` tool
+            // calls here instead of opening their own tessera tunnel (same
+            // WG static key ⇒ peer-index rotation ⇒ the daemon's echo path
+            // dies). Token lives in `<arcHome>/.env`; absent token ⇒ no route.
+            let proxyToken = loadDotEnv(ArcHome.env)["ARC_KANBAN_PROXY_TOKEN"]
             self.httpServer = HTTPServerService(
                 config: .init(host: api.host, port: api.port),
                 onChat: { [reg, turnGate, routes = profileRouting.sortedRoutes, multiplex = profileRouting.multiplexProfiles] sessionID, message in
@@ -165,7 +170,21 @@ public struct SessionHost: Service {
                         }
                         return responseText.isEmpty ? "Message received" : responseText
                     }
-                }
+                },
+                onKanban: proxyToken.map { _ -> @Sendable ([String: Any], [String: String]) async throws -> String in
+                    { args, env in
+                    // Executed with the daemon's own card store; the
+                    // storeOverride also prevents the handler from
+                    // re-proxying to itself. `run` (dispatch) is not
+                    // proxied — workers never dispatch.
+                    let store = await CardStores.shared()
+                    return try await KanbanTool.handle(
+                        args: args,
+                        box: .init(storeOverride: store, envOverride: env, dispatch: nil)
+                    )
+                    }
+                },
+                kanbanProxyToken: proxyToken
             )
         } else {
             self.httpServer = nil

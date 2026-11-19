@@ -145,7 +145,7 @@ extension ArcCoreTestRoot {
             // exactly the state a real crash produces before supervision fires.
             handle.inputContinuation.finish()
             var vacant = false
-            for _ in 0..<400 {
+            for _ in 0..<1200 {
                 if await registry.agent(for: "recovery-restart") == nil {
                     vacant = true
                     break

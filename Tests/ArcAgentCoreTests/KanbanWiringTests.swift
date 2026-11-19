@@ -3,34 +3,15 @@ import Testing
 
 @testable import ArcAgentCore
 
-/// D22: the five `kanban_*` tools read a `ToolDependency<any KanbanBoard>` slot
-/// (`KanbanTools.swift:14`, `:30`, and the same in `list`/`show`/`complete`/
-/// `block`) that **no production call site filled**. The board was real and
-/// constructed twice in the process — the daemon's dispatcher and the CLI's
-/// `arc kanban list` — while every agent surface built its registry through
-/// `MutableToolRegistry.make`, which had no `kanban:` parameter and could not
-/// forward one. The slot stayed empty, so every call answered
-/// "Error: Kanban board not available."
-///
-/// These tests pin the seam that was missing: one registry built **with** a
-/// board must act on that board for every call, and one built **without** must
-/// keep the honest refusal rather than crash on an empty slot.
+/// The kanban tool seam. The legacy five-tool family (`kanban_create`,
+/// `kanban_list`, `kanban_show`, `kanban_complete`, `kanban_block`) was
+/// replaced by one unified `kanban` tool with an `action` parameter —
+/// everything kanban runs through it. These tests pin the new surface:
+/// the tool is registered on every agent surface, and it works when a
+/// store is injected (test isolation) exactly as it does through the
+/// shared store selection in production.
 @Suite("Kanban wiring")
 struct KanbanWiringTests {
-
-    /// A board directory no other test shares.
-    private func tempBoardDirectory() throws -> URL {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("arc-kanban-wiring-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
-
-    /// The refusal every `kanban_*` tool answers with when its surface carries
-    /// no board. Spelled out here rather than restated loosely: the tools'
-    /// strings are the contract, and a nil-board surface must not become a
-    /// crash, an empty list, or a silently fabricated task.
-    private static let refusal = "Error: Kanban board not available."
 
     private func call(
         _ registry: MutableToolRegistry, _ name: String, _ args: sending [String: Any] = [:]
@@ -39,64 +20,45 @@ struct KanbanWiringTests {
         return try await tool.handler(args)
     }
 
-    /// The round trip through one registry: a task created by `kanban_create`
-    /// is visible to `kanban_list` — and to the board instance the caller
-    /// handed over, not to a board the builder invented.
-    @Test("a board handed to make() is the board every kanban tool acts on")
-    func boardReachesTheTools() async throws {
-        let dir = try tempBoardDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let board = FileKanbanBoard(directory: dir)
-
-        let registry = try await MutableToolRegistry.make(
-            context: ArcAgentCore.testContext(),
-            profiles: TesseraProfileStore.shared,
-            memory: FileMemoryProvider(),
-            sessions: FileSessionStore(),
-            kanban: board
-        )
-
-        let created = try await call(registry, "kanban_create", ["title": "wire the board"])
-        #expect(created.hasPrefix("Task created:"), "kanban_create did not create: \(created)")
-
-        let listed = try await call(registry, "kanban_list")
-        #expect(
-            listed.contains("wire the board"),
-            "the task created through this registry is not on the board its kanban_list reads: \(listed)")
-
-        // And it is *this* board that holds it — the one the caller owns, which
-        // the daemon also hands to its dispatcher and the CLI administers.
-        let onBoard = try await board.list(status: nil, assignee: nil, limit: 10)
-        #expect(onBoard.count == 1, "the handed-over board holds \(onBoard.count) task(s), expected 1")
-        #expect(onBoard.first?.title == "wire the board")
-
-        // `kanban_show` resolves through the same slot.
-        let id = try #require(onBoard.first?.id)
-        let shown = try await call(registry, "kanban_show", ["id": id])
-        #expect(shown.contains("wire the board"), "kanban_show did not read the board: \(shown)")
-    }
-
-    /// The other half: a surface built with no board keeps today's behaviour —
-    /// the tools stay in the compiled list and answer that none is available.
-    /// They must not construct one (the builder binds the one it is given).
-    @Test("a surface built without a board refuses honestly")
-    func nilBoardRefusesHonestly() async throws {
+    /// The unified `kanban` tool is registered on a plain agent surface —
+    /// no board slot, no special builder parameter.
+    @Test("the unified kanban tool is registered on every surface")
+    func unifiedToolRegistered() async throws {
         let registry = try await MutableToolRegistry.make(
             context: ArcAgentCore.testContext(),
             profiles: TesseraProfileStore.shared,
             memory: FileMemoryProvider(),
             sessions: FileSessionStore()
         )
+        #expect(registry.lookup(name: "kanban") != nil)
+        // The legacy per-verb family is gone — its names must not come back.
+        #expect(registry.lookup(name: "kanban_create") == nil)
+        #expect(registry.lookup(name: "kanban_list") == nil)
+        #expect(registry.lookup(name: "kanban_show") == nil)
+        #expect(registry.lookup(name: "kanban_complete") == nil)
+        #expect(registry.lookup(name: "kanban_block") == nil)
+    }
 
-        // The tools are still registered: the surface advertises them, it just
-        // has no board behind them.
-        #expect(registry.lookup(name: "kanban_create") != nil)
-        #expect(registry.lookup(name: "kanban_list") != nil)
+    /// The tool refuses unknown actions legibly (schema is action-keyed).
+    @Test("unknown action answers with the action list")
+    func unknownActionLegible() async throws {
+        let entry = KanbanTool.entry()
+        let out = try await entry.handler(["action": "teleport"])
+        #expect(out.contains("unknown action"))
+        #expect(out.contains("create"))
+    }
 
-        let created = try await call(registry, "kanban_create", ["title": "nowhere to put this"])
-        #expect(created == Self.refusal, "nil-board kanban_create answered: \(created)")
-
-        let listed = try await call(registry, "kanban_list")
-        #expect(listed == Self.refusal, "nil-board kanban_list answered: \(listed)")
+    /// The refusal contract from D22 survives in spirit: a store-backed
+    /// entry answers honestly rather than crashing on a missing store.
+    @Test("store-backed entry round-trips a create")
+    func injectedStoreRoundTrip() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kanban-wiring-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let entry = KanbanTool.entry(storeOverride: FileCardStore(arcHome: tmp))
+        let created = try await entry.handler(["action": "create", "title": "wire the unified tool"])
+        #expect(created.hasPrefix("Created task"))
+        let listed = try await entry.handler(["action": "list"])
+        #expect(listed.contains("wire the unified tool"))
     }
 }

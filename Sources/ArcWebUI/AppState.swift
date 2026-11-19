@@ -15,6 +15,7 @@ enum ViewID: String, CaseIterable {
     case tools = "tools"
     case workspaces = "workspaces"
     case kanban = "kanban"
+    case cards = "cards"
     case memory = "memory"
     case insights = "insights"
     case logs = "logs"
@@ -30,6 +31,7 @@ enum ViewID: String, CaseIterable {
         case .tools: return "Tools"
         case .workspaces: return "Workspaces"
         case .kanban: return "Kanban"
+        case .cards: return "Cards"
         case .memory: return "Personal Memory"
         case .insights: return "Insights"
         case .logs: return "Logs"
@@ -48,6 +50,7 @@ enum ViewID: String, CaseIterable {
         case .tools: return "Tools"
         case .workspaces: return "Workspace"
         case .kanban: return "Kanban"
+        case .cards: return "Cards"
         case .memory: return "Memory"
         case .insights: return "Insights"
         case .logs: return "Logs"
@@ -67,6 +70,7 @@ enum ViewID: String, CaseIterable {
         case .tools: return "tool"
         case .workspaces: return "grid"
         case .kanban: return "columns"
+        case .cards: return "columns"
         case .memory: return "database"
         case .insights: return "chart-bar"
         case .logs: return "list"
@@ -84,6 +88,7 @@ enum ViewID: String, CaseIterable {
         case .tools: return WebUIIcon(.tool, size: .large).markup.html
         case .workspaces: return WebUIIcon(.grid, size: .large).markup.html
         case .kanban: return WebUIIcon(.columns, size: .large).markup.html
+        case .cards: return WebUIIcon(.columns, size: .large).markup.html
         case .memory: return WebUIIcon(.database, size: .large).markup.html
         case .insights: return WebUIIcon(.chartBar, size: .large).markup.html
         case .logs: return WebUIIcon(.list, size: .large).markup.html
@@ -737,6 +742,10 @@ actor AppState {
     // MARK: State
 
     var settings = AppSettings()
+
+    /// Read-only Cards page cache — the last rendered board snapshot.
+    /// nil until the first streamer tick lands.
+    var _cardSnapshot: [CardBoardSnapshot]?
 
     /// The scheme and mode the document should carry on `<html>`.
     ///

@@ -190,7 +190,15 @@ struct Chat: AsyncParsableCommand {
             ?? ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
             ?? ""
 
-        guard !resolvedApiKey.isEmpty else {
+        // A keyless custom endpoint (local inference server) is legitimate:
+        // only refuse when there is no configured base URL to be keyless AT.
+        let provider = arcConfig.model.provider
+        let keylessOK = resolvedApiKey.isEmpty
+            && (resolvedBaseURL.hasPrefix("http://127.0.0.1")
+                || resolvedBaseURL.hasPrefix("http://localhost")
+                || resolvedBaseURL.hasPrefix("http://[")
+                || provider == "custom")
+        guard !resolvedApiKey.isEmpty || keylessOK else {
             print("Error: No API key found. Set ARC_API_KEY or OPENAI_API_KEY, or pass --api-key.")
             print("       Run `arc setup` to configure your API key.")
             return
@@ -337,11 +345,24 @@ struct Chat: AsyncParsableCommand {
             // Single-query mode: stream the reply like reference — visible
             // tokens and tool activity instead of a silent wait.
             do {
+                // Card-worker dispatch: the env carries the claimed card,
+                // and a bounded briefing is prepended to whatever prompt the
+                // dispatcher passed (reference build_worker_context — the
+                // worker resolves its own context, the dispatcher never
+                // builds prompts).
+                var effectiveQuery = query
+                if CardWorker.isWorkerRun {
+                    let store = await CardStores.shared()
+                    let (task, run) = try await CardWorker.resolve(store: store)
+                    let context = try await CardWorker.workerContext(store: store, task: task, run: run)
+                    effectiveQuery = context + "\n\n## Assignment\n" + query
+                }
+
                 // Context references: expand @file/@folder/@diff/@staged/@git/@url
                 // inline (CLI feature — reference context-references.md).
                 let root = FileManager.default.currentDirectoryPath
                 let expanded = await ContextReferenceExpander.expand(
-                    query, workspaceRoot: root,
+                    effectiveQuery, workspaceRoot: root,
                     fetcher: ContextReferenceExpander.defaultFetcher(workspaceRoot: root)
                 )
                 for warning in expanded.warnings { print("[context] \(warning)") }

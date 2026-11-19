@@ -31,6 +31,12 @@ public final class HTTPServerService: Service {
 
     private let config: Configuration
     private let onChat: @Sendable (String, String) async throws -> String
+    /// Loopback card-write proxy: when a token is set, `POST /v1/kanban`
+    /// forwards dispatch-worker `kanban` tool calls to this handler (which
+    /// executes them with the daemon's own card store) — the worker never
+    /// opens a tessera tunnel of its own. Nil disables the route entirely.
+    private let onKanban: (@Sendable ([String: Any], [String: String]) async throws -> String)?
+    private let kanbanProxyToken: String?
     /// Signals that trigger graceful shutdown of the inner group; empty when
     /// nested under a group that owns signals (the daemon root).
     private let gracefulShutdownSignals: [UnixSignal]
@@ -41,14 +47,23 @@ public final class HTTPServerService: Service {
     ///   - gracefulShutdownSignals: Signals that trigger this server's graceful
     ///     shutdown; pass `[]` when a parent group owns signals.
     ///   - onChat: Closure called when a chat request arrives.
+    ///   - onKanban: Closure executing a proxied `kanban` tool call
+    ///     `(args, env) -> output`. The route exists only when both this and
+    ///     `kanbanProxyToken` are set.
+    ///   - kanbanProxyToken: Bearer token from `<arcHome>/.env`
+    ///     (`ARC_KANBAN_PROXY_TOKEN`); requests without it are refused.
     public init(
         config: Configuration = .init(),
         gracefulShutdownSignals: [UnixSignal] = [],
-        onChat: @escaping @Sendable (String, String) async throws -> String
+        onChat: @escaping @Sendable (String, String) async throws -> String,
+        onKanban: (@Sendable ([String: Any], [String: String]) async throws -> String)? = nil,
+        kanbanProxyToken: String? = nil
     ) {
         self.config = config
-        self.gracefulShutdownSignals = gracefulShutdownSignals
         self.onChat = onChat
+        self.onKanban = onKanban
+        self.kanbanProxyToken = kanbanProxyToken
+        self.gracefulShutdownSignals = gracefulShutdownSignals
     }
 
     public func run() async throws {
@@ -71,6 +86,26 @@ public final class HTTPServerService: Service {
                         )
                     }
                     return ChatResponse(response: response)
+                }
+                // Loopback card-write proxy for dispatch workers. Gated on
+                // both halves being configured; a bearer-token miss is a 401.
+                if let onKanban, let kanbanProxyToken, !kanbanProxyToken.isEmpty {
+                    Post("/kanban") { [onKanban] request, _ in
+                        guard request.headers[.authorization] == "Bearer \(kanbanProxyToken)" else {
+                            throw HTTPError(.unauthorized, message: "invalid proxy token")
+                        }
+                        let bodyBuffer = try await request.body.collect(upTo: 4 * 1024 * 1024)
+                        guard let decoded = try? JSONSerialization.jsonObject(with: Data(buffer: bodyBuffer)) as? [String: Any],
+                              let args = decoded["args"] as? [String: Any] else {
+                            throw HTTPError(.badRequest, message: "expected {\"args\": {...}}")
+                        }
+                        let env = decoded["env"] as? [String: String] ?? [:]
+                        Logger(label: "arc.kanban-proxy").info(
+                            "proxied kanban action '\(args["action"] as? String ?? "?")' (task \(args["task_id"] as? String ?? "-"))"
+                        )
+                        let output = try await onKanban(args, env)
+                        return KanbanProxyResponse(output: output)
+                    }
                 }
             }
         }
@@ -120,4 +155,8 @@ struct ChatRequest: Decodable, Sendable {
 
 struct ChatResponse: Encodable, Sendable, ResponseEncodable {
     let response: String
+}
+
+struct KanbanProxyResponse: Encodable, Sendable, ResponseEncodable {
+    let output: String
 }

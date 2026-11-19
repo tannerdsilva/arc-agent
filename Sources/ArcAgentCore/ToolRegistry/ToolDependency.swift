@@ -102,6 +102,13 @@ public struct ToolDependencies: Sendable {
     /// production (the tool's default applies); tests fill it.
     public let executeCodeTimeout: ToolDependency<Double>
 
+    /// In-process card dispatch (the daemon's one-shot session runner).
+    /// When bound, `kanban run` executes the worker prompt inside this
+    /// process — the daemon's already-established tessera tunnel — instead
+    /// of spawning a fresh `arc chat` subprocess that would have to build
+    /// its own tunnel.
+    public var cardDispatch: ToolDependency<@Sendable (String) async throws -> String>
+
     /// Create a bundle of empty slots.
     public init(
         todoStore: ToolDependency<TodoStore> = ToolDependency(),
@@ -111,7 +118,8 @@ public struct ToolDependencies: Sendable {
         toolSearchRegistry: ToolDependency<any ToolRegistry> = ToolDependency(),
         sendMessageDelivery: ToolDependency<DeliveryManager> = ToolDependency(),
         homeChatResolver: ToolDependency<SendMessageTool.HomeChatResolver> = ToolDependency(),
-        executeCodeTimeout: ToolDependency<Double> = ToolDependency()
+        executeCodeTimeout: ToolDependency<Double> = ToolDependency(),
+        cardDispatch: ToolDependency<@Sendable (String) async throws -> String> = ToolDependency()
     ) {
         self.todoStore = todoStore
         self.sessionStore = sessionStore
@@ -121,6 +129,7 @@ public struct ToolDependencies: Sendable {
         self.sendMessageDelivery = sendMessageDelivery
         self.homeChatResolver = homeChatResolver
         self.executeCodeTimeout = executeCodeTimeout
+        self.cardDispatch = cardDispatch
     }
 }
 

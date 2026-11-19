@@ -452,6 +452,14 @@ public struct WebUIHost: Service {
             guard await app.syncScheduledJobs() else { return }
             await server.broadcast(await app.structuralChange())
         }
+        // Cards liveness: the kanban tool mutates card stores out-of-band
+        // (worker one-shots, dispatcher spawns), so the read-only Cards
+        // page re-pulls on the same cadence and pushes only when the
+        // fingerprint moved. An idle page sends zero bytes.
+        let cardsStreamer = IntervalService(name: "kanban-cards", interval: .seconds(2)) { [app] in
+            guard await app.syncKanbanCards() else { return }
+            await server.broadcast(await app.structuralChange())
+        }
 
         // The UI is only reachable once the server binds; record it so the
         // profile card can show the "Daemon running" badge truthfully.
@@ -473,6 +481,7 @@ public struct WebUIHost: Service {
                 wsStreamer,
                 toastStreamer,
                 tasksStreamer,
+                cardsStreamer,
             ],
             logger: logger
         )

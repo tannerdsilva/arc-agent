@@ -451,6 +451,8 @@ extension AppState {
                 workspacesPanel()
             case .kanban:
                 kanbanPanel()
+            case .cards:
+                cardsPanel()
             case .memory:
                 memoryPanel()
             case .insights:
@@ -1232,6 +1234,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             return render(workspacesMain())
         case .kanban:
             return render(kanbanMain())
+        case .cards:
+            return render(cardsMain())
         case .memory:
             return render(memoryMain())
         case .insights:

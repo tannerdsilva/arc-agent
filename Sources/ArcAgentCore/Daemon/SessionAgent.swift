@@ -256,6 +256,7 @@ public actor SessionAgent: Service {
                 // runs, never a second store over the same directory.
                 cron: await registry.cronStore,
                 cronHistory: await registry.cronHistory,
+                cardDispatch: agentConfig.cardDispatch,
                 enabledPlugins: pluginAllowList()
             )
 

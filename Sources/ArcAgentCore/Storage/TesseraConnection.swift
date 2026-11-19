@@ -164,16 +164,37 @@ public actor TesseraConnection {
     public static let kanbanCardKind: UInt32 = 3_012
     /// Kanban-agent board event log (TesseraKanbanAgentStore).
     public static let kanbanEventKind: UInt32 = 3_013
-    /// One subscription per kind; the model receives all thirteen.
-    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares", "arc-stream", "arc-left", "arc-kb", "arc-kb-cards", "arc-kb-events", "arc-tombstones"]
+    /// Kanban-cards task rows (TesseraCardStore).
+    public static let cardTaskKind: UInt32 = 3_014
+    /// Kanban-cards run rows (TesseraCardStore).
+    public static let cardRunKind: UInt32 = 3_015
+    /// Kanban-cards comment rows (TesseraCardStore).
+    public static let cardCommentKind: UInt32 = 3_016
+    /// Kanban-cards dependency/gate links (TesseraCardStore).
+    public static let cardLinkKind: UInt32 = 3_017
+    /// Kanban-cards per-card event log (TesseraCardStore).
+    public static let cardEventKind: UInt32 = 3_018
+    /// Kanban-cards attachment metadata (TesseraCardStore).
+    public static let cardAttachmentKind: UInt32 = 3_019
+    /// One subscription per kind; the model receives all nineteen.
+    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares", "arc-stream", "arc-left", "arc-kb", "arc-kb-cards", "arc-kb-events", "arc-card-tasks", "arc-card-runs", "arc-card-comments", "arc-card-links", "arc-card-events", "arc-card-attachments", "arc-tombstones"]
 
     /// Kinds the client subscribes to, paired with `subscriptionIDs`.
+    ///
+    /// Every kind any store publishes MUST appear here — the list feeds both
+    /// the echo-ack path (`publishAwaitingEcho` only sees events the relay
+    /// re-sends over a live subscription) and every snapshot read. A missing
+    /// kind means writes scribe relay-side but are never acknowledged or
+    /// readable (orphaned). `TesseraCardSubscriptionTests` pins the invariant.
     static let subscriptionKinds: [(String, UInt32)] = {
         let data: [(String, UInt32)] = [
             ("arc-msgs", messageKind), ("arc-mem", memoryKind), ("arc-meta", metadataKind),
             ("arc-profiles", profileKind), ("arc-cron", cronKind), ("arc-goals", goalKind),
             ("arc-shares", shareKind), ("arc-stream", streamKind), ("arc-left", leaveKind),
             ("arc-kb", kanbanBoardKind), ("arc-kb-cards", kanbanCardKind), ("arc-kb-events", kanbanEventKind),
+            ("arc-card-tasks", TesseraCardStore.taskKind), ("arc-card-runs", TesseraCardStore.runKind),
+            ("arc-card-comments", TesseraCardStore.commentKind), ("arc-card-links", TesseraCardStore.linkKind),
+            ("arc-card-events", TesseraCardStore.eventKind), ("arc-card-attachments", TesseraCardStore.attachmentKind),
         ]
         return data + [("arc-tombstones", deletionKind)]
     }()
@@ -652,7 +673,7 @@ public actor TesseraConnection {
             try await Self.boundedOp(seconds: 12) {
                 try await session.connect()
             }
-            // Subscribe to all six kinds. A fresh connection can land while the
+            // Subscribe to every kind in subscriptionKinds. A fresh connection can land while the
             // relay is still recreating its KCP control blocks (triggered on
             // connect/roam), which can drop the initial EOSE replies. Rather than
             // tearing down and reconnecting — which re-triggers that reset and

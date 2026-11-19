@@ -99,6 +99,9 @@ public enum ArcDaemon {
         // enabled and no skills at all, whatever the file said.
         let toolSurface = arc.tools
 
+        // Shared in-process card dispatch (see AgentConfig.cardDispatch).
+        let cardDispatch = ToolDependency<@Sendable (String) async throws -> String>()
+
         let agentConfig = SessionRegistry.AgentConfig(
             model: arc.model.defaultModel,
             provider: arc.model.provider,
@@ -137,7 +140,8 @@ public enum ArcDaemon {
             contextDefaults: WebUIContextDefaults.loadFromDisk() ?? arc.contextDefaults,
             storage: storage,
             profiles: profileService,
-            kanban: kanbanBoard
+            kanban: kanbanBoard,
+            cardDispatch: cardDispatch
         )
 
         // ── surfaces ────────────────────────────────────────────────
@@ -352,7 +356,8 @@ public enum ArcDaemon {
                     // scheduler runs. MCP is the one TCP surface — auth is
                     // the bind host, so cron scoping (Phase 6) matters here.
                     cron: cronStore,
-                    cronHistory: cronHistory
+                    cronHistory: cronHistory,
+                    cardDispatch: cardDispatch
                 )
             ))
         }
@@ -361,6 +366,12 @@ public enum ArcDaemon {
         // at least one agent board exists — an empty store means no work.
         if let host = sessionHost {
             do {
+                // Card dispatch rides the daemon's established tunnel: the
+                // shared dispatch box is filled here, and every registry
+                // built with the same box (session agents, MCP adapter)
+                // dispatches worker one-shots in-process instead of spawning
+                // a fresh CLI process that would contend for the static key.
+                cardDispatch.set(host.kanbanCardRunner)
                 let agentStore = RuntimeKanbanAgentStore()
                 let boards = try await agentStore.listBoards()
                 if !boards.isEmpty {

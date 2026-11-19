@@ -62,8 +62,14 @@ public enum ArcAgentCore {
         delivery: DeliveryManager? = nil,
         cron: (any CronStore)? = nil,
         cronHistory: (any CronRunHistory)? = nil,
-        dependencies: ToolDependencies = ToolDependencies()
+        dependencies: ToolDependencies = ToolDependencies(),
+        // Late-bound in-process card dispatch (the daemon's one-shot session
+        // runner). Shared box: the daemon fills it after the session host
+        // boots; every registry built with the same box observes the fill.
+        cardDispatch: ToolDependency<@Sendable (String) async throws -> String>? = nil
     ) throws -> CompileTimeToolRegistry {
+        var dependencies = dependencies
+        if let cardDispatch { dependencies.cardDispatch = cardDispatch }
         var registry = CompileTimeToolRegistry(toolDependencies: dependencies)
 
         // Resources the caller already owns: bound before the tools are
@@ -109,11 +115,10 @@ public enum ArcAgentCore {
         try registry.register(ListChildrenTool.entry(manager: dependencies.delegationManager))
         try registry.register(SteerChildTool.entry(manager: dependencies.delegationManager))
         try registry.register(StopChildTool.entry(manager: dependencies.delegationManager))
-        try registry.register(KanbanTools.create(board: dependencies.kanbanBoard))
-        try registry.register(KanbanTools.list(board: dependencies.kanbanBoard))
-        try registry.register(KanbanTools.show(board: dependencies.kanbanBoard))
-        try registry.register(KanbanTools.complete(board: dependencies.kanbanBoard))
-        try registry.register(KanbanTools.block(board: dependencies.kanbanBoard))
+        // The unified kanban tool (KanbanCards module) — everything kanban
+        // runs through it: orchestrator actions plus env-defaulted worker
+        // transitions (complete/block/heartbeat) in dispatch sessions.
+        try registry.register(KanbanTool.entry(dispatch: dependencies.cardDispatch))
 
         // Profile/bot mode tools. Service-scoped: they act on the roster, not
         // on the calling profile's documents.

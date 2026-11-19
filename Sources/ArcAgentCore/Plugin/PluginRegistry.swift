@@ -578,6 +578,7 @@ public struct MutableToolRegistry: ToolRegistry {
         kanban: (any KanbanBoard)? = nil,
         cron: (any CronStore)? = nil,
         cronHistory: (any CronRunHistory)? = nil,
+        cardDispatch: ToolDependency<@Sendable (String) async throws -> String>? = nil,
         pluginRegistry: PluginRegistry? = nil,
         enabledPlugins: Set<String>? = nil,
         sources: [any ToolSource] = []
@@ -591,7 +592,8 @@ public struct MutableToolRegistry: ToolRegistry {
             groupChats: groupChats,
             kanban: kanban,
             cron: cron,
-            cronHistory: cronHistory
+            cronHistory: cronHistory,
+            cardDispatch: cardDispatch
         )
         var registry = MutableToolRegistry(builtIn: builtIn)
         let plugins = pluginRegistry ?? PluginRegistry.shared

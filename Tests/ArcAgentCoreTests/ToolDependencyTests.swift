@@ -80,26 +80,21 @@ extension ArcCoreTestRoot {
             #expect(await storeB.read().isEmpty)
         }
 
-        /// The same shape for the kanban board: two surfaces, two boards.
-        @Test("two agents do not share the kanban board")
-        func twoAgentsDoNotShareKanbanBoard() async throws {
-            let boardA = MemoryBoard()
-            let boardB = MemoryBoard()
+        /// The same shape for kanban, at the layer the unified `kanban` tool
+        /// actually isolates on: board namespaces. Two agents (or two boards
+        /// on one store) must never observe each other's tasks.
+        @Test("two boards do not share tasks")
+        func twoBoardsDoNotShareTasks() async throws {
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("board-iso-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            let store = FileCardStore(arcHome: tmp)
 
-            let depsA = ToolDependencies()
-            depsA.kanbanBoard.set(boardA)
-            let surfaceA = try ArcAgentCore.testRegistry(dependencies: depsA)
-            let depsB = ToolDependencies()
-            depsB.kanbanBoard.set(boardB)
-            let surfaceB = try ArcAgentCore.testRegistry(dependencies: depsB)
-
-            _ = try await tool(surfaceA, "kanban_create").handler(["title": "A task"])
-
-            let listB = try await tool(surfaceB, "kanban_list").handler([:])
-            #expect(!listB.contains("A task"), "surface B observed surface A's board: \(listB)")
-
-            let listA = try await tool(surfaceA, "kanban_list").handler([:])
-            #expect(listA.contains("A task"), "surface A lost its own board: \(listA)")
+            _ = try await store.createTask(CardTask(title: "A task"), board: "a")
+            let listB = try await store.listTasks(board: "b", filter: CardListFilter())
+            #expect(listB.isEmpty, "board b observed board a's task")
+            let listA = try await store.listTasks(board: "a", filter: CardListFilter())
+            #expect(listA.count == 1 && listA.first?.title == "A task", "board a lost its own task")
         }
 
         /// The other half of the invariant: a *real* agent fills the slots its

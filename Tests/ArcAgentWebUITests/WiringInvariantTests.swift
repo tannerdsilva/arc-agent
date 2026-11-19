@@ -187,7 +187,7 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 1, "message_actions group registration drifted")
         }
 
-        @Test("wireAll registers exactly 181 handlers (167 generated incl. ctxpane + 12 nav ids + sidebar-plugin-toggle + cat-pick)")
+        @Test("wireAll registers exactly 182 handlers (167 generated incl. ctxpane + 13 nav ids + sidebar-plugin-toggle + cat-pick)")
         func wireAllRegistersExactly180() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
@@ -195,8 +195,8 @@ extension ArcWebUITestRoot {
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 204,
-                                "wireAll must register exactly 203 handlers: 167 @Wired-generated (incl. ctxpane) + 12 nav-(id) + sidebar-plugin-toggle + cat-pick + 10 cron schedule/search/deliver wires + 8 kanban-agent wires (incl. the new-board form and the two close buttons; kanban reuses the legacy handler id), got \\(count)")
+                count == 205,
+                                "wireAll must register exactly 204 handlers: 167 @Wired-generated (incl. ctxpane) + 13 nav-(id) + sidebar-plugin-toggle + cat-pick + 10 cron schedule/search/deliver wires + 8 kanban-agent wires (incl. the new-board form and the two close buttons; kanban reuses the legacy handler id), got \\(count)")
         }
 
         /// A non-listed id has no handler: the router answers empty fragments.

@@ -21,7 +21,7 @@ extension ArcCoreTestRoot {
         @Test("default registry carries the full tool surface (reference ports stay deleted)")
         func defaultRegistryTools() throws {
             let registry = try ArcAgentCore.testRegistry()
-            #expect(registry.allTools.count == 54)
+            #expect(registry.allTools.count == 50) // 53 legacy − 5 kanban_* + 1 unified kanban
 
             #expect(registry.lookup(name: "read_file")?.toolset == "file")
             #expect(registry.lookup(name: "read_file")?.emoji == "📄")
@@ -36,7 +36,7 @@ extension ArcCoreTestRoot {
             #expect(registry.lookup(name: "skill_view") != nil)
             #expect(registry.lookup(name: "memory") != nil)
             #expect(registry.lookup(name: "delegate_task") != nil)
-            #expect(registry.lookup(name: "kanban_list") != nil)
+            #expect(registry.lookup(name: "kanban") != nil) // unified kanban tool
             #expect(registry.lookup(name: "browser_navigate") != nil)
             #expect(registry.lookup(name: "mcp_tool") != nil)
             #expect(registry.lookup(name: "computer_use") != nil)
@@ -196,7 +196,7 @@ extension ArcCoreTestRoot {
             #expect(webSchemas.count == 2)
 
             let disabled = registry.buildToolSchemas(enabled: [], disabled: ["file"])
-            #expect(disabled.count == 50)
+            #expect(disabled.count == 46) // 50 tools − 4 file family
         }
 
         // =========================================================================
@@ -869,7 +869,7 @@ extension ArcCoreTestRoot {
         func toolsCommand() throws {
             let registry = try ArcAgentCore.testRegistry()
             let names = registry.allTools.map(\.name).sorted()
-            #expect(names == ["browser_back", "browser_cdp", "browser_click", "browser_close", "browser_connect", "browser_console", "browser_dialog", "browser_get_images", "browser_navigate", "browser_press", "browser_scroll", "browser_snapshot", "browser_type", "browser_vision", "clarify", "computer_use", "create_profile", "delegate_task", "delete_profile", "execute_code", "get_profile", "kanban_block", "kanban_complete", "kanban_create", "kanban_list", "kanban_show", "list_children", "list_profiles", "mcp_tool", "memory", "patch", "process", "process_watch", "profile_edit", "project_create", "project_list", "project_switch", "read_file", "search_files", "send_bot_message", "send_group_chat", "send_message", "session_search", "skill_manage", "skill_view", "skills_list", "steer_child", "stop_child", "terminal", "todo", "tool_search", "web_extract", "web_search", "write_file"])
+            #expect(names == ["browser_back", "browser_cdp", "browser_click", "browser_close", "browser_connect", "browser_console", "browser_dialog", "browser_get_images", "browser_navigate", "browser_press", "browser_scroll", "browser_snapshot", "browser_type", "browser_vision", "clarify", "computer_use", "create_profile", "delegate_task", "delete_profile", "execute_code", "get_profile", "kanban", "list_children", "list_profiles", "mcp_tool", "memory", "patch", "process", "process_watch", "profile_edit", "project_create", "project_list", "project_switch", "read_file", "search_files", "send_bot_message", "send_group_chat", "send_message", "session_search", "skill_manage", "skill_view", "skills_list", "steer_child", "stop_child", "terminal", "todo", "tool_search", "web_extract", "web_search", "write_file"])
         }
 
         /// Register-when-available (GROUNDZERO slice 5): a surface built with

@@ -73,6 +73,11 @@ public actor SessionRegistry {
         public let approvalMode: ApprovalMode
         /// `security.cronMode` — deny | smart; unknown → deny (config warns).
         public let cronMode: CronApprovalMode
+        /// Shared late-bound in-process card dispatch for the unified kanban
+        /// tool. The daemon creates the box, hands it here, and fills it when
+        /// the session host (and its one-shot runner) boots; a CLI surface
+        /// leaves it nil and the tool falls back to a spawned subprocess.
+        public var cardDispatch: ToolDependency<@Sendable (String) async throws -> String>? = nil
 
         /// Mixture-of-Agents configuration (reference `moa` config block).
         public let moa: MoAConfig
@@ -140,7 +145,8 @@ public actor SessionRegistry {
             backgroundReviewWindow: Int = 8,
             storage: StorageRuntime? = nil,
             profiles: ProfileService? = nil,
-            kanban: (any KanbanBoard)? = nil
+            kanban: (any KanbanBoard)? = nil,
+            cardDispatch: ToolDependency<@Sendable (String) async throws -> String>? = nil
             ) {
             self.model = model
             self.provider = provider
@@ -166,6 +172,7 @@ public actor SessionRegistry {
             self.storage = storage
             self.profiles = profiles
             self.kanban = kanban
+            self.cardDispatch = cardDispatch
         }
     }
 

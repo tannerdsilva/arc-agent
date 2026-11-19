@@ -2,6 +2,36 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
+// MARK: - Subscription-kind invariant
+
+extension ArcCoreTestRoot {
+    /// Regression: the live subscription list must cover every kind the
+    /// kanban-cards store writes. A gap here makes every card write echo-timeout
+    /// while the relay silently orphans the scribed event (observed 2026-11-18:
+    /// kinds 3014–3019 missing → six orphaned task events in one session).
+    @Suite("Tessera card subscription invariant")
+    struct TesseraCardSubscriptionTests {
+
+        @Test("Every TesseraCardStore kind is subscribed")
+        func cardKindsAreSubscribed() {
+            let subscribed = Set(TesseraConnection.subscriptionKinds.map(\.1))
+            let cardKinds: [UInt32] = [
+                TesseraCardStore.taskKind, TesseraCardStore.runKind,
+                TesseraCardStore.commentKind, TesseraCardStore.linkKind,
+                TesseraCardStore.eventKind, TesseraCardStore.attachmentKind,
+            ]
+            for kind in cardKinds {
+                #expect(subscribed.contains(kind), "kind \(kind) is written by TesseraCardStore but has no subscription")
+            }
+        }
+
+        @Test("Subscription ids and kinds stay paired")
+        func idsAndKindsPaired() {
+            #expect(TesseraConnection.subscriptionKinds.count == TesseraConnection.subscriptionIDs.count)
+        }
+    }
+}
+
 // MARK: - Unit tests (always run)
 
 extension ArcCoreTestRoot {

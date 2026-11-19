@@ -82,6 +82,8 @@ public enum ArcHome {
     public static var cron: URL { root.appendingPathComponent("cron", isDirectory: true) }
     public static var cronJobs: URL { root.appendingPathComponent("cron-jobs.json") }
     public static var kanban: URL { root.appendingPathComponent("kanban", isDirectory: true) }
+    /// Card-model boards (KanbanCards module — separate from the legacy engine's `kanban`).
+    public static var kanbanCards: URL { root.appendingPathComponent("kanban-cards", isDirectory: true) }
     public static var projects: URL { root.appendingPathComponent("projects.json") }
     public static var goals: URL { root.appendingPathComponent("goals.json") }
     public static var heartbeats: URL { root.appendingPathComponent("heartbeats.json") }
