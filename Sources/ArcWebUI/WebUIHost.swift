@@ -118,6 +118,11 @@ public struct WebUIHost: Service {
     ) async throws {
         self.host = host
         self.port = port
+        // Web UI is hosted inside the daemon process: mark it so its card
+        // store resolution (Cards page) never proxies through the daemon's
+        // own HTTP server. Harmless when the API surface is also hosted
+        // (the flag is already set by SessionHost).
+        CardStores.isDaemonProcess = true
         self.tesseraOff = tesseraOff
         self.storage = storage
         self.sidecarManager = sidecarManager

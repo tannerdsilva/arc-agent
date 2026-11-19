@@ -36,6 +36,12 @@ public final class HTTPServerService: Service {
     /// executes them with the daemon's own card store) — the worker never
     /// opens a tessera tunnel of its own. Nil disables the route entirely.
     private let onKanban: (@Sendable ([String: Any], [String: String]) async throws -> String)?
+    /// Loopback card-store proxy: when a token is set, `POST /v1/card`
+    /// executes a single ``CardStore`` verb on the daemon's own store —
+    /// the store-level extension of the `/v1/kanban` tool-call proxy, so
+    /// worker context resolution and direct store use ride the daemon's
+    /// tunnel too. Nil disables the route entirely.
+    private let onCard: (@Sendable (String, [String: Any]) async throws -> Any?)?
     private let kanbanProxyToken: String?
     /// Signals that trigger graceful shutdown of the inner group; empty when
     /// nested under a group that owns signals (the daemon root).
@@ -57,11 +63,13 @@ public final class HTTPServerService: Service {
         gracefulShutdownSignals: [UnixSignal] = [],
         onChat: @escaping @Sendable (String, String) async throws -> String,
         onKanban: (@Sendable ([String: Any], [String: String]) async throws -> String)? = nil,
+        onCard: (@Sendable (String, [String: Any]) async throws -> Any?)? = nil,
         kanbanProxyToken: String? = nil
     ) {
         self.config = config
         self.onChat = onChat
         self.onKanban = onKanban
+        self.onCard = onCard
         self.kanbanProxyToken = kanbanProxyToken
         self.gracefulShutdownSignals = gracefulShutdownSignals
     }
@@ -105,6 +113,36 @@ public final class HTTPServerService: Service {
                         )
                         let output = try await onKanban(args, env)
                         return KanbanProxyResponse(output: output)
+                    }
+                }
+                // Loopback card-store proxy (CardProxy): one CardStore verb
+                // per request, executed on the daemon's own store. Same
+                // token gate as /kanban. Store-level failures ride a 200
+                // envelope ({ok:false, failure:…}) so the client rethrows
+                // them instead of falling back to its own tunnel.
+                if let onCard, let kanbanProxyToken, !kanbanProxyToken.isEmpty {
+                    Post("/card") { [onCard] request, _ in
+                        guard request.headers[.authorization] == "Bearer \(kanbanProxyToken)" else {
+                            throw HTTPError(.unauthorized, message: "invalid proxy token")
+                        }
+                        let bodyBuffer = try await request.body.collect(upTo: 16 * 1024 * 1024)
+                        guard let decoded = try? JSONSerialization.jsonObject(with: Data(buffer: bodyBuffer)) as? [String: Any],
+                              let verb = decoded["verb"] as? String,
+                              let params = decoded["params"] as? [String: Any] else {
+                            throw HTTPError(.badRequest, message: "expected {\"verb\": \"…\", \"params\": {…}}")
+                        }
+                        @Sendable func reply(_ body: [String: Any]) throws -> Response {
+                            var response = Response(status: .ok)
+                            response.body = .init(byteBuffer: ByteBuffer(data: try JSONSerialization.data(withJSONObject: body)))
+                            response.headers[.contentType] = "application/json; charset=utf-8"
+                            return response
+                        }
+                        do {
+                            let result = try await onCard(verb, params)
+                            return try reply(["ok": true, "result": result ?? NSNull()])
+                        } catch let error as CardStoreError {
+                            return try reply(CardProxyWire.failureEnvelope(error))
+                        }
                     }
                 }
             }

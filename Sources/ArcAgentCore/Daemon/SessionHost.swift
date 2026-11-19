@@ -105,6 +105,10 @@ public struct SessionHost: Service {
         profileRouting: ProfileRoutingConfig = ProfileRoutingConfig()
     ) {
         let pm = ProfileManager()
+        // Any process hosting a SessionHost is the daemon: mark it so its
+        // own card-store resolution never proxies through its own HTTP
+        // server (write-once, before any store resolution can happen).
+        CardStores.isDaemonProcess = true
         let dm = DeliveryManager()
         let bm = BotMessagingService(profileManager: pm)
         let gcm = GroupChatManager(profileManager: pm)
@@ -182,6 +186,14 @@ public struct SessionHost: Service {
                         args: args,
                         box: .init(storeOverride: store, envOverride: env, dispatch: nil)
                     )
+                    }
+                },
+                onCard: proxyToken.map { _ -> @Sendable (String, [String: Any]) async throws -> Any? in
+                    { verb, params in
+                        // Executed with the daemon's own store. The daemon
+                        // flag is set in init, so this never re-proxies.
+                        let store = await CardStores.shared()
+                        return try await CardProxyExecutor.dispatch(verb: verb, params: params, store: store)
                     }
                 },
                 kanbanProxyToken: proxyToken
