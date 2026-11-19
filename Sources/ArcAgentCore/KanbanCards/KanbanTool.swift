@@ -427,6 +427,13 @@ enum KanbanTool {
         let executable = Self.currentExecutable()
         var env = "ARC_KANBAN_TASK_ID=\(shellEscaped(id)) ARC_KANBAN_RUN_ID=\(shellEscaped(run.id)) ARC_KANBAN_BOARD=\(shellEscaped(board))"
         if let ws = CardWorker.env(CardWorker.workspaceKey) { env += " ARC_KANBAN_WORKSPACE=\(shellEscaped(ws))" }
+        // Distinct worker identity: pass the daemon's configured worker key
+        // down so the child never roams the daemon's relay peer (the
+        // shared-key echo-timeout cascade). Absent key → child inherits the
+        // main identity, as before.
+        if let workerKey = ProcessInfo.processInfo.environment["ARC_TESSERA_WORKER_PRIVATE_KEY"] {
+            env += " ARC_TESSERA_WORKER_PRIVATE_KEY=\(shellEscaped(workerKey))"
+        }
         let shellPrompt = prompt.replacingOccurrences(of: "'", with: "'\\''")
         let yolo = args["yolo"] as? Bool ?? true
         let command = "\(env) \(executable) chat -q '\(shellPrompt)'\(yolo ? " --yolo" : "")"

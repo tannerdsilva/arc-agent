@@ -994,6 +994,22 @@ func applyEnvironmentOverrides(
         config.tessera = t
     }
 
+    // Worker-identity override. A kanban card worker is spawned with a
+    // distinct private key (inherited via ARC_TESSERA_WORKER_PRIVATE_KEY from
+    // the dispatcher's spawn env, sourced from the daemon's environment) so
+    // the child never roams the daemon's relay peer — the shared-key
+    // echo-timeout cascade of 2026-11-19. The override fires ONLY inside a
+    // worker run (ARC_KANBAN_TASK_ID set): the daemon's own environment also
+    // carries the value (the start script exports ~/.arc/.env wholesale), and
+    // the daemon must keep the main identity. Process environment only, never
+    // dotenv — for the same reason. Applies only when a tessera backend is
+    // actually configured.
+    if environment["ARC_KANBAN_TASK_ID"] != nil,
+       let workerKey = environment["ARC_TESSERA_WORKER_PRIVATE_KEY"],
+       config.tessera != nil {
+        config.tessera?.myPrivateKey = workerKey
+    }
+
     return config
 }
 
