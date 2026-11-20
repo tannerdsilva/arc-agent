@@ -1842,12 +1842,11 @@ extension AppState {
     ///
     /// The closure re-checks the rule against the freshly read config, since
     /// the list may have moved while the prompt stood. Success needs the store
-    /// to accept the write, the list to shrink by one (the closure's guard
-    /// passed), and the armed rule to be gone. The count check matters because
-    /// the containment check alone would call a stale arm a success: a rule the
-    /// list never held is trivially absent. An identical duplicate makes the
-    /// containment check conservative — the removal happened, but the armed
-    /// rule is still listed, so it is reported as nothing removed.
+    /// to accept the write and the list to shrink by exactly one: the closure
+    /// only removes when the rule at `index` still equals the armed rule, so a
+    /// shrink of one means the rule the operator was shown is the one that
+    /// went. Absence alone would not do — a stale arm names a rule the list
+    /// never held, and that rule is trivially absent.
     @discardableResult
     func removeToolPolicyRule(at index: Int) async -> Bool {
         guard let arm = toolPolicyRemovalArm, arm.index == index else { return false }
@@ -1858,9 +1857,7 @@ extension AppState {
                   config.security.toolPolicy.rules[index] == arm.rule else { return }
             config.security.toolPolicy.rules.remove(at: index)
         }
-        guard wrote,
-              arcConfig.security.toolPolicy.rules.count == countBefore - 1,
-              !arcConfig.security.toolPolicy.rules.contains(arm.rule) else {
+        guard wrote, arcConfig.security.toolPolicy.rules.count == countBefore - 1 else {
             _ = hint("Rule \(index + 1) changed while you confirmed — nothing was removed.", kind: "error")
             return false
         }

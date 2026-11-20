@@ -427,6 +427,49 @@ extension ArcWebUITestRoot {
                     "a stale arm writes nothing")
         }
 
+        @Test("removing one of two identical rules reports the truth")
+        func duplicateRuleRemovalIsHonest() async throws {
+            let duplicate = ToolPolicyRule(match: "dup", action: .deny)
+            let other = ToolPolicyRule(match: "other", action: .allow)
+            let (url, store) = try scratchConfig()
+            _ = try await store.mutate {
+                $0.security.toolPolicy = ToolPolicyConfig(enabled: true, rules: [duplicate, duplicate, other])
+            }
+            var fixture = AppState.RenderFixture()
+            fixture.arcConfig = try ConfigurationStore.readDeclared(url)
+            let app = AppState(renderFixture: fixture, configurationStore: store)
+
+            await app.armToolPolicyRuleRemoval(at: 0)
+            let removed = await app.removeToolPolicyRule(at: 0)
+
+            #expect(removed,
+                    "the list shrank by one: the armed rule went, even though an identical rule remains")
+            let onDisk = try ConfigurationStore.readDeclared(url)
+            #expect(onDisk.security.toolPolicy.rules == [duplicate, other],
+                    "one duplicate leaves and the surviving rules keep their order")
+        }
+
+        @Test("arming a position the list does not hold leaves no arm")
+        func armOutOfRangeLeavesNoArm() async throws {
+            let (url, store) = try scratchConfig()
+            _ = try await store.mutate {
+                $0.security.toolPolicy = ToolPolicyConfig(enabled: true, rules: Self.threeRules)
+            }
+            var fixture = AppState.RenderFixture()
+            fixture.arcConfig = try ConfigurationStore.readDeclared(url)
+            let app = AppState(renderFixture: fixture, configurationStore: store)
+
+            await app.armToolPolicyRuleRemoval(at: 99)
+
+            #expect(await app.toolPolicyRemovalArm == nil,
+                    "an index the list does not hold arms nothing")
+            #expect(await app.removeToolPolicyRule(at: 99) == false,
+                    "and there is no removal to confirm")
+            let onDisk = try ConfigurationStore.readDeclared(url)
+            #expect(onDisk.security.toolPolicy.rules == Self.threeRules,
+                    "an out-of-range arm writes nothing")
+        }
+
         @Test("the enable switch writes the flag and leaves every rule in place")
         func toggleWritesOnlyTheFlag() async throws {
             let (url, store) = try scratchConfig()
