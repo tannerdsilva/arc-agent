@@ -6,18 +6,13 @@ import Foundation
 /// Requires ARC_KANBAN_PROXY_TOKEN in the environment; skips (with a
 /// loud marker in the output) otherwise. Writes to the `live-test`
 /// board on the daemon's real store.
-@Suite("Card proxy live wire")
+@Suite("Card proxy live wire", .enabled(if: ProcessInfo.processInfo.environment["ARC_KANBAN_PROXY_TOKEN"] != nil))
 struct CardProxyLiveTests {
 
-    private func liveProxy() throws -> ProxiedCardStore {
-        guard let token = ProcessInfo.processInfo.environment["ARC_KANBAN_PROXY_TOKEN"], !token.isEmpty else {
-            print("LIVE-SKIP: ARC_KANBAN_PROXY_TOKEN not set")
-            throw KVSkip()
-        }
+    private func liveProxy() -> ProxiedCardStore {
+        let token = ProcessInfo.processInfo.environment["ARC_KANBAN_PROXY_TOKEN"]!
         return ProxiedCardStore(host: "127.0.0.1", port: 8080, token: token)
     }
-
-    struct KVSkip: Error {}
 
     @Test("every verb round-trips over the live daemon")
     func verbMatrix() async throws {
