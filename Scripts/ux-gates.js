@@ -341,12 +341,19 @@
       return { present: true, count: rows.length, rows, last: rows[rows.length - 1] || null };
     },
 
-    /// the composer's attachment chips, as `@path` text.
+    /// the composer's attachment chips: the visible `@name` label and the full
+    /// path each carries in `title` (the label is deliberately the file name;
+    /// the path lives in the tooltip — commit 0c0c0413).
     uploadChips: () => {
       const host = document.querySelector('#attach-chips');
-      if (!host) return { present: false, count: 0, chips: [] };
-      const chips = Array.from(host.querySelectorAll('.chip')).map((c) => text(c));
-      return { present: true, count: chips.length, chips };
+      if (!host) return { present: false, count: 0, chips: [], titles: [] };
+      const nodes = Array.from(host.querySelectorAll('.chip'));
+      return {
+        present: true,
+        count: nodes.length,
+        chips: nodes.map((c) => text(c)),
+        titles: nodes.map((c) => c.getAttribute('title') || ''),
+      };
     },
 
     /// the zones' attribute contract, read from the DOM rather than the source.

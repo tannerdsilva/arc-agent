@@ -24,8 +24,8 @@
 // Runtime.evaluate.
 
 import { spawn } from 'node:child_process';
-import { writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 const NODE_OK = (() => {
   const m = /^v(\d+)\./.exec(process.version);
@@ -120,8 +120,13 @@ export class UxDriver {
    * Launch Chrome headless and attach. `userDataDir` should be a throwaway
    * path (the gates use a fresh temp dir unless --keep-profile is passed).
    */
-  static async launch({ port = 9222, userDataDir, headless = true, windowSize = '1440,900', timeoutMs = 20000 } = {}) {
+  static async launch({ port = 0, userDataDir, headless = true, windowSize = '1440,900', timeoutMs = 20000 } = {}) {
     if (!userDataDir) throw new Error('launch(): userDataDir is required');
+    // port 0: Chrome picks a free port and publishes it in DevToolsActivePort.
+    // a fixed port can already belong to a browser this process did not spawn,
+    // and attachToBrowser would then drive THAT one — the gate would measure a
+    // stranger's tab (wrong viewport, wrong focus, wrong page) and report it as
+    // the app's behaviour. `--attach` still takes an explicit port.
     const args = [
       '--remote-debugging-port=' + port,
       `--user-data-dir=${userDataDir}`,
@@ -141,9 +146,25 @@ export class UxDriver {
     child.on('error', (err) => {
       throw new Error(`failed to spawn Chrome at ${CHROME_PATH} (${err.message}) — set ARC_CHROME if Chrome lives elsewhere`);
     });
+    let debugPort = port;
+    if (!debugPort) {
+      const portFile = join(userDataDir, 'DevToolsActivePort');
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        try {
+          const n = parseInt(readFileSync(portFile, 'utf8').split('\n')[0].trim(), 10);
+          if (Number.isInteger(n) && n > 0) { debugPort = n; break; }
+        } catch { /* not written yet */ }
+        await sleep(100);
+      }
+      if (!debugPort) {
+        try { child.kill('SIGKILL'); } catch { /* ignore */ }
+        throw new Error(`Chrome never wrote ${portFile} — cannot learn the debug port`);
+      }
+    }
     let driver;
     try {
-      driver = await UxDriver.attachToBrowser(port, { timeoutMs });
+      driver = await UxDriver.attachToBrowser(debugPort, { timeoutMs });
     } catch (err) {
       try { child.kill('SIGKILL'); } catch { /* ignore */ }
       throw err;
