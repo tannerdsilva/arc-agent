@@ -90,6 +90,7 @@ public enum CardProxyWire {
         case .parentNotFound(let id): (kind, args) = ("parentNotFound", [id])
         case .phantomCreatedCard(let id): (kind, args) = ("phantomCreatedCard", [id])
         case .attachmentWriteFailed(let id): (kind, args) = ("attachmentWriteFailed", [id])
+        case .invalidTransition(let why): (kind, args) = ("invalidTransition", [why])
         }
         return ["ok": false, "failure": ["kind": kind, "args": args, "message": cardStoreMessage(error)]]
     }
@@ -104,6 +105,7 @@ public enum CardProxyWire {
         case .parentNotFound(let id): return "parent task \(id) not found"
         case .phantomCreatedCard(let id): return "created card \(id) does not exist"
         case .attachmentWriteFailed(let id): return "attachment write failed: \(id)"
+        case .invalidTransition(let why): return why
         }
     }
 
@@ -490,6 +492,26 @@ public actor ProxiedCardStore: CardStore {
         try await proxiedVoid("deleteBoard", ["board": board]) {
             try await $0.deleteBoard(board: board)
         }
+    }
+
+    // ── Board registry & archive: no remote wire verb — the tool layer
+    // (which workers always go through) executes these daemon-side via the
+    // whole-call proxy. Direct store consumers here fall back locally.
+
+    public func createBoard(_ board: CardBoard) async throws {
+        try await ensureLocal().createBoard(board)
+    }
+
+    public func listBoards() async throws -> [CardBoard] {
+        try await ensureLocal().listBoards()
+    }
+
+    public func removeBoard(id: String) async throws {
+        try await ensureLocal().removeBoard(id: id)
+    }
+
+    public func archiveTask(id: String, board: String) async throws -> CardTask {
+        try await ensureLocal().archiveTask(id: id, board: board)
     }
 }
 

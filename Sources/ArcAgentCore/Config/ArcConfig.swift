@@ -87,6 +87,10 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// main model.
     public var auxiliary: AuxiliaryModelSet
 
+    /// Kanban-cards subsystem config (`kanbanCards.dispatcher`): the
+    /// aux-model board dispatcher loop. Absent = dispatcher off.
+    public var kanbanCards: KanbanCardsConfig?
+
     /// Tool-plugin enablement (reference `plugins.enabled` parity). `nil` = the
     /// key is absent (grandfathered: all discovered plugins are enabled);
     /// `[]` = explicitly none; a list = allow-list of plugin names.
@@ -184,6 +188,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         case hooks
         case contextDefaults = "context_defaults"
         case processWatch = "process_watch"
+        case kanbanCards = "kanban_cards"
     }
 
     // MARK: - Init
@@ -213,7 +218,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         checkpoints: CheckpointsConfig? = nil,
         hooks: HooksConfig = HooksConfig(),
         contextDefaults: ContextRecipe? = nil,
-        processWatch: ProcessWatchConfig = ProcessWatchConfig()
+        processWatch: ProcessWatchConfig = ProcessWatchConfig(),
+        kanbanCards: KanbanCardsConfig? = nil
     ) {
         self.model = model
         self.agent = agent
@@ -240,6 +246,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.hooks = hooks
         self.contextDefaults = contextDefaults
         self.processWatch = processWatch
+        self.kanbanCards = kanbanCards
     }
 
     /// Decode each section independently, defaulting any that are absent.
@@ -261,6 +268,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.storage = try container.decodeIfPresent(StorageConfig.self, forKey: .storage) ?? StorageConfig()
         self.auxiliary = try container.decodeIfPresent(AuxiliaryModelSet.self, forKey: .auxiliary) ?? AuxiliaryModelSet()
         self.plugins = try container.decodeIfPresent(PluginsConfig.self, forKey: .plugins) ?? PluginsConfig()
+        self.kanbanCards = try container.decodeIfPresent(KanbanCardsConfig.self, forKey: .kanbanCards)
         self.profileRouting = try container.decodeIfPresent(ProfileRoutingConfig.self, forKey: .profileRouting) ?? ProfileRoutingConfig()
         self.agentPowers = try container.decodeIfPresent(AgentPowersConfig.self, forKey: .agentPowers) ?? AgentPowersConfig()
         // reference top-level `mcp_servers` (underscored key → ``CodingKeys/mcpServers``).
@@ -1104,4 +1112,53 @@ public struct AgentPowersConfig: Codable, Sendable, Equatable {
         self.profileEdit = try container.decodeIfPresent(Bool.self, forKey: .profileEdit) ?? true
         self.lockedProfileFiles = try container.decodeIfPresent([String].self, forKey: .lockedProfileFiles) ?? []
     }
+}
+
+
+/// Config for the KanbanCards subsystem.
+public struct KanbanCardsConfig: Codable, Sendable, Equatable {
+    public var dispatcher: BoardDispatcherConfig?
+
+    public init(dispatcher: BoardDispatcherConfig? = nil) {
+        self.dispatcher = dispatcher
+    }
+}
+
+/// The aux-model board dispatcher: periodically reads each board and, via
+/// the `kanban` tool, dispatches ready cards, adds follow-up cards after
+/// completions, and archives settled ones.
+public struct BoardDispatcherConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    /// Seconds between ticks (minimum 30).
+    public var intervalSeconds: Int
+    /// Max tool-loop iterations per board per tick.
+    public var maxIterations: Int
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        intervalSeconds = max(30, (try? c.decodeIfPresent(Int.self, forKey: .intervalSeconds)) ?? 120)
+        maxIterations = max(1, min(20, (try? c.decodeIfPresent(Int.self, forKey: .maxIterations)) ?? 10))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(intervalSeconds, forKey: .intervalSeconds)
+        try c.encode(maxIterations, forKey: .maxIterations)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled
+        case intervalSeconds = "interval_seconds"
+        case maxIterations = "max_iterations"
+    }
+
+    public init(enabled: Bool = false, intervalSeconds: Int = 120, maxIterations: Int = 10) {
+        self.enabled = enabled
+        self.intervalSeconds = max(30, intervalSeconds)
+        self.maxIterations = max(1, min(20, maxIterations))
+    }
+
+    public static let `default` = BoardDispatcherConfig()
 }

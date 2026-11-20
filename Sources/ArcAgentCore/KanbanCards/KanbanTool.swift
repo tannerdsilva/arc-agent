@@ -25,7 +25,7 @@ enum KanbanTool {
     static let allActions: [String] = [
         "create", "list", "show", "claim", "run", "complete", "block",
         "unblock", "link", "comment", "attach", "attachments", "heartbeat",
-        "runs", "events", "recompute", "delete_board",
+        "runs", "events", "recompute", "boards", "archive", "delete_board",
     ]
 
     static func entry(
@@ -38,15 +38,17 @@ enum KanbanTool {
             name: "kanban",
             toolset: .kanban,
             description: """
-            Kanban card operations — create, list, show, claim, run, complete, block, unblock, link, comment, attach, heartbeat, events, delete_board. Everything kanban goes through this tool.
+            Kanban card operations — create, list, show, claim, run, complete, block, unblock, link, comment, attach, heartbeat, events, boards, archive, delete_board. Everything kanban goes through this tool.
             In a worker session, task_id and run_id default to your own assignment. `complete` needs a `summary` handoff (plus optional metadata/artifacts); `block` needs `kind` (dependency|needs_input|capability|transient) and `reason`; `run` dispatches a worker one-shot in the background.
+            Boards are organizational containers for cards: `boards` with no `board` lists them; pass `board` + `name`/`description` to create one. Cards go on a board by passing `board` at create time (column: Todo by default, or `column` = Todo|Ready|Running|Blocked|Finished); cards without a board live in the standalone pool ("default" board, rendered "Unboarded"). `archive` removes a settled card from the board columns into the Completed tab.
             """,
             schema: .object(
                 description: "Kanban card operation",
                 properties: [
                     "action": .string(description: "One of: \(allActions.joined(separator: ", "))"),
                     "task_id": .string(description: "Task id (defaults to your worker assignment in worker sessions)"),
-                    "board": .string(description: "Board namespace (default: default)"),
+                    "board": .string(description: "Board id (create/list/show/run/move/…). Omitted → the standalone pool (\"default\", rendered Unboarded). For `boards`, the id of the board to create or show."),
+                    "column": .string(description: "Placement column for a board card at create: Todo|Ready|Running|Blocked|Finished (default Todo on a named board)"),
                     "title": .string(description: "Task title (create)"),
                     "body": .string(description: "Full task description (create)"),
                     "assignee": .string(description: "Assignee profile name"),
@@ -220,6 +222,8 @@ enum KanbanTool {
             case "runs": return try await listRuns(args, store: store, board: board, env: env)
             case "events": return try await listEvents(args, store: store, board: board, env: env)
             case "recompute": return try await recompute(store: store, board: board)
+            case "boards": return try await boards(args, store: store, board: board)
+            case "archive": return try await archive(args, store: store, board: board, env: env)
             case "delete_board": return try await deleteBoard(store: store, board: board)
             default:
                 return "Error: unknown action '\(action)'. One of: \(allActions.joined(separator: ", "))"
@@ -245,6 +249,7 @@ enum KanbanTool {
         case .parentNotFound(let id): return "task not found: \(id)"
         case .phantomCreatedCard(let id): return "created_cards verification failed: task \(id) does not exist (phantom reference)"
         case .attachmentWriteFailed(let path): return "attachment write failed: \(path)"
+        case .invalidTransition(let why): return why
         }
     }
 
@@ -254,10 +259,22 @@ enum KanbanTool {
         guard let title = args["title"] as? String, !title.isEmpty else {
             return "Error: title is required for create."
         }
+        // Column placement: a named board defaults to the first column
+        // (Todo); the standalone pool keeps the dispatchable `.ready`
+        // default. An explicit `column` always wins.
+        let onNamedBoard = board != CardBoard.standaloneID
+        var status: CardStatus = onNamedBoard ? .todo : .ready
+        if let raw = args["column"] as? String, !raw.isEmpty {
+            guard let col = CardColumn.parse(raw) else {
+                return "Error: column must be one of \(CardColumn.allCases.map(\.displayName).joined(separator: ", "))."
+            }
+            status = col.status
+        }
         let task = CardTask(
             title: title,
             body: args["body"] as? String,
             assignee: args["assignee"] as? String,
+            status: status,
             priority: args["priority"] as? Int ?? 0,
             createdBy: CardWorker.env(CardWorker.taskIDKey) != nil ? "worker:\(CardWorker.env(CardWorker.taskIDKey)!)" : "agent",
             workspaceKind: try workspaceKindArg(args),
@@ -598,9 +615,95 @@ enum KanbanTool {
         return "Promoted to ready: \(promoted.joined(separator: ", "))"
     }
 
+    /// Move a card to a column. The dispatcher's repositioning verb: any
+    /// column change that isn't the state machine's own claim/block/complete
+    /// path (e.g. Todo → Ready promotion, re-opening a finished card).
+    /// Refuses while a run is in flight — those close through complete/block.
+    static func move(_ args: [String: Any], store: any CardStore, board: String) async throws -> String {
+        guard let id = args["task_id"] as? String, !id.isEmpty else {
+            return "Error: task_id is required for move."
+        }
+        guard let raw = args["column"] as? String, let column = CardColumn.parse(raw) else {
+            return "Error: column must be one of \(CardColumn.allCases.map(\.displayName).joined(separator: ", "))."
+        }
+        var task = try await store.taskOrThrow(id: id, board: board)
+        guard task.currentRunID == nil else {
+            return "Error: task \(id) has a run in flight — close it with complete/block before moving."
+        }
+        guard task.status != .archived else {
+            return "Error: task \(id) is archived — it is off the board. Create a new card instead."
+        }
+        let from = task.status.rawValue
+        task.status = column.status
+        if column == .finished, task.completedAt == nil { task.completedAt = Date() }
+        if column != .finished { task.completedAt = nil }
+        try await store.saveTask(task, board: board)
+        try await store.appendEvent(taskID: id, board: board, runID: nil, kind: "moved", payload: "\(from) → \(task.status.rawValue)")
+        return "Moved \(id.prefix(8)) to \(column.displayName) (\(from) → \(task.status.rawValue))."
+    }
+
     static func deleteBoard(store: any CardStore, board: String) async throws -> String {
         try await store.deleteBoard(board: board)
         return "Deleted all kanban data on board '\(board)'."
+    }
+
+    // MARK: Boards & archive
+
+    /// `boards` with no `board` arg lists the registry; with `board` (+
+    /// optional `name`/`description`) it creates or shows one board.
+    static func boards(_ args: [String: Any], store: any CardStore, board: String) async throws -> String {
+        if args["board"] == nil {
+            let all = try await store.listBoards()
+            let rows = all.map { board in
+                var line = "\(board.id) — \(board.name)"
+                if let d = board.description { line += "  (\(d))" }
+                return line
+            }
+            return "Boards (hardcoded: 1 lane, columns Todo/Ready/Running/Blocked/Finished):\n" + rows.joined(separator: "\n")
+        }
+        let wantsCreate = args["name"] != nil || args["description"] != nil
+        if wantsCreate {
+            let name = (args["name"] as? String) ?? board
+            // The registry id is always the slug of the name — a `board`
+            // argument is a convenience handle, never a raw id with spaces.
+            let id = CardBoard.slug(name)
+            guard !CardBoard.reserved.contains(id) else {
+                return "Error: '\(id)' is reserved (the standalone pool) and cannot be created."
+            }
+            let existing = try await store.listBoards().first { $0.id == id }
+            if let existing {
+                // Idempotent: same id + name updates the description.
+                let updated = CardBoard(id: existing.id, name: name, description: args["description"] as? String, createdAt: existing.createdAt)
+                try await store.createBoard(updated)
+                return "Board \(updated.id) updated (description)."
+            }
+            let created = CardBoard(id: id, name: name, description: args["description"] as? String)
+            try await store.createBoard(created)
+            return "Created board \(created.id) — columns are fixed: Todo, Ready, Running, Blocked, Finished. Add cards with action create + board \(created.id)."
+        }
+        guard let existing = try await store.listBoards().first(where: { $0.id == board }) else {
+            return "Error: no board '\(board)'. List with action boards."
+        }
+        let tasks = try await store.listTasks(board: board, filter: CardListFilter(includeArchived: true, limit: 500))
+        var byColumn: [CardColumn: Int] = [:]
+        for task in tasks {
+            if let col = CardColumn(status: task.status) { byColumn[col, default: 0] += 1 }
+        }
+        let counts = CardColumn.allCases.map { col in
+            "\(col.displayName): \(byColumn[col] ?? 0)"
+        }.joined(separator: "  ·  ")
+        return """
+        Board \(existing.id) (\(existing.name)) — \(tasks.count) card\(tasks.count == 1 ? "" : "s")
+        Columns: \(counts)  (archived: \(tasks.filter { $0.status == .archived }.count))
+        """
+    }
+
+    static func archive(_ args: [String: Any], store: any CardStore, board: String, env: [String: String]?) async throws -> String {
+        guard let id = taskIDArg(args, env: env) else {
+            return "Error: task_id is required for archive."
+        }
+        let task = try await store.archiveTask(id: id, board: board)
+        return "Task \(task.id) (\(task.title)) archived — moved off the board to the Completed tab."
     }
 
     // MARK: Spawn helpers

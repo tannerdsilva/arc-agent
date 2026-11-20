@@ -26,6 +26,9 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
     case kanbanDecomposer = "kanban_decomposer"
     case profileDescriber = "profile_describer"
     case curator
+    /// Board dispatcher: reads a kanban board and decides dispatch /
+    /// follow-up-card / archive actions through the kanban tool.
+    case boardDispatcher = "board_dispatcher"
 
     public var id: String { rawValue }
 
@@ -61,6 +64,7 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
         case .kanbanDecomposer: return "Kanban decomposer"
         case .profileDescriber: return "Profile describer"
         case .curator: return "Curator"
+        case .boardDispatcher: return "Board dispatcher"
         }
     }
 
@@ -83,6 +87,7 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
         case .kanbanDecomposer: return "Task decomposition"
         case .profileDescriber: return "Profile summaries"
         case .curator: return "Skill-usage review pass"
+        case .boardDispatcher: return "Kanban board dispatch, follow-ups and cleanup"
         }
     }
 }

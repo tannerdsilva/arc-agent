@@ -14,10 +14,10 @@ extension ArcCoreTestRoot {
                 "verification", "clarify",
                 "mcp", "title_generation", "memory_query_rewrite", "tts_audio_tags",
                 "skills_hub", "triage_specifier", "kanban_decomposer",
-                "profile_describer", "curator",
+                "profile_describer", "curator", "board_dispatcher",
             ]
             #expect(AuxiliaryTask.allCases.map(\.key) == expected)
-            #expect(AuxiliaryTask.allCases.count == 16)
+            #expect(AuxiliaryTask.allCases.count == 17)
             for task in AuxiliaryTask.allCases {
                 #expect(!task.displayName.isEmpty)
                 #expect(!task.detail.isEmpty)

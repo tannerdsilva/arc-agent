@@ -177,7 +177,7 @@ public actor TesseraConnection {
     /// Kanban-cards attachment metadata (TesseraCardStore).
     public static let cardAttachmentKind: UInt32 = 3_019
     /// One subscription per kind; the model receives all nineteen.
-    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares", "arc-stream", "arc-left", "arc-kb", "arc-kb-cards", "arc-kb-events", "arc-card-tasks", "arc-card-runs", "arc-card-comments", "arc-card-links", "arc-card-events", "arc-card-attachments", "arc-tombstones"]
+    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares", "arc-stream", "arc-left", "arc-kb", "arc-kb-cards", "arc-kb-events", "arc-card-tasks", "arc-card-runs", "arc-card-comments", "arc-card-links", "arc-card-events", "arc-card-attachments", "arc-card-boards", "arc-tombstones"]
 
     /// Kinds the client subscribes to, paired with `subscriptionIDs`.
     ///
@@ -194,7 +194,7 @@ public actor TesseraConnection {
             ("arc-kb", kanbanBoardKind), ("arc-kb-cards", kanbanCardKind), ("arc-kb-events", kanbanEventKind),
             ("arc-card-tasks", TesseraCardStore.taskKind), ("arc-card-runs", TesseraCardStore.runKind),
             ("arc-card-comments", TesseraCardStore.commentKind), ("arc-card-links", TesseraCardStore.linkKind),
-            ("arc-card-events", TesseraCardStore.eventKind), ("arc-card-attachments", TesseraCardStore.attachmentKind),
+            ("arc-card-events", TesseraCardStore.eventKind), ("arc-card-attachments", TesseraCardStore.attachmentKind), ("arc-card-boards", TesseraCardStore.boardKind),
         ]
         return data + [("arc-tombstones", deletionKind)]
     }()

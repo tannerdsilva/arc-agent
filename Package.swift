@@ -120,6 +120,7 @@ let package = Package(
                 // the signal type names in `HTTPServerService`'s initializer.
                 .product(name: "UnixSignals", package: "swift-service-lifecycle"),
                 .product(name: "tessera-client", package: "tessera"),
+                .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "HummingbirdRouter", package: "hummingbird"),
                 .product(name: "MCP", package: "swift-mcp"),

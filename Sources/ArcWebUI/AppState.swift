@@ -778,6 +778,13 @@ actor AppState {
     /// nil until the first streamer tick lands.
     var _cardSnapshot: [CardBoardSnapshot]?
 
+    /// Cards page per-board tab ("board" | "completed"); "board" default.
+    var cardTabs: [String: String] = [:]
+
+    func setCardTab(_ tab: String, for board: String) {
+        cardTabs[board] = tab
+    }
+
     /// The scheme and mode the document should carry on `<html>`.
     ///
     /// The engine writes those attributes on `documentElement` from storage, so a page whose

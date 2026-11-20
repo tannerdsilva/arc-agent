@@ -1,4 +1,5 @@
 import ArcAgentCore
+import AsyncHTTPClient
 import ArcWebUI
 import Foundation
 import Logging
@@ -405,6 +406,33 @@ public enum ArcDaemon {
                 board: kanbanBoard,
                 pollIntervalSeconds: UInt64(kanban.pollSeconds)
             ))
+        }
+
+        // ── Board dispatcher (kanban_cards.dispatcher) ────────────────
+        // The aux-model loop over KanbanCards boards: dispatch / follow-up
+        // / archive, all through the `kanban` tool. Needs the host (its
+        // runner + HTTP stack), so it registers with the surfaces above.
+        if let dispConfig = arc.kanbanCards?.dispatcher, dispConfig.enabled, let host = sessionHost {
+            let auxSet = arc.auxiliary
+            let mainConfig = ModelConfig(
+                defaultModel: arc.model.defaultModel,
+                provider: arc.model.provider,
+                baseURL: arc.model.baseURL ?? "https://api.openai.com/v1")
+            let mainKey = ProcessInfo.processInfo.environment["ARC_API_KEY"] ?? ""
+            let runner = host.kanbanCardRunner
+            // One HTTP stack for the dispatcher's whole lifetime — building
+            // a client per tick would churn NIO resources.
+            let makeClient: @Sendable (HTTPClient) async throws -> (any LLMClient)? = { http in
+                let router = AuxiliaryModelRouter(set: auxSet, main: mainConfig, mainAPIKey: mainKey)
+                return router.makeClient(task: .boardDispatcher, httpClient: http)
+            }
+            services.append(BoardDispatcherService(
+                config: dispConfig,
+                store: await CardStores.shared(),
+                makeClient: makeClient,
+                runner: runner,
+                logger: logger))
+            logger.info("board dispatcher enabled (interval \(dispConfig.intervalSeconds)s)")
         }
 
         var configuration = ServiceGroupConfiguration(

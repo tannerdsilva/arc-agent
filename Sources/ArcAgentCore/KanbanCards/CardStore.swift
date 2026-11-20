@@ -23,6 +23,7 @@ public enum CardStoreError: Error, Equatable {
     case parentNotFound(String)
     case phantomCreatedCard(String)
     case attachmentWriteFailed(String)
+    case invalidTransition(String)
 }
 
 /// Filters for `listTasks` — the reference `kanban_list` core set.
@@ -114,6 +115,25 @@ public protocol CardStore: Actor {
     /// Delete a board's entire dataset (tasks, runs, comments, links,
     /// events, attachments).
     func deleteBoard(board: String) async throws
+    // ── Board registry ─────────────────────────────────────────────────
+    // The reserved `default` board is always present and cannot be
+    // created or deleted; `deleteBoard(board:)` purges data AND removes
+    // the registry entry (except reserved ids).
+
+    /// Create (or update) a board. Idempotent by id.
+    func createBoard(_ board: CardBoard) async throws
+
+    /// All registered boards (including the reserved standalone pool).
+    func listBoards() async throws -> [CardBoard]
+
+    /// Remove the registry entry; the reserved standalone pool cannot be
+    /// removed. Data purge is `deleteBoard(board:)`.
+    func removeBoard(id: String) async throws
+
+    /// Archive a settled task (`done` or `blocked`/`triage` by operator
+    /// choice): the card leaves the board columns and renders under the
+    /// Completed tab. Re-archiving is idempotent.
+    func archiveTask(id: String, board: String) async throws -> CardTask
 }
 
 // MARK: - Shared helpers
@@ -464,6 +484,10 @@ public actor FileCardStore: CardStore {
             guard t.status == .todo else { continue }
             guard t.consecutiveFailures < CardRules.failureLimit else { continue }
             let parentIDs = linksByChild[t.id] ?? []
+            // Only dependency-gated cards auto-promote. A parentless card in
+            // Todo was *explicitly placed* there (board default placement) —
+            // the dispatcher decides when it moves, not the list path.
+            guard !parentIDs.isEmpty else { continue }
             let parentRows = parentIDs.compactMap { byID[$0] }
             guard parentRows.allSatisfy({ $0.status == .done || $0.status == .archived }) else { continue }
             tasks[i].status = .ready
@@ -533,15 +557,91 @@ public actor FileCardStore: CardStore {
     }
 
     public func deleteBoard(board: String) async throws {
-        if FileManager.default.fileExists(atPath: root.path) {
-            try FileManager.default.removeItem(at: root)
+        // Purge only this board's subtree — never the whole store root,
+        // which would take every other board (and the registry) with it.
+        let dir = root.appendingPathComponent(board)
+        if FileManager.default.fileExists(atPath: dir.path) {
+            try FileManager.default.removeItem(at: dir)
         }
+        try await removeBoardIfPresent(id: board)
+    }
+
+    // ── Board registry (boards.json at the store root) ─────────────────
+
+    private var boardsURL: URL { root.appendingPathComponent("boards.json") }
+
+    private func loadBoardRegistry() throws -> [CardBoard] {
+        guard let data = try? Data(contentsOf: boardsURL) else { return [] }
+        return (try? decoder.decode([CardBoard].self, from: data)) ?? []
+    }
+
+    private func writeBoardRegistry(_ boards: [CardBoard]) throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let data = try JSONEncoder.sortedDate.encode(boards)
+        try data.write(to: boardsURL, options: .atomic)
+    }
+
+    public func createBoard(_ board: CardBoard) async throws {
+        guard !CardBoard.isReserved(board.id) else {
+            throw CardStoreError.invalidTransition("'\(board.id)' is the reserved standalone pool and cannot be a registered board")
+        }
+        var boards = try loadBoardRegistry()
+        if let i = boards.firstIndex(where: { $0.id == board.id }) {
+            boards[i] = board
+        } else {
+            boards.append(board)
+        }
+        try writeBoardRegistry(boards)
+    }
+
+    public func listBoards() async throws -> [CardBoard] {
+        let reserved = CardBoard(id: CardBoard.standaloneID, name: "Unboarded")
+        var boards = try loadBoardRegistry().filter { $0.id != CardBoard.standaloneID }
+        // Boards with data but no registry row still surface (hand-seeded
+        // directories count).
+        if let names = try? FileManager.default.contentsOfDirectory(atPath: root.path) {
+            for name in names where name != "boards.json" && name != CardBoard.standaloneID {
+                if !boards.contains(where: { $0.id == name }) {
+                    boards.append(CardBoard(id: name, name: name))
+                }
+            }
+        }
+        return [reserved] + boards.sorted { $0.id < $1.id }
+    }
+
+    public func removeBoard(id: String) async throws {
+        guard !CardBoard.isReserved(id) else {
+            throw CardStoreError.invalidTransition("'\(id)' is the reserved standalone pool and cannot be removed")
+        }
+        try await removeBoardIfPresent(id: id)
+    }
+
+    private func removeBoardIfPresent(id: String) async throws {
+        var boards = try loadBoardRegistry()
+        boards.removeAll { $0.id == id }
+        try writeBoardRegistry(boards)
+    }
+
+    public func archiveTask(id: String, board: String) async throws -> CardTask {
+        var task = try await taskOrThrow(id: id, board: board)
+        guard task.status == .done || task.status == .archived else {
+            throw CardStoreError.invalidTransition("only settled (done) cards can be archived — \(task.id) is \(task.status.rawValue)")
+        }
+        task.status = .archived
+        if task.completedAt == nil { task.completedAt = Date() }
+        try await saveTask(task, board: board)
+        try await appendEvent(taskID: id, board: board, runID: nil, kind: "archived", payload: "removed from board columns")
+        return task
     }
 
     /// Board names discoverable on disk (for the web UI snapshot).
     public func knownBoards() -> [String] {
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("tasks").path) else { return [] }
-        return ["default"]
+        var names = Set<String>([CardBoard.standaloneID])
+        if let entries = try? FileManager.default.contentsOfDirectory(atPath: root.path) {
+            for name in entries where name != "boards.json" { names.insert(name) }
+        }
+        if let boards = try? loadBoardRegistry() { names.formUnion(boards.map(\.id)) }
+        return names.sorted()
     }
 }
 

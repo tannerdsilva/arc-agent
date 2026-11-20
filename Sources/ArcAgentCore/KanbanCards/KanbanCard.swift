@@ -35,6 +35,98 @@ public enum CardStatus: String, Sendable, Codable, CaseIterable {
     case archived
 }
 
+
+/// A kanban board — an organizational container for cards. Boards live in
+/// the store's registry (file: `boards.json`; tessera: kind 3020) and are
+/// created/inspected/deleted exclusively through the `kanban` tool.
+///
+/// The reserved id `default` is the *standalone pool*: cards created with
+/// no `board` argument live there and render under "Unboarded" in the UI.
+public struct CardBoard: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var name: String
+    public var description: String?
+    public var createdAt: Date
+
+    public init(id: String, name: String, description: String? = nil, createdAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.createdAt = createdAt
+    }
+
+    /// Convenience: slug the name into the id.
+    public init(name: String, description: String? = nil, createdAt: Date = Date()) {
+        self.init(id: CardBoard.slug(name), name: name, description: description, createdAt: createdAt)
+    }
+
+    /// The reserved standalone-pool board id.
+    public static let standaloneID = "default"
+    /// Reserved ids that cannot be created or deleted through the tool.
+    public static let reserved: Set<String> = [standaloneID]
+    /// True when the id cannot be registered/removed through the tool.
+    public static func isReserved(_ id: String) -> Bool { reserved.contains(id) }
+
+    /// Slugify a user-supplied board name into a stable id.
+    public static func slug(_ name: String) -> String {
+        let lowered = name.lowercased()
+        let filtered = lowered.map { ch in
+            ("a"..."z").contains(String(ch)) || ("0"..."9").contains(String(ch)) || ch == "-" || ch == "_" ? ch : "-"
+        }
+        let joined = String(filtered).split(separator: "-", omittingEmptySubsequences: true).joined(separator: "-")
+        return joined.isEmpty ? "board" : String(joined)
+    }
+}
+
+/// The hardcoded board columns. One lane; columns are fixed and map onto
+/// `CardStatus` — the board view is a lens over the card state machine.
+public enum CardColumn: String, Sendable, CaseIterable {
+    case todo
+    case ready
+    case running
+    case blocked
+    case finished
+
+    public static let laneCount = 1
+    public static let displayNames: [CardColumn: String] = [
+        .todo: "Todo", .ready: "Ready", .running: "Running",
+        .blocked: "Blocked", .finished: "Finished",
+    ]
+    public var displayName: String { Self.displayNames[self] ?? rawValue }
+
+    /// The status a card placed in this column carries.
+    public var status: CardStatus {
+        switch self {
+        case .todo: return .todo
+        case .ready: return .ready
+        case .running: return .running
+        case .blocked: return .blocked
+        case .finished: return .done
+        }
+    }
+
+    /// The column that renders a given status (`nil` — triage/archived —
+    /// means the status has no board column: triage renders under
+    /// Blocked-with-reason, archived under the Completed tab).
+    public init?(status: CardStatus) {
+        switch status {
+        case .todo: self = .todo
+        case .ready: self = .ready
+        case .running: self = .running
+        case .blocked, .triage: self = .blocked
+        case .done: self = .finished
+        case .archived: return nil
+        }
+    }
+
+    /// Parse a user/tool-supplied column name (case-insensitive, display
+    /// name or raw value).
+    public static func parse(_ raw: String) -> CardColumn? {
+        let lowered = raw.lowercased()
+        return allCases.first { $0.rawValue == lowered || $0.displayName.lowercased() == lowered }
+    }
+}
+
 /// Why a task is blocked. Matches the reference `VALID_BLOCK_KINDS`.
 public enum CardBlockKind: String, Sendable, Codable, CaseIterable {
     /// Waiting on a parent task — routes to `todo`, auto-resumes.

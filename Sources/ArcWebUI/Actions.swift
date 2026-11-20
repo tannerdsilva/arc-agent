@@ -2,6 +2,7 @@ import ArcAgentCore
 import ArcSidebarTabs
 import ArcTheme
 import Foundation
+import Logging
 import Synchronization
 import WebUI
 import WebUIDesignSystem
@@ -3803,6 +3804,22 @@ extension Controller {
         guard !name.isEmpty else { return .fragments([]) }
         await self.app.kbSetPopover(nil)
         await self.app.kbCreateBoard(named: name)
+        return await self.changed()
+    }
+
+    @Wired("cards-tab", events: [.click])
+    func handleCardsTab(_ event: EventData) async -> HandlerOutcome {
+        // Element ids are cards-tab-<board>-<tab>; board ids are slugified
+        // (enc) so the suffix after the final "-" is the tab name.
+        let tid = event.string("targetId") ?? ""
+        guard tid.hasPrefix("cards-tab-") else { return .fragments([]) }
+        let rest = tid.dropFirst("cards-tab-".count)
+        guard let sep = rest.lastIndex(of: "-") else { return .fragments([]) }
+        // The board segment is base64url (enc) — decode it back to the id.
+        guard let board = dec(String(rest[..<sep])) else { return .fragments([]) }
+        let tab = String(rest[rest.index(after: sep)...])
+        guard tab == "board" || tab == "completed" else { return .fragments([]) }
+        await self.app.setCardTab(tab, for: board)
         return await self.changed()
     }
 

@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 
 // ==========================================================================
 // TesseraCardStore — the canonical KanbanCards backend.
@@ -30,6 +31,7 @@ public actor TesseraCardStore: CardStore {
     public static let linkKind: UInt32 = 3_017
     public static let eventKind: UInt32 = 3_018
     public static let attachmentKind: UInt32 = 3_019
+    public static let boardKind: UInt32 = 3_020
 
     /// Blobs live under the arc home so workers can read them by absolute
     /// path (reference `task_attachments.stored_path`).
@@ -39,8 +41,11 @@ public actor TesseraCardStore: CardStore {
 
     private let connection: TesseraConnection
     private let arcHome: URL
-    private var loaded = false
-    private var lastSync = Date.distantPast
+    // Per-board freshness: a single global `loaded` flag made the second
+    // board on any shared instance read a nil per-board cache (the
+    // ensureLoaded early-return fired for a board that had never loaded).
+    private var loadedBoards: Set<String> = []
+    private var lastSyncByBoard: [String: Date] = [:]
 
     // In-memory caches keyed by board.
     private var tasks: [String: [String: CardTask]] = [:]
@@ -78,7 +83,8 @@ public actor TesseraCardStore: CardStore {
     }
 
     private func ensureLoaded(board: String) async throws {
-        if loaded, Date().timeIntervalSince(lastSync) < 2 { return }
+        if loadedBoards.contains(board), let last = lastSyncByBoard[board],
+           Date().timeIntervalSince(last) < 2 { return }
         try await connection.ensureStarted()
         let head = "arc/cards/\(board)/"
         tasks[board] = Self.latest(CardTask.self, from: await connection.snapshot(kind: Self.taskKind), prefix: "task", board: board)
@@ -108,8 +114,8 @@ public actor TesseraCardStore: CardStore {
         }
         events[board] = eventRows.sorted { $0.createdAt < $1.createdAt }
 
-        lastSync = Date()
-        loaded = true
+        lastSyncByBoard[board] = Date()
+        loadedBoards.insert(board)
     }
 
     /// Publish one record and await the relay echo. Correctness-critical,
@@ -467,12 +473,85 @@ public actor TesseraCardStore: CardStore {
         try await connection.deleteAll(dTagPrefix: "\(dTagHead(board))/link/", kind: Self.linkKind)
         try await connection.deleteAll(dTagPrefix: "\(dTagHead(board))/event/", kind: Self.eventKind)
         try await connection.deleteAll(dTagPrefix: "\(dTagHead(board))/attachment/", kind: Self.attachmentKind)
+        if !CardBoard.reserved.contains(board) {
+            try await connection.deleteAll(dTagPrefix: "arc/boards/\(board)/", kind: Self.boardKind)
+            boardRows = nil
+        }
         tasks[board] = nil
         runs[board] = nil
         comments[board] = nil
         links[board] = nil
         events[board] = nil
         attachments[board] = nil
+    }
+
+    // MARK: Board registry (kind 3020, d-tag arc/boards/<id>/<seq>)
+
+    /// Folded board rows; the registry is global (not per-board), so it
+    /// gets its own 2-second cache slot.
+    private var boardRows: [CardBoard]?
+    private var boardsSync = Date.distantPast
+
+    private func ensureBoardsLoaded() async throws {
+        if boardRows != nil, Date().timeIntervalSince(boardsSync) < 2 { return }
+        var rows: [CardBoard] = []
+        var seen: Set<String> = []
+        for record in await connection.snapshot(kind: Self.boardKind) {
+            guard let dTag = record.dTag, dTag.hasPrefix("arc/boards/") else { continue }
+            let parts = dTag.split(separator: "/").map(String.init)
+            // arc/boards/<id>/<seq> — highest seq per id wins.
+            guard parts.count == 4, let seq = Int(parts[3]) else { continue }
+            let id = parts[2]
+            if let best = seen.first(where: { $0 == id }), best == id { continue }
+            guard let data = record.content.data(using: .utf8),
+                  let board = try? JSONDecoder.isoDate.decode(CardBoard.self, from: data)
+            else { continue }
+            if let idx = rows.firstIndex(where: { $0.id == id }) {
+                // Records arrive newest-last per snapshot ordering; keep the
+                // row whose d-tag seq is highest.
+                rows[idx] = board
+            } else {
+                rows.append(board)
+            }
+            seen.insert(id)
+        }
+        boardRows = rows
+        boardsSync = Date()
+    }
+
+    public func createBoard(_ board: CardBoard) async throws {
+        try await connection.ensureStarted()
+        let payload = try JSONEncoder.isoDate.encode(board)
+        try await publish(kind: Self.boardKind, dTag: "arc/boards/\(board.id)/1", payload: payload)
+        if var rows = boardRows {
+            if let i = rows.firstIndex(where: { $0.id == board.id }) { rows[i] = board } else { rows.append(board) }
+            boardRows = rows
+        }
+    }
+
+    public func listBoards() async throws -> [CardBoard] {
+        try await ensureBoardsLoaded()
+        let reserved = CardBoard(id: CardBoard.standaloneID, name: "Unboarded")
+        var rows = (boardRows ?? []).filter { $0.id != CardBoard.standaloneID }
+        rows.sort { $0.id < $1.id }
+        return [reserved] + rows
+    }
+
+    public func removeBoard(id: String) async throws {
+        guard !CardBoard.reserved.contains(id) else { return }
+        try await connection.ensureStarted()
+        try await connection.deleteAll(dTagPrefix: "arc/boards/\(id)/", kind: Self.boardKind)
+        boardRows?.removeAll { $0.id == id }
+    }
+
+    public func archiveTask(id: String, board: String) async throws -> CardTask {
+        try await ensureLoaded(board: board)
+        var task = try await taskOrThrow(id: id, board: board)
+        task.status = .archived
+        if task.completedAt == nil { task.completedAt = Date() }
+        try await saveTask(task, board: board)
+        try await appendEvent(taskID: id, board: board, runID: nil, kind: "archived", payload: "removed from board columns")
+        return task
     }
 }
 

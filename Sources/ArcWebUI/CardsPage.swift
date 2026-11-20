@@ -1,6 +1,7 @@
 import ArcAgentCore
 import ArcTheme
 import Foundation
+import Logging
 import WebUI
 import WebUIDesignSystem
 
@@ -70,6 +71,12 @@ extension AppState {
         var boards = Set<String>(["default"])
         if let fileStore = store as? FileCardStore {
             boards.formUnion(await fileStore.knownBoards())
+        } else {
+            // Tessera backend: the registry + any board with data on disk
+            // (listBoards already folds both).
+            if let registry = try? await store.listBoards() {
+                boards.formUnion(registry.map(\.id))
+            }
         }
         var snapshot: [CardBoardSnapshot] = []
         for board in boards.sorted() {
@@ -122,6 +129,9 @@ extension AppState {
 
 extension AppState {
 
+    /// Tab selection for a board ("board" default).
+    func cardTab(_ board: String) -> String { cardTabs[board] ?? "board" }
+
     /// Collapsed rail panel: counts only.
     func cardsPanel() -> some WebUI.View {
         Group {
@@ -138,19 +148,21 @@ extension AppState {
         }
     }
 
-    /// Main pane — one detail card per task, boards grouped under headers.
+    /// Main pane — one section per board: the fixed 5-column board view
+    /// (one lane) plus a Completed tab for archived cards. Read-only: every
+    /// mutation runs through the `kanban` tool; this page only reflects it.
     func cardsMain() -> some WebUI.View {
         MainView {
             MainScroll {
                 Element(.h2, class: .todoTitle) { Text("Cards") }
                 Element(.p, class: .todoSub) {
-                    Text("Read-only view — every kanban mutation runs through the `kanban` tool. Refreshes automatically.")
+                    Text("Read-only view — every kanban mutation runs through the `kanban` tool. Boards have one lane and fixed columns: Todo, Ready, Running, Blocked, Finished. Refreshes automatically.")
                 }
                 if let snapshot = _cardSnapshot, !snapshot.isEmpty {
-                    ForEach1(snapshot) { board in cardsBoard(board) }
+                    ForEach1(snapshot) { board in cardsBoardSection(board) }
                 } else {
                     Element(.p, class: .todoSub) {
-                        Text("No cards yet. Ask the agent to create one — e.g. “create a kanban card titled Ship the thing, priority 2, assignee worker”.")
+                        Text("No cards yet. Ask the agent to create one — e.g. “create a kanban card on board projects titled Ship the thing”.")
                     }
                 }
             }
@@ -163,13 +175,70 @@ extension AppState {
         Group { items.map { body($0) } }
     }
 
-    private func cardsBoard(_ board: CardBoardSnapshot) -> any WebUI.View {
-        Div(class: .taskGroup) {
+    private func cardsBoardSection(_ board: CardBoardSnapshot) -> any WebUI.View {
+        let bid = enc(board.board)
+        let tab = cardTab(board.board)
+        // Wire the CONTAINER, not the buttons: the engine's clickTargetData
+        // stops at the wired element itself, so targetId is only reported for
+        // controls *inside* a wired wrapper (the clarify-choice pattern).
+        let tabs: [any WebUI.View] = [
+            ArcButton(id: "cards-tab-\(bid)-board", component: nil,
+                      class: tab == "board" ? ClassName(.chip, .taskRunning) : .chip) { Text("Board") },
+            ArcButton(id: "cards-tab-\(bid)-completed", component: nil,
+                      class: tab == "completed" ? ClassName(.chip, .taskRunning) : .chip) { Text("Completed") },
+        ]
+        let archived = board.tasks.filter { $0.status == "archived" }
+        return Div(class: .taskGroup) {
             Div(class: .taskGroupHead) {
-                Text("Board: \(board.board) — \(board.tasks.count) task\(board.tasks.count == 1 ? "" : "s")")
+                Text("\(board.board == CardBoard.standaloneID ? "Unboarded" : board.board) — \(board.tasks.filter { $0.status != "archived" }.count) on board · \(archived.count) completed")
+                Div { ErasedViews(tabs) }.wire("cards-tab")
             }
-            let rows: [(String, CardBoardSnapshot.TaskRow)] = board.tasks.map { ($0.id, $0) }
-            Group { rows.map { cardRow($0.1) } }
+            if tab == "completed" {
+                if archived.isEmpty {
+                    Element(.p, class: .todoSub) { Text("No completed cards yet — the dispatcher archives settled cards here.") }
+                } else {
+                    ErasedViews(archived.map { cardRow($0) })
+                }
+            } else {
+                ErasedViews([cardsLane(board)])
+            }
+        }
+    }
+
+    /// The fixed board: one lane, five hardcoded columns.
+    private func cardsLane(_ board: CardBoardSnapshot) -> any WebUI.View {
+        let columns: [any WebUI.View] = CardColumn.allCases.map { column in
+            let inColumn = board.tasks.filter { task in
+                guard let status = CardStatus(rawValue: task.status) else { return false }
+                return CardColumn(status: status) == column
+            }
+            let chips: [any WebUI.View] = inColumn.map { task in
+                ArcButton(id: "cards-chip-\(enc(task.id))", component: nil, class:
+                    task.status == "running" ? ClassName(.kbCard, .taskRunning) : .kbCard) {
+                    LrName { Text(task.title) }
+                    LrSub { Text("p\(task.priority)\(task.assignee.map { " · \($0)" } ?? "")\(task.currentRun != nil ? " · run live" : "")") }
+                }
+                .attribute("style", "text-align:left")
+            }
+            return Div(class: .kbCol) {
+                Div(class: .kbColHead) {
+                    Span(class: .kbColName) { Text(column.displayName) }
+                    Span(class: .kbColCount) { Text("\(inColumn.count)") }
+                }
+                if chips.isEmpty {
+                    Span(class: .chatMeta) { Text("—") }
+                } else {
+                    ErasedViews(chips)
+                }
+            }
+        }
+        return Div(class: .kbLanesSingle) {
+            Div(class: .kbLane) {
+                Div(class: .kbLaneHead) {
+                    Span(class: .kbLaneName) { Text("Lane 1") }
+                }
+                Div(class: .kbLaneCols) { ErasedViews(columns) }
+            }
         }
     }
 
@@ -178,7 +247,7 @@ extension AppState {
         let st: String
         switch status {
         case "running": st = "running"
-        case "done": st = "completed"
+        case "done", "archived": st = "completed"
         case "blocked", "triage": st = "failed"
         default: st = ""
         }
@@ -197,16 +266,10 @@ extension AppState {
         let assignee: [any WebUI.View] = task.assignee.map { a in [Span(class: .chatMeta) { Text("→ \(a)") }] } ?? []
         let tenant: [any WebUI.View] = task.tenant.map { t in [Span(class: .chatMeta) { Text("(tenant \(t))") }] } ?? []
         var metaParts: [String] = ["id \(task.id.prefix(8))", "workspace \(task.workspace)"]
-        if task.currentRun != nil { metaParts.append("run live") }
-        if let hb = task.lastHeartbeat { metaParts.append("heartbeat \(hb)") }
+        if let completed = task.completed { metaParts.append("completed \(completed)") }
         let meta: [any WebUI.View] = [metaLine([metaParts.joined(separator: " · ")])]
         let skills: [any WebUI.View] = task.skills.isEmpty ? [] : [metaLine(["skills: \(task.skills.joined(separator: ", "))"])]
-        let blockLine: [any WebUI.View] = task.blockKind.map { [metaLine(["block: \($0)\(task.blockRecurrences > 0 ? " ×\(task.blockRecurrences)" : "")"])] } ?? []
         let failLine: [any WebUI.View] = task.lastFailureError.map { [metaLine(["failures \(task.consecutiveFailures): \($0)"])] } ?? []
-        let depLine: [any WebUI.View] = (task.parents.isEmpty && task.children.isEmpty) ? [] : [metaLine([
-            "deps ← " + task.parents.map { String($0.prefix(8)) }.joined(separator: ", "),
-            "gates → " + task.children.map { String($0.prefix(8)) }.joined(separator: ", "),
-        ])]
         let runRows: [any WebUI.View] = task.runs.map { run in
             Div(class: .taskHistRow) {
                 Span(class: .taskHistTime) { Text("#\(run.attempt) \(run.id)") }
@@ -217,28 +280,28 @@ extension AppState {
         }
         let runsBlock: [any WebUI.View] = task.runs.isEmpty ? [] : [Div(class: .taskHistCard) {
             Div(class: .taskCtrlKey) { Text("Runs") }
-            runRows
+            ErasedViews(runRows)
         }]
         let commentRows: [any WebUI.View] = task.comments.map { c in
             Div(class: .chatMeta) { Text("\(c.author): \(c.body)") }
         }
         let commentBlock: [any WebUI.View] = task.comments.isEmpty ? [] : [Div(class: .taskCtrlCard) {
             Div(class: .taskCtrlKey) { Text("Comments") }
-            commentRows
+            ErasedViews(commentRows)
         }]
         let attRows: [any WebUI.View] = task.attachments.map { a in
             Div(class: .chatMeta) { Text(a) }
         }
         let attBlock: [any WebUI.View] = task.attachments.isEmpty ? [] : [Div(class: .taskCtrlCard) {
             Div(class: .taskCtrlKey) { Text("Attachments") }
-            attRows
+            ErasedViews(attRows)
         }]
         let eventRows: [any WebUI.View] = task.events.map { e in
             Div(class: .chatMeta) { Text(e) }
         }
         let eventBlock: [any WebUI.View] = task.events.isEmpty ? [] : [Div(class: .taskCtrlCard) {
             Div(class: .taskCtrlKey) { Text("Events") }
-            eventRows
+            ErasedViews(eventRows)
         }]
         return Div(class: .taskCtrlCard) {
             Div(class: .taskCtrlHead) {
@@ -251,9 +314,7 @@ extension AppState {
             }
             skills
             meta
-            blockLine
             failLine
-            depLine
             runsBlock
             commentBlock
             attBlock
