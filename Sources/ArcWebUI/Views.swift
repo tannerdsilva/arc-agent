@@ -3020,6 +3020,53 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
         composerPopover = nil
         let openSerial = composerPopoverSerial
         let selOpen = openPopover != nil && openPopover != .file
+        // the toolbar is the composer's widest typed pack: two buttons, four
+        // dropdowns, the spacer, the context meter and the send control. a
+        // typed pack stores each child's whole type in the parent value, so
+        // release construction cost is quadratic in the subtree depth; box
+        // the children here and the parent stores pointers. the emitted bytes
+        // are unchanged.
+        var toolbar: [any WebUI.View] = [
+            ArcButton(id: "cb-file", component: "cb-file",
+                      class: ClassName("tool-btn" + (openPopover == .file ? " on" : ""))) {
+                WebUIIcon(.paperclip, size: .medium)
+            }
+            .data("tip", "Attach a file")
+            .aria(.label("Attach a file")),
+            // the star is the same glyph whether or not the chat is
+            // bookmarked — `.on` is what shows state (legacy parity).
+            ArcButton(id: "cb-bookmark", component: "cb-bookmark",
+                      class: ClassName("tool-btn" + (isBooked ? " on" : ""))) {
+                WebUIIcon(.star, size: .small)
+            }
+            .data("tip", "Bookmark this chat")
+            .aria(.label("Bookmark this chat")),
+            composerSelectorsHTML(open: openPopover, serial: openSerial),
+            Span(class: .spacer) {},
+        ]
+        if let s = activeSession() {
+            // stable id: the pusher re-renders just this node on each
+            // per-iteration usage report (see liveFragments()).
+            toolbar.append(Div { ctxIndicatorHTML(s) }.id("ctx-meter"))
+        }
+        if running {
+            // While a turn runs, the send control becomes a red stop button.
+            toolbar.append(
+                ArcButton(id: "cb-send", component: "stop-turn", class: ClassName(.sendBtn, .stop)) {
+                    WebUIIcon(.square, size: .medium)
+                }
+                .title("Stop")
+                .aria(.label("Stop"))
+            )
+        } else {
+            toolbar.append(
+                ArcButton(id: "cb-send", component: "cb-send", class: .sendBtn, type: .submit) {
+                    WebUIIcon(.arrowUp, size: .medium)
+                }
+                .title("Send")
+                .aria(.label("Send"))
+            )
+        }
         return Div(class: .composerWrap) {
             Div { composerFlyoutHTML() }
                 .id("composer-flyout")
@@ -3069,42 +3116,7 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                 // open latch, the token query, the row filter and the insert.
                 slashPanel()
                 Div(class: .composerToolbar) {
-                    ArcButton(id: "cb-file", component: "cb-file",
-                              class: ClassName("tool-btn" + (openPopover == .file ? " on" : ""))) {
-                        WebUIIcon(.paperclip, size: .medium)
-                    }
-                    .data("tip", "Attach a file")
-                    .aria(.label("Attach a file"))
-                    // the star is the same glyph whether or not the chat is
-                    // bookmarked — `.on` is what shows state (legacy parity).
-                    ArcButton(id: "cb-bookmark", component: "cb-bookmark",
-                              class: ClassName("tool-btn" + (isBooked ? " on" : ""))) {
-                        WebUIIcon(.star, size: .small)
-                    }
-                    .data("tip", "Bookmark this chat")
-                    .aria(.label("Bookmark this chat"))
-                    composerSelectorsHTML(open: openPopover, serial: openSerial)
-                    Span(class: .spacer) {}
-                if let s = activeSession() {
-                    // stable id: the pusher re-renders just this node on each
-                    // per-iteration usage report (see liveFragments()).
-                    Div { ctxIndicatorHTML(s) }
-                        .id("ctx-meter")
-                }
-                    if running {
-                        // While a turn runs, the send control becomes a red stop button.
-                        ArcButton(id: "cb-send", component: "stop-turn", class: ClassName(.sendBtn, .stop)) {
-                            WebUIIcon(.square, size: .medium)
-                        }
-                        .title("Stop")
-                        .aria(.label("Stop"))
-                    } else {
-                        ArcButton(id: "cb-send", component: "cb-send", class: .sendBtn, type: .submit) {
-                            WebUIIcon(.arrowUp, size: .medium)
-                        }
-                        .title("Send")
-                        .aria(.label("Send"))
-                    }
+                    ErasedViews(toolbar)
                 }
             }
             .data("component-id", "composer-form")
@@ -3188,19 +3200,28 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
         let config = configName(for: activeSessionID)
         let model = settings.modelConfig(named: config)?.model ?? config
         let think = thinkingLevel(for: activeSessionID)
+        // the four dropdowns are the composer's deepest typed subtree. a
+        // typed pack nests every child's whole type into the parent's value,
+        // and release-specialized construction then costs stack quadratic in
+        // the depth (measured: ~347 KB at 40 levels, over the 512 KB a
+        // cooperative task gets at 50). `ErasedViews` boxes each dropdown at
+        // this boundary, so the parent stores pointers instead of the whole
+        // subtree; the emitted bytes are unchanged.
         return Group {
-            wsDropdown(ddTrigger(id: "cb-ws-toggle", icon: .folder,
-                                 label: ws.isEmpty ? "Workspace" : ws, title: "Workspace"),
-                       open: open == .workspace ? serial : nil)
-            ppDropdown(ddTrigger(id: "cb-profile-toggle", icon: .user,
-                                 label: profile.isEmpty ? "Default" : profile, title: "Profile"),
-                       open: open == .profile ? serial : nil)
-            mdDropdown(ddTrigger(id: "cb-model-toggle", icon: .box,
-                                 label: model.isEmpty ? "Model" : model, title: "Model"),
-                       open: open == .model ? serial : nil)
-            thDropdown(ddTrigger(id: "cb-think-toggle", icon: .circleGauge,
-                                 label: think.isEmpty ? "Off" : think.capitalized, title: "Thinking"),
-                       open: open == .thinking ? serial : nil)
+            ErasedViews([
+                wsDropdown(ddTrigger(id: "cb-ws-toggle", icon: .folder,
+                                     label: ws.isEmpty ? "Workspace" : ws, title: "Workspace"),
+                           open: open == .workspace ? serial : nil) as any WebUI.View,
+                ppDropdown(ddTrigger(id: "cb-profile-toggle", icon: .user,
+                                     label: profile.isEmpty ? "Default" : profile, title: "Profile"),
+                           open: open == .profile ? serial : nil) as any WebUI.View,
+                mdDropdown(ddTrigger(id: "cb-model-toggle", icon: .box,
+                                     label: model.isEmpty ? "Model" : model, title: "Model"),
+                           open: open == .model ? serial : nil) as any WebUI.View,
+                thDropdown(ddTrigger(id: "cb-think-toggle", icon: .circleGauge,
+                                     label: think.isEmpty ? "Off" : think.capitalized, title: "Thinking"),
+                           open: open == .thinking ? serial : nil) as any WebUI.View,
+            ])
         }
     }
 
@@ -4327,43 +4348,60 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                     Text("\(index + 1). \(rule.action.displayName)  \(rule.match)")
                     Small(rule.toolset.map { "toolset: \($0)" } ?? "any toolset")
                 }
-                Div(class: ClassName(.rowActions, .rowActionsInline)) {
-                    ArcButton(id: "tp-up-\(index)", class: .iconMini, type: .button,
-                              disabled: index == 0,
-                              extraAttributes: " aria-label=\"Move rule \(index + 1) up\"" + (index == 0 ? "" : controlAttributes(id: "tp-up-\(index)", event: .click, outcome: { _ in
-                                  await self.moveToolPolicyRuleUp(index)
-                                  return .refresh
-                              }))) {
-                        WebUIIcon(.arrowUp, size: .small)
+                if toolPolicyRemovalArm == ToolPolicyRemovalArm(index: index, rule: rule) {
+                    Div(class: ClassName(.rowActions, .rowActionsInline)) {
+                        Text("Remove rule \(index + 1)?")
+                        ArcButton("Keep", id: "tp-keep-\(index)", class: .ghostBtn, type: .button,
+                                  extraAttributes: controlAttributes(id: "tp-keep-\(index)", event: .click, outcome: { _ in
+                                      await self.disarmToolPolicyRuleRemoval()
+                                      return .refresh
+                                  }))
+                        ArcButton("Remove", id: "tp-del-confirm-\(index)", class: ClassName(.dangerBtn, .btnSm), type: .button,
+                                  extraAttributes: controlAttributes(id: "tp-del-confirm-\(index)", event: .click, outcome: { _ in
+                                      if await self.removeToolPolicyRule(at: index) {
+                                          _ = await self.hint("Rule \(index + 1) removed.")
+                                      }
+                                      return .refresh
+                                  }))
                     }
-                    .title(index == 0
-                           ? "Already first — every later rule overrides it"
-                           : "Move up: earlier means weaker, because the last match wins")
-                    ArcButton(id: "tp-down-\(index)", class: .iconMini, type: .button,
-                              disabled: index == count - 1,
-                              extraAttributes: " aria-label=\"Move rule \(index + 1) down\"" + (index == count - 1 ? "" : controlAttributes(id: "tp-down-\(index)", event: .click, outcome: { _ in
-                                  await self.moveToolPolicyRuleDown(index)
-                                  return .refresh
-                              }))) {
-                        WebUIIcon(.arrowDown, size: .small)
+                } else {
+                    Div(class: ClassName(.rowActions, .rowActionsInline)) {
+                        ArcButton(id: "tp-up-\(index)", class: .iconMini, type: .button,
+                                  disabled: index == 0,
+                                  extraAttributes: " aria-label=\"Move rule \(index + 1) up\"" + (index == 0 ? "" : controlAttributes(id: "tp-up-\(index)", event: .click, outcome: { _ in
+                                      await self.moveToolPolicyRuleUp(index)
+                                      return .refresh
+                                  }))) {
+                            WebUIIcon(.arrowUp, size: .small)
+                        }
+                        .title(index == 0
+                               ? "Already first — every later rule overrides it"
+                               : "Move up: earlier means weaker, because the last match wins")
+                        ArcButton(id: "tp-down-\(index)", class: .iconMini, type: .button,
+                                  disabled: index == count - 1,
+                                  extraAttributes: " aria-label=\"Move rule \(index + 1) down\"" + (index == count - 1 ? "" : controlAttributes(id: "tp-down-\(index)", event: .click, outcome: { _ in
+                                      await self.moveToolPolicyRuleDown(index)
+                                      return .refresh
+                                  }))) {
+                            WebUIIcon(.arrowDown, size: .small)
+                        }
+                        .title(index == count - 1
+                               ? "Already last — it has the final say"
+                               : "Move down: later means stronger, because the last match wins")
+                        ArcButton("Edit", id: "tp-edit-\(index)", class: "btn", type: .button,
+                                  extraAttributes: controlAttributes(id: "tp-edit-\(index)", event: .click, outcome: { _ in
+                                      await self.openToolPolicyEditor(.editing(index))
+                                      return .refresh
+                                  }))
+                        ArcButton(id: "tp-del-\(index)", class: ClassName(.iconMini, .danger), type: .button,
+                                  extraAttributes: " aria-label=\"Remove rule \(index + 1)\"" + controlAttributes(id: "tp-del-\(index)", event: .click, outcome: { _ in
+                                      await self.armToolPolicyRuleRemoval(at: index)
+                                      return .refresh
+                                  })) {
+                            WebUIIcon(.x, size: .small)
+                        }
+                        .title("Remove rule")
                     }
-                    .title(index == count - 1
-                           ? "Already last — it has the final say"
-                           : "Move down: later means stronger, because the last match wins")
-                    ArcButton("Edit", id: "tp-edit-\(index)", class: "btn", type: .button,
-                              extraAttributes: controlAttributes(id: "tp-edit-\(index)", event: .click, outcome: { _ in
-                                  await self.openToolPolicyEditor(.editing(index))
-                                  return .refresh
-                              }))
-                    ArcButton(id: "tp-del-\(index)", class: ClassName(.iconMini, .danger), type: .button,
-                              extraAttributes: " aria-label=\"Remove rule \(index + 1)\"" + controlAttributes(id: "tp-del-\(index)", event: .click, outcome: { _ in
-                                  await self.removeToolPolicyRule(at: index)
-                                  _ = await self.hint("Rule \(index + 1) removed.")
-                                  return .refresh
-                              })) {
-                        WebUIIcon(.x, size: .small)
-                    }
-                    .title("Remove rule")
                 }
             }
             if let reason = rule.reason {

@@ -283,11 +283,191 @@ extension ArcWebUITestRoot {
                     "an edit keeps the rule's position, because the position is its precedence")
             #expect(await app.toolPolicyEditor == nil)
 
-            // removing the first rule leaves the remaining two in order.
+            // removing the first rule asks first: the click arms the row and
+            // writes nothing.
             _ = await router.dispatch(EventData(component: ComponentID("tp-del-0"), event: .click))
+            onDisk = try ConfigurationStore.readDeclared(url)
+            #expect(onDisk.security.toolPolicy.rules == [Self.threeRules[0], edited, Self.threeRules[2]],
+                    "the first click only arms the removal")
+            #expect(await app.toolPolicyRemovalArm
+                    == AppState.ToolPolicyRemovalArm(index: 0, rule: Self.threeRules[0]))
+
+            // the refresh after the arm is what registers the prompt's controls.
+            _ = await render(app, router: router)
+            // the prompt's Remove answers the question: the row goes and the
+            // remaining two keep their order.
+            _ = await router.dispatch(EventData(component: ComponentID("tp-del-confirm-0"), event: .click))
             onDisk = try ConfigurationStore.readDeclared(url)
             #expect(onDisk.security.toolPolicy.rules == [edited, Self.threeRules[2]],
                     "a removal shifts the rest up without re-ordering them")
+        }
+
+        @Test("removal is refused until the row is armed")
+        func removalRefusedWithoutArm() async throws {
+            let (url, store) = try scratchConfig()
+            _ = try await store.mutate {
+                $0.security.toolPolicy = ToolPolicyConfig(enabled: true, rules: Self.threeRules)
+            }
+            var fixture = AppState.RenderFixture()
+            fixture.arcConfig = try ConfigurationStore.readDeclared(url)
+            let app = AppState(renderFixture: fixture, configurationStore: store)
+
+            let removed = await app.removeToolPolicyRule(at: 0)
+
+            #expect(removed == false, "a removal with no armed confirmation is refused")
+            let onDisk = try ConfigurationStore.readDeclared(url)
+            #expect(onDisk.security.toolPolicy.rules.count == 3,
+                    "a removal with no armed confirmation must write nothing")
+        }
+
+        @Test("an armed removal asks, and Keep cancels it")
+        func armedRemovalRequiresConfirmation() async throws {
+            let (url, store) = try scratchConfig()
+            _ = try await store.mutate {
+                $0.security.toolPolicy = ToolPolicyConfig(enabled: true, rules: Self.threeRules)
+            }
+            var fixture = AppState.RenderFixture()
+            fixture.arcConfig = try ConfigurationStore.readDeclared(url)
+            let app = AppState(renderFixture: fixture, configurationStore: store)
+            let router = EventRouter()
+            _ = await render(app, router: router)
+
+            let outcome = await router.dispatch(
+                EventData(component: ComponentID("tp-del-1"), event: .click))
+            #expect(outcome.isRefresh, "arming is one structural re-render")
+            var onDisk = try ConfigurationStore.readDeclared(url)
+            #expect(onDisk.security.toolPolicy.rules == Self.threeRules,
+                    "the first click asks; it must not write the list")
+            #expect(await app.toolPolicyRemovalArm
+                    == AppState.ToolPolicyRemovalArm(index: 1, rule: Self.threeRules[1]),
+                    "the arm names the rule the operator was looking at")
+
+            let armedHTML = await render(app, router: router)
+            #expect(armedHTML.contains("Remove rule 2?"),
+                    "the row asks the question the second click answers")
+            #expect(Self.count(of: "data-component-id=\"tp-keep-1\"", in: armedHTML) == 1)
+            #expect(Self.count(of: "data-component-id=\"tp-del-confirm-1\"", in: armedHTML) == 1)
+            #expect(Self.count(of: "data-component-id=\"tp-del-1\"", in: armedHTML) == 0,
+                    "the armed row carries the prompt instead of the move/edit/remove controls")
+
+            // Keep answers the question with no: nothing is written.
+            _ = await router.dispatch(EventData(component: ComponentID("tp-keep-1"), event: .click))
+            #expect(await app.toolPolicyRemovalArm == nil, "Keep cancels the pending removal")
+            onDisk = try ConfigurationStore.readDeclared(url)
+            #expect(onDisk.security.toolPolicy.rules == Self.threeRules, "Keep writes nothing")
+
+            // arm again and answer Remove: only now does the row go.
+            _ = await router.dispatch(EventData(component: ComponentID("tp-del-1"), event: .click))
+            #expect(await app.toolPolicyRemovalArm
+                    == AppState.ToolPolicyRemovalArm(index: 1, rule: Self.threeRules[1]))
+            _ = await router.dispatch(EventData(component: ComponentID("tp-del-confirm-1"), event: .click))
+            onDisk = try ConfigurationStore.readDeclared(url)
+            #expect(onDisk.security.toolPolicy.rules == [Self.threeRules[0], Self.threeRules[2]],
+                    "Remove deletes the armed rule and the rest keep their order")
+            #expect(await app.toolPolicyRemovalArm == nil, "a confirmed removal clears the arm")
+        }
+
+        @Test("reordering invalidates an arm")
+        func armInvalidatedByReorder() async throws {
+            let (url, store) = try scratchConfig()
+            _ = try await store.mutate {
+                $0.security.toolPolicy = ToolPolicyConfig(enabled: true, rules: Self.threeRules)
+            }
+            var fixture = AppState.RenderFixture()
+            fixture.arcConfig = try ConfigurationStore.readDeclared(url)
+            let app = AppState(renderFixture: fixture, configurationStore: store)
+            let router = EventRouter()
+            _ = await render(app, router: router)
+
+            _ = await router.dispatch(EventData(component: ComponentID("tp-del-0"), event: .click))
+            #expect(await app.toolPolicyRemovalArm
+                    == AppState.ToolPolicyRemovalArm(index: 0, rule: Self.threeRules[0]))
+
+            _ = await router.dispatch(EventData(component: ComponentID("tp-down-0"), event: .click))
+            #expect(await app.toolPolicyRemovalArm == nil,
+                    "a reorder invalidates the arm: position 0 now names another rule")
+            #expect(await app.removeToolPolicyRule(at: 0) == false,
+                    "with no arm there is no removal to confirm")
+            let onDisk = try ConfigurationStore.readDeclared(url)
+            #expect(onDisk.security.toolPolicy.rules == [Self.threeRules[1], Self.threeRules[0], Self.threeRules[2]],
+                    "the reorder happened; nothing was deleted")
+        }
+
+        @Test("a stale arm is refused by identity")
+        func staleArmRefusedByIdentity() async throws {
+            let (url, store) = try scratchConfig()
+            _ = try await store.mutate {
+                $0.security.toolPolicy = ToolPolicyConfig(enabled: true, rules: Self.threeRules)
+            }
+            var fixture = AppState.RenderFixture()
+            fixture.arcConfig = try ConfigurationStore.readDeclared(url)
+            let app = AppState(renderFixture: fixture, configurationStore: store)
+            let router = EventRouter()
+            _ = await render(app, router: router)
+
+            // arm row 0 through the real control …
+            _ = await router.dispatch(EventData(component: ComponentID("tp-del-0"), event: .click))
+            #expect(await app.toolPolicyRemovalArm
+                    == AppState.ToolPolicyRemovalArm(index: 0, rule: Self.threeRules[0]))
+
+            // … then the file changes underneath the prompt: position 0 now
+            // names a different rule. the arm still names what the operator saw.
+            let replacement = ToolPolicyRule(match: "not-rule-zero", action: .deny)
+            _ = try await store.mutate {
+                $0.security.toolPolicy.rules[0] = replacement
+            }
+
+            let removed = await app.removeToolPolicyRule(at: 0)
+            #expect(removed == false,
+                    "the arm names a rule the list no longer holds at that position; nothing may be removed")
+            #expect(await app.toolPolicyRemovalArm == nil,
+                    "the refused confirmation still clears the arm")
+            let onDisk = try ConfigurationStore.readDeclared(url)
+            #expect(onDisk.security.toolPolicy.rules == [replacement, Self.threeRules[1], Self.threeRules[2]],
+                    "a stale arm writes nothing")
+        }
+
+        @Test("removing one of two identical rules reports the truth")
+        func duplicateRuleRemovalIsHonest() async throws {
+            let duplicate = ToolPolicyRule(match: "dup", action: .deny)
+            let other = ToolPolicyRule(match: "other", action: .allow)
+            let (url, store) = try scratchConfig()
+            _ = try await store.mutate {
+                $0.security.toolPolicy = ToolPolicyConfig(enabled: true, rules: [duplicate, duplicate, other])
+            }
+            var fixture = AppState.RenderFixture()
+            fixture.arcConfig = try ConfigurationStore.readDeclared(url)
+            let app = AppState(renderFixture: fixture, configurationStore: store)
+
+            await app.armToolPolicyRuleRemoval(at: 0)
+            let removed = await app.removeToolPolicyRule(at: 0)
+
+            #expect(removed,
+                    "the list shrank by one: the armed rule went, even though an identical rule remains")
+            let onDisk = try ConfigurationStore.readDeclared(url)
+            #expect(onDisk.security.toolPolicy.rules == [duplicate, other],
+                    "one duplicate leaves and the surviving rules keep their order")
+        }
+
+        @Test("arming a position the list does not hold leaves no arm")
+        func armOutOfRangeLeavesNoArm() async throws {
+            let (url, store) = try scratchConfig()
+            _ = try await store.mutate {
+                $0.security.toolPolicy = ToolPolicyConfig(enabled: true, rules: Self.threeRules)
+            }
+            var fixture = AppState.RenderFixture()
+            fixture.arcConfig = try ConfigurationStore.readDeclared(url)
+            let app = AppState(renderFixture: fixture, configurationStore: store)
+
+            await app.armToolPolicyRuleRemoval(at: 99)
+
+            #expect(await app.toolPolicyRemovalArm == nil,
+                    "an index the list does not hold arms nothing")
+            #expect(await app.removeToolPolicyRule(at: 99) == false,
+                    "and there is no removal to confirm")
+            let onDisk = try ConfigurationStore.readDeclared(url)
+            #expect(onDisk.security.toolPolicy.rules == Self.threeRules,
+                    "an out-of-range arm writes nothing")
         }
 
         @Test("the enable switch writes the flag and leaves every rule in place")

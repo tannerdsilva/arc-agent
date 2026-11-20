@@ -1777,6 +1777,9 @@ extension AppState {
     func appendToolPolicyRule(
         match: String, toolset: String, action: ToolPolicyAction, reason: String
     ) async -> Bool {
+        // a list write invalidates any pending removal: the armed position may
+        // no longer name the rule the operator was looking at.
+        toolPolicyRemovalArm = nil
         guard let rule = Self.toolPolicyRule(match: match, toolset: toolset, action: action, reason: reason) else {
             _ = hint("A rule needs a tool name or glob to match — nothing was added.", kind: "error")
             return false
@@ -1792,6 +1795,9 @@ extension AppState {
     func updateToolPolicyRule(
         at index: Int, match: String, toolset: String, action: ToolPolicyAction, reason: String
     ) async -> Bool {
+        // a list write invalidates any pending removal: the armed position may
+        // no longer name the rule the operator was looking at.
+        toolPolicyRemovalArm = nil
         guard let rule = Self.toolPolicyRule(match: match, toolset: toolset, action: action, reason: reason) else {
             _ = hint("A rule needs a tool name or glob to match — nothing was changed.", kind: "error")
             return false
@@ -1806,12 +1812,56 @@ extension AppState {
         }
     }
 
-    /// Remove one rule. The rest keep their relative order.
-    func removeToolPolicyRule(at index: Int) async {
-        await updateConfig { config in
-            guard config.security.toolPolicy.rules.indices.contains(index) else { return }
+    /// Arm one row's removal: the first click asks, the second removes.
+    ///
+    /// The arm carries the rule itself, not only its position — an index alone
+    /// can point at a different rule after a reorder or a reload, and a confirm
+    /// would then delete a rule nobody named. An index the list does not hold
+    /// leaves no arm rather than a dangling one.
+    func armToolPolicyRuleRemoval(at index: Int) {
+        guard arcConfig.security.toolPolicy.rules.indices.contains(index) else {
+            toolPolicyRemovalArm = nil
+            return
+        }
+        toolPolicyRemovalArm = ToolPolicyRemovalArm(
+            index: index, rule: arcConfig.security.toolPolicy.rules[index])
+    }
+
+    /// Answer "Keep": the pending removal is cancelled.
+    func disarmToolPolicyRuleRemoval() {
+        toolPolicyRemovalArm = nil
+    }
+
+    /// Remove the rule the operator was shown when they clicked Remove — the
+    /// ONLY way a rule leaves the list.
+    ///
+    /// Returns false without writing when no arm exists or the arm belongs to
+    /// another position: a caller that did not answer the prompt has no removal
+    /// to make. The arm is cleared before the write, so a refused or failed
+    /// removal cannot leave a stale confirmation behind.
+    ///
+    /// The closure re-checks the rule against the freshly read config, since
+    /// the list may have moved while the prompt stood. Success needs the store
+    /// to accept the write and the list to shrink by exactly one: the closure
+    /// only removes when the rule at `index` still equals the armed rule, so a
+    /// shrink of one means the rule the operator was shown is the one that
+    /// went. Absence alone would not do — a stale arm names a rule the list
+    /// never held, and that rule is trivially absent.
+    @discardableResult
+    func removeToolPolicyRule(at index: Int) async -> Bool {
+        guard let arm = toolPolicyRemovalArm, arm.index == index else { return false }
+        toolPolicyRemovalArm = nil
+        let countBefore = arcConfig.security.toolPolicy.rules.count
+        let wrote = await updateConfig { config in
+            guard config.security.toolPolicy.rules.indices.contains(index),
+                  config.security.toolPolicy.rules[index] == arm.rule else { return }
             config.security.toolPolicy.rules.remove(at: index)
         }
+        guard wrote, arcConfig.security.toolPolicy.rules.count == countBefore - 1 else {
+            _ = hint("Rule \(index + 1) changed while you confirmed — nothing was removed.", kind: "error")
+            return false
+        }
+        return true
     }
 
     /// Move the rule at `source` to `destination`, shifting the rows between
@@ -1819,6 +1869,9 @@ extension AppState {
     /// because the operator asked: `decide` is last-wins, so an order change IS
     /// a policy change. Nothing here sorts, and nothing may.
     func moveToolPolicyRule(from source: Int, to destination: Int) async {
+        // a list write invalidates any pending removal: the armed position may
+        // no longer name the rule the operator was looking at.
+        toolPolicyRemovalArm = nil
         await updateConfig { config in
             var rules = config.security.toolPolicy.rules
             guard rules.indices.contains(source), rules.indices.contains(destination),

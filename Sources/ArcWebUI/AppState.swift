@@ -1425,6 +1425,18 @@ actor AppState {
         case editing(Int)
     }
 
+    /// The rule removal awaiting its second click. Carries the rule itself, not
+    /// just its position: an index alone can point at a different rule after a
+    /// reorder or a reload, and the confirm would then delete a rule nobody named.
+    var toolPolicyRemovalArm: ToolPolicyRemovalArm? = nil
+
+    /// A rule removal awaiting confirmation. `index` is where the row sat when
+    /// it was armed; `rule` is what the operator was looking at.
+    struct ToolPolicyRemovalArm: Sendable, Equatable {
+        let index: Int
+        let rule: ToolPolicyRule
+    }
+
     // MARK: Runtime pieces (rebuilt when workspace / tessera mode changes)
 
     var httpClient: HTTPClient?

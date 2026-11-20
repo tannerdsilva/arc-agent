@@ -1796,10 +1796,15 @@ async function runUpload() {
   const dropStatusOk = !!trayDrop.last
     && /^attachments\/uxgate-1m-\d+-\d+\.bin · 1048576 bytes$/.test(trayDrop.last.status || '');
   add('a 1 MiB drop reaches the tray and settles done', dropDone && dropStatusOk, trayDrop);
-  // the chip is `@<absolute path>` truncated at 50 chars, so the proof is the
-  // resolved destination directory plus a new chip — not the whole file name.
+  // the chip label is deliberately the file NAME (0c0c0413); the resolved
+  // destination lives in its `title`. the proof is a chip naming THIS file
+  // whose tooltip carries the destination directory — not a bare `@name`.
   const chipDrop = await waitTrue(
-    `uxGates.uploadChips().chips.some((s) => s.indexOf('attachments/uxgate-') !== -1)`, 20000);
+    `(() => {
+      const u = uxGates.uploadChips();
+      const i = u.chips.findIndex((s) => s.indexOf(${JSON.stringify(trayDrop.last && trayDrop.last.name)}) !== -1);
+      return i !== -1 && u.titles[i].indexOf('attachments/') !== -1;
+    })()`, 20000);
   add('upload-complete attaches the landed file (a chip appears)', chipDrop, await ev('uxGates.uploadChips()'));
 
   // ---- 3. an image paste uploads; a text paste is left alone --------------
@@ -1811,7 +1816,14 @@ async function runUpload() {
     30000
   );
   const chipPaste = await waitTrue(
-    `uxGates.uploadChips().count > ${chipsBeforePaste} && uxGates.uploadChips().chips.some((s) => s.indexOf('attachments/uxgate-') !== -1)`,
+    `(() => {
+      const u = uxGates.uploadChips();
+      const last = u.chips[u.chips.length - 1] || '';
+      const title = u.titles[u.titles.length - 1] || '';
+      return u.count > ${chipsBeforePaste}
+        && last.indexOf('uxgate-paste') !== -1
+        && title.indexOf('attachments/uxgate-paste') !== -1;
+    })()`,
     20000);
   const chipsAfterPaste = await ev('uxGates.uploadChips()');
   add('an image paste uploads, lands a tray row and attaches',
@@ -3899,7 +3911,7 @@ async function main() {
     } else {
       const profile = join(tmpdir(), `uxgates-profile-${opts.port}${opts.keepProfile ? '-keep' : ''}`);
       if (!opts.keepProfile) try { rmSync(profile, { recursive: true, force: true }); } catch { /* ignore */ }
-      driver = await UxDriver.launch({ port: opts.port, userDataDir: profile, headless: opts.headless });
+      driver = await UxDriver.launch({ port: 0, userDataDir: profile, headless: opts.headless });
     }
     instrumentDriver(driver);
 
