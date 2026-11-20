@@ -4344,43 +4344,60 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                     Text("\(index + 1). \(rule.action.displayName)  \(rule.match)")
                     Small(rule.toolset.map { "toolset: \($0)" } ?? "any toolset")
                 }
-                Div(class: ClassName(.rowActions, .rowActionsInline)) {
-                    ArcButton(id: "tp-up-\(index)", class: .iconMini, type: .button,
-                              disabled: index == 0,
-                              extraAttributes: " aria-label=\"Move rule \(index + 1) up\"" + (index == 0 ? "" : controlAttributes(id: "tp-up-\(index)", event: .click, outcome: { _ in
-                                  await self.moveToolPolicyRuleUp(index)
-                                  return .refresh
-                              }))) {
-                        WebUIIcon(.arrowUp, size: .small)
+                if toolPolicyRemovalArm == ToolPolicyRemovalArm(index: index, rule: rule) {
+                    Div(class: ClassName(.rowActions, .rowActionsInline)) {
+                        Text("Remove rule \(index + 1)?")
+                        ArcButton("Keep", id: "tp-keep-\(index)", class: .ghostBtn, type: .button,
+                                  extraAttributes: controlAttributes(id: "tp-keep-\(index)", event: .click, outcome: { _ in
+                                      await self.disarmToolPolicyRuleRemoval()
+                                      return .refresh
+                                  }))
+                        ArcButton("Remove", id: "tp-del-confirm-\(index)", class: ClassName(.dangerBtn, .btnSm), type: .button,
+                                  extraAttributes: controlAttributes(id: "tp-del-confirm-\(index)", event: .click, outcome: { _ in
+                                      if await self.removeToolPolicyRule(at: index) {
+                                          _ = await self.hint("Rule \(index + 1) removed.")
+                                      }
+                                      return .refresh
+                                  }))
                     }
-                    .title(index == 0
-                           ? "Already first — every later rule overrides it"
-                           : "Move up: earlier means weaker, because the last match wins")
-                    ArcButton(id: "tp-down-\(index)", class: .iconMini, type: .button,
-                              disabled: index == count - 1,
-                              extraAttributes: " aria-label=\"Move rule \(index + 1) down\"" + (index == count - 1 ? "" : controlAttributes(id: "tp-down-\(index)", event: .click, outcome: { _ in
-                                  await self.moveToolPolicyRuleDown(index)
-                                  return .refresh
-                              }))) {
-                        WebUIIcon(.arrowDown, size: .small)
+                } else {
+                    Div(class: ClassName(.rowActions, .rowActionsInline)) {
+                        ArcButton(id: "tp-up-\(index)", class: .iconMini, type: .button,
+                                  disabled: index == 0,
+                                  extraAttributes: " aria-label=\"Move rule \(index + 1) up\"" + (index == 0 ? "" : controlAttributes(id: "tp-up-\(index)", event: .click, outcome: { _ in
+                                      await self.moveToolPolicyRuleUp(index)
+                                      return .refresh
+                                  }))) {
+                            WebUIIcon(.arrowUp, size: .small)
+                        }
+                        .title(index == 0
+                               ? "Already first — every later rule overrides it"
+                               : "Move up: earlier means weaker, because the last match wins")
+                        ArcButton(id: "tp-down-\(index)", class: .iconMini, type: .button,
+                                  disabled: index == count - 1,
+                                  extraAttributes: " aria-label=\"Move rule \(index + 1) down\"" + (index == count - 1 ? "" : controlAttributes(id: "tp-down-\(index)", event: .click, outcome: { _ in
+                                      await self.moveToolPolicyRuleDown(index)
+                                      return .refresh
+                                  }))) {
+                            WebUIIcon(.arrowDown, size: .small)
+                        }
+                        .title(index == count - 1
+                               ? "Already last — it has the final say"
+                               : "Move down: later means stronger, because the last match wins")
+                        ArcButton("Edit", id: "tp-edit-\(index)", class: "btn", type: .button,
+                                  extraAttributes: controlAttributes(id: "tp-edit-\(index)", event: .click, outcome: { _ in
+                                      await self.openToolPolicyEditor(.editing(index))
+                                      return .refresh
+                                  }))
+                        ArcButton(id: "tp-del-\(index)", class: ClassName(.iconMini, .danger), type: .button,
+                                  extraAttributes: " aria-label=\"Remove rule \(index + 1)\"" + controlAttributes(id: "tp-del-\(index)", event: .click, outcome: { _ in
+                                      await self.armToolPolicyRuleRemoval(at: index)
+                                      return .refresh
+                                  })) {
+                            WebUIIcon(.x, size: .small)
+                        }
+                        .title("Remove rule")
                     }
-                    .title(index == count - 1
-                           ? "Already last — it has the final say"
-                           : "Move down: later means stronger, because the last match wins")
-                    ArcButton("Edit", id: "tp-edit-\(index)", class: "btn", type: .button,
-                              extraAttributes: controlAttributes(id: "tp-edit-\(index)", event: .click, outcome: { _ in
-                                  await self.openToolPolicyEditor(.editing(index))
-                                  return .refresh
-                              }))
-                    ArcButton(id: "tp-del-\(index)", class: ClassName(.iconMini, .danger), type: .button,
-                              extraAttributes: " aria-label=\"Remove rule \(index + 1)\"" + controlAttributes(id: "tp-del-\(index)", event: .click, outcome: { _ in
-                                  await self.removeToolPolicyRule(at: index)
-                                  _ = await self.hint("Rule \(index + 1) removed.")
-                                  return .refresh
-                              })) {
-                        WebUIIcon(.x, size: .small)
-                    }
-                    .title("Remove rule")
                 }
             }
             if let reason = rule.reason {
