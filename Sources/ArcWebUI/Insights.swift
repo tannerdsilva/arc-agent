@@ -209,27 +209,27 @@ extension AppState {
             let pct = totalUses > 0
                 ? String(format: "%.1f%%", Double(s.uses) / Double(totalUses) * 100)
                 : "0.0%"
-            return El("tr", [], [
-                El("td", [("class", "ins-t-name")], [Text(name)]),
-                El("td", [], [Text("\(s.uses)")]),
-                El("td", [], [Text("\(s.views)")]),
-                El("td", [], [Text("\(s.patches)")]),
-                El("td", [], [Text(pct)]),
-            ])
+            return Element(.tr) {
+                Element(.td, class: .insTName) { Text(name) }
+                Element(.td) { Text("\(s.uses)") }
+                Element(.td) { Text("\(s.views)") }
+                Element(.td) { Text("\(s.patches)") }
+                Element(.td) { Text(pct) }
+            }
         }
         if ranked.count > 10 {
-            rows.append(El("tr", [("class", "ins-more-row")], [
-                El("td", [("colspan", "5")], [Text("… and \(ranked.count - 10) more skills")]),
-            ]))
+            rows.append(Element(.tr, class: "ins-more-row") {
+                Element(.td, [.colspan(5)]) { Text("… and \(ranked.count - 10) more skills") }
+            })
         }
         let heads: [any View] = ["Skill", "Uses", "Views", "Patches", "Usage %"]
-            .map { El("th", [], [Text($0)]) }
-        let table = El("div", [("class", "ins-table-wrap")], [
-            El("table", [("class", "ins-table")], [
-                El("thead", [], [El("tr", [], heads)]),
-                El("tbody", [], rows),
-            ]),
-        ])
+            .map { name in Element(.th) { Text(name) } }
+        let table = Element(.div, class: .insTableWrap) {
+            Element(.table, class: .insTable) {
+                Element(.thead) { Element(.tr) { heads } }
+                Element(.tbody) { rows }
+            }
+        }
 
         // Section 2 — agent activity (all-time totals)
         let totalMessages = sessions.reduce(0) { $0 + ($1.messages.isEmpty ? $1.messageCount : $1.messages.count) }
@@ -245,10 +245,10 @@ extension AppState {
 
         return Div(class: "main-scroll insights-main") {
             DetailCard {
-                El("h3", [("style", "margin:0 0 12px")], [
-                    Text("Skill Usage "),
-                    InsRangeHint { Text("(top \(min(10, ranked.count)) by uses)") },
-                ])
+                Element(.h3, [.style(.custom("margin"), "0 0 12px")]) {
+                    Text("Skill Usage ")
+                    InsRangeHint { Text("(top \(min(10, ranked.count)) by uses)") }
+                }
                 Div(class: .insBubbles) {
                     statBubble(label: "Total Invocations", value: Self.fmtCount(totalUses), icon: .star)
                     statBubble(label: "Skills Used", value: "\(used)/\(skillNames.count)", icon: .book)
@@ -257,7 +257,7 @@ extension AppState {
             }
             .margin(.bottom, .four)
             DetailCard {
-                El("h3", [("style", "margin:0 0 12px")], [Text("Agent Activity")])
+                Element(.h3, [.style(.custom("margin"), "0 0 12px")]) { Text("Agent Activity") }
                 Div(class: .insStats) {
                     statBox(label: "Chat Sessions", value: Self.fmtCount(sessions.count), icon: .messageSquare)
                     statBox(label: "Total Messages", value: Self.fmtCount(totalMessages), icon: .fileText)
@@ -266,10 +266,10 @@ extension AppState {
             }
             .margin(.bottom, .four)
             DetailCard {
-                El("h3", [("style", "margin:0 0 12px")], [
-                    Text("Daily Tokens "),
-                    InsRangeHint { Text("(last \(insightsRangeDays) days)") },
-                ])
+                Element(.h3, [.style(.custom("margin"), "0 0 12px")]) {
+                    Text("Daily Tokens ")
+                    InsRangeHint { Text("(last \(insightsRangeDays) days)") }
+                }
                 dailyTokensGraph()
             }
         }
@@ -346,46 +346,6 @@ extension AppState {
     }
 }
 
-/// a bare element: tag, attribute pairs, children.
-///
-/// `no-webui`'s primitives spell `<div>`, `<span>`, `<table>` and the form
-/// controls, but the insights table needs a `<td class="ins-t-name">` (the class
-/// sets the weight in the sheet), a colspan cell for the "and N more" tail, and
-/// an `<h3>` whose hint is its own span. this is the smallest view that spells
-/// those three: the tag is a literal from this file, every attribute value is
-/// escaped, and children render through their own `View` conformance.
-/// the one raw-tag site in arc's web UI.
-///
-/// everything else goes through the typed DSL or arc's own components (see
-/// `docs/web-ui-architecture.md`). the charts need `<rect>`/`<line>`/`<polyline>`
-/// with attribute bags that no typed spelling covers, so this stays a raw tag
-/// plus `[(String, String)]`, and its children stay `[any View]` because all 16
-/// call sites hand it heterogeneous arrays — retyping them to `@ElementBuilder`
-/// is a sweep, not a signature change.
-///
-/// do not grow new call sites here: if a view can be expressed with `Div`,
-/// `Span`, `Element(.tag)` or a component, it belongs there.
-private struct El: WebUI.View {
-    let tag: String
-    let attributes: [(String, String)]
-    let children: [any View]
-
-    init(_ tag: String, _ attributes: [(String, String)] = [], _ children: [any View] = []) {
-        self.tag = tag
-        self.attributes = attributes
-        self.children = children
-    }
-
-    func render(into buffer: inout HTMLBuffer) {
-        var attrs = ""
-        for (key, value) in attributes {
-            attrs += " \(key)=\"\(esc(value))\""
-        }
-        buffer.beginElement(tag, attrs)
-        buffer.endOpenTag()
-        for child in children {
-            child.render(into: &buffer)
-        }
-        buffer.endElement()
-    }
-}
+// the insights page renders through `Element` (no-webui 4.0): the table, its
+// cells, and the three section headings carry a typed `[ElementAttribute]`
+// bag, so this file needs no local raw-tag view.

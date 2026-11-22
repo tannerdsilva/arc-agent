@@ -45,6 +45,11 @@ extension ArcWebUITestRoot {
 			// declared by no sheet — ArcClass cannot name them
 			"approval-title", "arch-ico", "btn", "chat-menu-items", "clarify-title",
 			"ctx-swatches", "dd-list-profile", "dd-pop-ws", "insights-main",
+			// `ins-more-row` rode the local `El`'s attribute tuple, so the
+			// `class:` scan never saw it; the Element migration exposed it.
+			// no sheet declares it (`HostStylesheetContractTests` pins it dead),
+			// so `ArcClass` cannot name it either.
+			"ins-more-row",
 			"pill-other", "queue-card",
 			"queue-loop-count-label", "skill-cat-title",
 			"thinking-detail", "todo-list", "visible", "ws-head", "ws-menu", "yolo-text",
