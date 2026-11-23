@@ -6,10 +6,13 @@ import WebUI
 /// is plain content. A panel head is not plain: it is a styled row that must
 /// stay OUT of the tab order (the session buckets) or keep the exact class the
 /// sheet keys the caret on (the skill categories). Neither can be expressed
-/// through a modifier — the framework has no summary-level attribute seam — so
+/// through a modifier — a modifier's attributes land on the `<details>` — so
 /// the head's class, title and tabindex are constructor parameters here, and
-/// everything the caller chains (`.addClass`, `.id`, `.data`, `.behavior`)
-/// lands on the `<details>` itself, because that is the first element opened.
+/// `Element(.summary, summaryBag)` writes them as a typed attribute bag in the
+/// emitted order (id, class, tabindex, title, aria-label). everything the
+/// caller chains (`.addClass`, `.id`, `.data`, `.behavior`) lands on the
+/// `<details>` itself, because `Element(.details, …)` is the first element
+/// opened.
 ///
 /// The pair `id` + `.behavior(Disclosure())` is what makes the open state
 /// survive a patch: the engine records `open` for every `details[data-preserve-open]`
@@ -53,29 +56,25 @@ public struct ArcDisclosure<Summary: WebUI.View, Content: WebUI.View>: WebUI.Vie
 	}
 
 	public func render(into buffer: inout HTMLBuffer) {
-		var summaryAttributes = ""
+		var summaryBag: [ElementAttribute] = []
 		if let summaryID, !summaryID.isEmpty {
-			summaryAttributes += " id=\"\(htmlEscape(summaryID))\""
+			summaryBag.append(.id(summaryID))
 		}
 		if let summaryClass, !summaryClass.value.isEmpty {
-			summaryAttributes += " class=\"\(htmlEscape(summaryClass.value))\""
+			summaryBag.append(.class(summaryClass))
 		}
 		if let summaryTabIndex {
-			summaryAttributes += " tabindex=\"\(summaryTabIndex)\""
+			summaryBag.append(.tabindex(summaryTabIndex))
 		}
 		if let summaryTitle, !summaryTitle.isEmpty {
-			summaryAttributes += " title=\"\(htmlEscape(summaryTitle))\""
+			summaryBag.append(.title(summaryTitle))
 		}
 		if let summaryLabel, !summaryLabel.isEmpty {
-			summaryAttributes += " aria-label=\"\(htmlEscape(summaryLabel))\""
+			summaryBag.append(.aria([.label(summaryLabel)]))
 		}
-		buffer.beginElement("details", isOpen ? " open" : "")
-		buffer.endOpenTag()
-		buffer.beginElement("summary", summaryAttributes)
-		buffer.endOpenTag()
-		summary.render(into: &buffer)
-		buffer.endElement()
-		content.render(into: &buffer)
-		buffer.endElement()
+		Element(.details, isOpen ? [.flag(.open)] : []) {
+			Element(.summary, summaryBag) { summary }
+			content
+		}.render(into: &buffer)
 	}
 }

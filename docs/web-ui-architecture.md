@@ -21,17 +21,18 @@ of `daemon.json` (on by default).
 
 ## dependency pin
 
-`.package(url: "https://github.com/tannerdsilva/no-webui.git", branch: "master")`
-— arc tracks no-webui's `master`, and `Package.resolved` records the revision
-that resolves to (`ae911f44` when the pin moved). the identity is the repository
-name `no-webui`, which is what every `.product(…, package: "no-webui")` keys on.
+`.package(url: "https://github.com/tannerdsilva/no-webui.git", revision: "248c632cb4b630ef845868004255b5bc1fe25060")`
+— arc pins no-webui's **4.0.0** release commit, and `Package.resolved` records
+the same revision. the identity is the repository name `no-webui`, which is what
+every `.product(…, package: "no-webui")` keys on.
 
-a branch pin moves: `swift package resolve` re-reads `master`, so the next build
-compiles whatever landed there. `make check-pin` therefore proves resolution is
-CURRENT rather than frozen — the resolved revision must equal the checkout's
-HEAD — and `swift package resolve` is the fix when it does not.
+a revision pin is frozen: `swift package resolve` resolves that exact commit, so
+upstream work only lands on a manual bump. `make check-pin` reports the lag
+between the pin and the sibling checkout's HEAD — zero when the pin is the
+accepted release.
 
-this replaced the `path:` pin to `../pins/no-webui` on 2026-10-30.
+this replaced the `path:` pin to `../pins/no-webui` on 2026-10-30; the branch pin
+became a revision pin at no-webui 4.0.0.
 
 ## the co-development rule
 
@@ -266,7 +267,8 @@ engine side is pinned by no-webui's browser smoke.
   passes only its one extra (`img-src … https: blob:`) through
   `contentSecurityPolicyExtras`, so the framework's nonce — and with it the pre-paint theme
   prelude — survives.
-- no-webui products in use: `WebUI` (view DSL, `EventRouter`, `CSSRule`,
+- no-webui products in use: `WebUI` (view DSL, the element layer — `Tag`,
+  `ElementAttribute`, `Element`, `VoidElement` — `EventRouter`, `CSSRule`,
   `WebUIIcon`), `WebUIDesignSystem` (`DesignToken`, `WebUITheme`,
   `@Theme`, `TokenAlias`, `ThemeCatalog`), `WebUIServer`.
 
@@ -294,6 +296,38 @@ too and was **wrong** — it has 18 live call sites — which is why the deletio
 order was "grep both, then delete". do not re-run this analysis and
 "discover" a migration onto the framework components: it would silently drop
 `data-component-id` routing on four sites.
+
+## the element layer (no-webui 4.0.0)
+
+arc pins no-webui 4.0.0 (`248c632`). the typed element is the authoring path:
+`Tag` is an open, validated struct (97 content tokens, 9 void names),
+`ElementAttribute` is the 37-case typed bag plus the audited `.custom` door, and
+`Element`/`VoidElement` frame a content/void element through the one
+`parsed()` -> `mergeAttributes` -> `serializeAttr` serializer. the consumer
+migration is `Documentation/MIGRATION_4_0.md` in the no-webui repo.
+
+`Insights.swift` migrated its 16 local `El(` sites to `Element` and deleted the
+local `El`; `grep -rn '\bEl(' Sources` is 0. the only byte delta was `.style`
+canonicalization (`margin: 0 0 12px;`) in the Insights parity fixture, re-baselined
+with that cause. `FieldLabel`, `FormLabel`, `ArcDisclosure` and `PanelNavRow`
+also render through `Element`.
+
+the remaining raw seams, each deliberate:
+
+- `ArcRing` — SVG. `Tag` keeps `svg` out (D1), so it stays on
+  `WebUIIconCustom` / `TrustedMarkup(.icon)`.
+- `ArcButton` and `ArcSwitch` — the raw `extraAttributes` seam carries
+  `controlAttributes` / `DismissStack` / `FocusReturn` / `Clipboard` strings at
+  ~20 call sites. expressing them in the typed bag would need a second attribute
+  parser, which the one-serializer rule rejects.
+- `ComposerText` — the framework attribute-type strings (`AutogrowAttribute`,
+  `DraftIdentityAttribute`, `DraftSeedAttribute`, `SubmitOnEnterAttribute`,
+  `ClearOnSubmitAttribute`, `FocusOnAppearAttribute`) are raw `attributeText`
+  payloads.
+- `UploadZone`, `AkvRow`, `ChatScroller`, `DetailTitle`, `SettingRow` — sanctioned
+  component-internal `beginElement` for attribute control.
+- `TrustedMarkup` for markdown/plugins, and no-webui's own design-system string
+  path.
 
 ## Known gaps
 

@@ -7,6 +7,10 @@ import WebUI
 ///
 /// No `Raw` — every value written is either a literal or a computed number,
 /// neither of which can contain user data that needs escaping.
+///
+/// deliberately not an `Element`: this is `<svg>`, a different namespace with
+/// its own rules, and `Tag` keeps `svg` out by decision (D1) — SVG stays on the
+/// icon path.
 public struct ArcRing: WebUI.View {
 
     /// Completion in 0...100, clamped to that range at render time.

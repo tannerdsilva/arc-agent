@@ -18,6 +18,11 @@ import WebUIDesignSystem
 ///
 /// `disabled` and `hidden` emit `name=""` (boolean attribute spelling), never
 /// `name="false"`, and are omitted when false.
+///
+/// deliberately not an `Element`: `extraAttributes` is a raw seam carrying
+/// `controlAttributes` / `DismissStack` / `FocusReturn` / `Clipboard` strings
+/// at ~20 call sites, so expressing the open tag through the typed bag would
+/// need a second attribute parser (the plan's one-serializer rule rejects it).
 @HTMLComponent(.text("label", unlabeled: true), .builder("views"))
 public struct ArcButton<Views: WebUI.View>: WebUI.View {
 

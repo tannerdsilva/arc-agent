@@ -115,8 +115,8 @@ if make verify >"$verify_log" 2>&1; then
 	fi
 	pin=$(grep -E 'no-webui at ' "$verify_log" | tail -1)
 	case "$pin" in
-		*aaf349087*) pass "the pin is no-webui 3.2.0 at aaf34908 ($(printf '%s' "$pin" | sed 's/^ *//'))" ;;
-		*) fail "the pin is no-webui 3.2.0 at aaf34908 (got: ${pin:-none})" ;;
+		*248c632*) pass "the pin is no-webui 4.0.0 at 248c632 ($(printf '%s' "$pin" | sed 's/^ *//'))" ;;
+		*) fail "the pin is no-webui 4.0.0 at 248c632 (got: ${pin:-none})" ;;
 	esac
 else
 	tail -25 "$verify_log" | sed 's/^/      /'

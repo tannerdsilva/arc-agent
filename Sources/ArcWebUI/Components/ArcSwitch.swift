@@ -7,6 +7,11 @@ import WebUI
 /// `on` emits `checked=""`; `value` is the checkbox's `value` attribute (several
 /// arc switches carry `sk-toggle-<enc>` / `ts-<enc>` there and their change
 /// wires read it).
+///
+/// deliberately not an `Element`: `extraAttributes` is a raw seam carrying
+/// `controlAttributes` / `DismissStack` / `FocusReturn` / `Clipboard` strings,
+/// so expressing the open tag through the typed bag would need a second
+/// attribute parser.
 public struct ArcSwitch: WebUI.View {
 	public let id: String
 	public let on: Bool

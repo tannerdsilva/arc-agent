@@ -20,7 +20,7 @@ extension ArcWebUITestRoot {
     /// migrated group drive the group's own `wireGroup_<g>(router)` into a
     /// fresh router and assert the exact handler count. Deleting a `@Wired`
     /// annotation drops exactly one group's count, so this pin turns only one
-    /// way. `wireAll` must register exactly 151: 149 generated + the two
+    /// way. `wireAll` must register exactly 163: 161 generated + the two
     /// literal escapes `sidebar-plugin-toggle` + `cat-pick`. The merged tree
     /// carries more than the local line's count because upstream's kanban and
     /// settings surfaces stay wired here.
@@ -79,7 +79,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_settings_admin(router)
-            #expect(router.hostHandlerCount == 38, "settings_admin group registration drifted")
+            #expect(router.hostHandlerCount == 40, "settings_admin group registration drifted")
         }
 
         @Test("every skills handler is registered after wireGroup_skills")
@@ -184,16 +184,16 @@ extension ArcWebUITestRoot {
             #expect(router.hostHandlerCount == 1, "message_actions group registration drifted")
         }
 
-        @Test("wireAll registers exactly the pinned handler count (kanban cards wires included)")
-        func wireAllRegistersExactly180() async throws {
+        @Test("wireAll registers exactly 163 handlers (kanban cards wires included)")
+        func wireAllRegistersExactly163() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             await controller.wireAll(router)
 
             let count = router.hostHandlerCount
             #expect(
-                count == 164,
-                                "wireAll must register exactly 164 handlers after the cards-chip/cards-detail wires: the remote\\\n\\\t\\\t\\\trender-time toast/panel handlers no longer boot-wire, while the 8\\\n\\\t\\\t\\\tkanban-agent wires (new-board form + two close buttons) remain, got \(count)")
+                count == 163,
+                "wireAll must register exactly 163 handlers after the cards-tab wire: the remote render-time toast/panel handlers no longer boot-wire, while the 8 kanban-agent wires (new-board form + two close buttons) remain, got \(count)")
         }
 
         /// A non-listed id has no handler: the router answers empty fragments.

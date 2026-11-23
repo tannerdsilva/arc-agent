@@ -7,6 +7,9 @@ import WebUI
 /// both shapes are separate types on purpose: `FieldLabel` wraps a field it
 /// does not name, this one names a field it does not wrap. merging them would
 /// make `for` optional and let a label drift away from its control.
+///
+/// the element is built through `Element(.label, [.for(target)])`: `for` is the
+/// typed `.for` attribute, escaped once at the shared serializer.
 public struct FormLabel<Content: WebUI.View>: WebUI.View {
 	public let target: String
 	public let content: Content
@@ -17,9 +20,6 @@ public struct FormLabel<Content: WebUI.View>: WebUI.View {
 	}
 
 	public func render(into buffer: inout HTMLBuffer) {
-		buffer.beginElement("label", "for=\"\(htmlEscape(target))\"")
-		buffer.endOpenTag()
-		content.render(into: &buffer)
-		buffer.endElement()
+		Element(.label, [.for(target)]) { content }.render(into: &buffer)
 	}
 }

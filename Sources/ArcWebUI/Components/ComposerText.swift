@@ -23,6 +23,12 @@ import WebUICore
 /// `seed` travels separately from the element's own value because `value` is
 /// written as the textarea's text content, which the engine's state restore
 /// overwrites with the pre-patch value.
+///
+/// deliberately not an `Element`: the framework attribute-type strings
+/// (`AutogrowAttribute`, `DraftIdentityAttribute`, `DraftSeedAttribute`,
+/// `SubmitOnEnterAttribute`, `ClearOnSubmitAttribute`, `FocusOnAppearAttribute`)
+/// are raw `attributeText` payloads, so the open tag is assembled here rather
+/// than through the typed bag — expressing them would need a second parser.
 struct ComposerText: WebUI.View {
     /// the field identity — `id` and `name`, one spelling.
     var field: FieldID
