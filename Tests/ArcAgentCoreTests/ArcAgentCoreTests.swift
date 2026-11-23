@@ -820,7 +820,6 @@ extension ArcCoreTestRoot {
             #expect(config.model.defaultModel == "gpt-4o")
             #expect(config.model.provider == "openai")
             #expect(config.agent.maxIterations == 25)
-            #expect(config.agent.persistSessions == true)
             #expect(config.security.approvalMode == "manual")
             #expect(config.memory.enabled == true)
         }
@@ -829,7 +828,7 @@ extension ArcCoreTestRoot {
         func configCodableRoundTrip() throws {
             let original = ArcConfig(
                 model: ModelConfig(defaultModel: "gpt-5", provider: "anthropic"),
-                agent: AgentConfig(maxIterations: 50, persistSessions: false),
+                agent: AgentConfig(maxIterations: 50),
                 security: SecurityConfig(approvalMode: "off")
             )
             let data = try JSONEncoder().encode(original)
@@ -837,7 +836,6 @@ extension ArcCoreTestRoot {
             #expect(decoded.model.defaultModel == "gpt-5")
             #expect(decoded.model.provider == "anthropic")
             #expect(decoded.agent.maxIterations == 50)
-            #expect(decoded.agent.persistSessions == false)
             #expect(decoded.security.approvalMode == "off")
         }
 

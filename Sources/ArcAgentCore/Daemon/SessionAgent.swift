@@ -99,7 +99,7 @@ public actor SessionAgent: Service {
             maxIterations: agentConfig.maxIterations ?? 25,
             toolLoopCap: agentConfig.toolLoopCap,
             maxTurnDuration: agentConfig.maxTurnDuration ?? 0,
-            persistSessions: ephemeral ? false : (agentConfig.tessera != nil ? agentConfig.persistSessions : false),
+            persistSessions: ephemeral ? false : true,
             // Fresh-context cron runs: a recurring job's earlier runs stay in
             // the transcript (the job's chat) but never enter later contexts.
             restoreHistoryOnStart: !isCronSession,

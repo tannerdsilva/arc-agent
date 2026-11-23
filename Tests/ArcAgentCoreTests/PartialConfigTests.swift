@@ -43,7 +43,6 @@ extension ArcCoreTestRoot {
               },
               "agent": {
                 "maxIterations": 25,
-                "persistSessions": true,
                 "loadSkills": false
               },
               "security": {
@@ -60,7 +59,6 @@ extension ArcCoreTestRoot {
             #expect(config.model.provider == "sglang")
             #expect(config.model.baseURL == "http://172.28.174.42:8001/v1")
             #expect(config.agent.maxIterations == 25)
-            #expect(config.agent.persistSessions == true)
             #expect(config.agent.loadSkills == false)
 
             // Missing sections must fall back to compiled-in defaults.
@@ -83,8 +81,7 @@ extension ArcCoreTestRoot {
                 "provider": "sglang"
               },
               "agent": {
-                "maxIterations": 7,
-                "persistSessions": false
+                "maxIterations": 7
               }
             }
             """
@@ -96,7 +93,6 @@ extension ArcCoreTestRoot {
             #expect(config.model.provider == "sglang")
             #expect(config.model.baseURL == nil)   // absent -> default nil
             #expect(config.agent.maxIterations == 7)
-            #expect(config.agent.persistSessions == false)
             #expect(config.agent.loadSkills == true)  // absent -> default true
         }
 
@@ -107,7 +103,7 @@ extension ArcCoreTestRoot {
 
             let original = ArcConfig(
                 model: ModelConfig(defaultModel: "gpt-5", provider: "anthropic", baseURL: "https://x.example/v1"),
-                agent: AgentConfig(maxIterations: 50, persistSessions: false, loadSkills: true),
+                agent: AgentConfig(maxIterations: 50, loadSkills: true),
                 security: SecurityConfig(approvalMode: "off")
             )
             try saveConfig(original, to: url)

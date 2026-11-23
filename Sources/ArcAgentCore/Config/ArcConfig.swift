@@ -600,8 +600,6 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     /// `agent.max_turn_duration`). `nil` or `0`/negative = unlimited — the
     /// default; the user opts into a bound from the web UI settings.
     public var max_turn_duration: Int?
-    /// Whether to persist sessions.
-    public var persistSessions: Bool
     /// Whether to load skills on startup.
     public var loadSkills: Bool
     /// Reasoning effort passed to the provider (reference `agent.reasoning_effort`:
@@ -656,7 +654,6 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         maxIterations: Int = 25,
         max_turns: Int? = nil,
         max_turn_duration: Int? = nil,
-        persistSessions: Bool = true,
         loadSkills: Bool = true,
         reasoningEffort: String? = nil,
         microCompactEnabled: Bool = false,
@@ -676,7 +673,6 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.maxIterations = maxIterations
         self.max_turns = max_turns
         self.max_turn_duration = max_turn_duration
-        self.persistSessions = persistSessions
         self.loadSkills = loadSkills
         self.reasoningEffort = reasoningEffort
         self.microCompactEnabled = microCompactEnabled
@@ -700,7 +696,6 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.maxIterations = try container.decodeIfPresent(Int.self, forKey: .maxIterations) ?? AgentConfig().maxIterations
         self.max_turns = try container.decodeIfPresent(Int.self, forKey: .max_turns)
         self.max_turn_duration = try container.decodeIfPresent(Int.self, forKey: .max_turn_duration)
-        self.persistSessions = try container.decodeIfPresent(Bool.self, forKey: .persistSessions) ?? AgentConfig().persistSessions
         self.loadSkills = try container.decodeIfPresent(Bool.self, forKey: .loadSkills) ?? AgentConfig().loadSkills
         self.reasoningEffort = try container.decodeIfPresent(String.self, forKey: .reasoningEffort)
         self.microCompactEnabled = try container.decodeIfPresent(Bool.self, forKey: .microCompactEnabled) ?? AgentConfig().microCompactEnabled
