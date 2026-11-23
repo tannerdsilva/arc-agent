@@ -26,6 +26,7 @@ enum KanbanTool {
         "create", "list", "show", "claim", "run", "complete", "block",
         "unblock", "link", "comment", "attach", "attachments", "heartbeat",
         "runs", "events", "recompute", "boards", "archive", "delete_board",
+        "split",
     ]
 
     static func entry(
@@ -38,8 +39,8 @@ enum KanbanTool {
             name: "kanban",
             toolset: .kanban,
             description: """
-            Kanban card operations — create, list, show, claim, run, complete, block, unblock, link, comment, attach, heartbeat, events, boards, archive, delete_board. Everything kanban goes through this tool.
-            In a worker session, task_id and run_id default to your own assignment. `complete` needs a `summary` handoff (plus optional metadata/artifacts); `block` needs `kind` (dependency|needs_input|capability|transient) and `reason`; `run` dispatches a worker one-shot in the background.
+            Kanban card operations — create, list, show, claim, run, complete, block, unblock, link, comment, attach, heartbeat, events, boards, archive, delete_board, split. Everything kanban goes through this tool.
+            In a worker session, task_id and run_id default to your own assignment. `complete` needs a `summary` handoff (plus optional metadata/artifacts); `block` needs `kind` (dependency|needs_input|capability|transient) and `reason`; `run` dispatches a worker one-shot in the background. `split` decomposes a complex card into child phase cards (subtasks: [{title, body?, priority?, column?}]), links each under the parent, and marks the parent completed WITHOUT running its prompt — the work happens on the children.
             Boards are organizational containers for cards: `boards` with no `board` lists them; pass `board` + `name`/`description` to create one. Cards go on a board by passing `board` at create time (column: Todo by default, or `column` = Todo|Ready|Running|Blocked|Finished); cards without a board live in the standalone pool ("default" board, rendered "Unboarded"). `archive` removes a settled card from the board columns into the Completed tab.
             """,
             schema: .object(
@@ -76,6 +77,18 @@ enum KanbanTool {
                     "skills": .array(description: "Skills the worker should load (create)", items: .string(description: "Skill name")),
                     "yolo": .boolean(description: "Dispatch the worker with approvals off (run, default true)"),
                     "prompt": .string(description: "Optional worker prompt text (run)"),
+                    "subtasks": .array(
+                        description: "Child cards to create (split): [{title, body?, priority?, column?}]",
+                        items: .object(
+                            description: "One child card of a split",
+                            properties: [
+                                "title": .string(description: "Child card title (required)"),
+                                "body": .string(description: "Child card body"),
+                                "priority": .integer(description: "Priority; higher = more urgent"),
+                                "column": .string(description: "Placement column: Todo|Ready|Running|Blocked|Finished (default Todo; ungated children promote to Ready automatically)"),
+                            ],
+                            required: ["title"]
+                        )),
                 ],
                 required: ["action"]
             ),
@@ -227,6 +240,7 @@ enum KanbanTool {
             case "recompute": return try await recompute(store: store, board: board)
             case "boards": return try await boards(args, store: store, board: board)
             case "archive": return try await archive(args, store: store, board: board, env: env)
+            case "split": return try await split(args, store: store, board: board, env: env)
             case "delete_board": return try await deleteBoard(store: store, board: board)
             default:
                 return "Error: unknown action '\(action)'. One of: \(allActions.joined(separator: ", "))"
@@ -707,6 +721,85 @@ enum KanbanTool {
         }
         let task = try await store.archiveTask(id: id, board: board)
         return "Task \(task.id) (\(task.title)) archived — moved off the board to the Completed tab."
+    }
+
+    /// Decompose a complex card into child cards (the dispatcher's split):
+    /// create each subtask on the same board, link it under the parent as a
+    /// dependency, and mark the parent `done` — WITHOUT a run. The parent's
+    /// prompt never executes; the work happens on the children. Ungated
+    /// children promote to Ready on the trailing recompute.
+    static func split(_ args: [String: Any], store: any CardStore, board: String, env: [String: String]?) async throws -> String {
+        guard let id = taskIDArg(args, env: env) else {
+            return "Error: task_id is required for split."
+        }
+        let raw = args["subtasks"] as? [Any] ?? []
+        let specs = raw.compactMap { $0 as? [String: Any] }
+        guard !specs.isEmpty else {
+            return "Error: split requires a non-empty `subtasks` array of {title, body?, priority?, column?}."
+        }
+        // Validate every subtask BEFORE mutating anything — a malformed
+        // entry must not leave a half-split board behind.
+        var children: [CardTask] = []
+        for (index, spec) in specs.enumerated() {
+            guard let title = spec["title"] as? String, !title.isEmpty else {
+                return "Error: subtask \(index) is missing its `title`."
+            }
+            var status: CardStatus = board == CardBoard.standaloneID ? .ready : .todo
+            var column: CardColumn?
+            if let raw = spec["column"] as? String, !raw.isEmpty {
+                guard let col = CardColumn.parse(raw) else {
+                    return "Error: subtask \(index) column must be one of \(CardColumn.allCases.map(\.displayName).joined(separator: ", "))."
+                }
+                status = col.status
+            }
+            let task = CardTask(
+                title: title,
+                body: spec["body"] as? String,
+                assignee: nil,
+                status: status,
+                priority: spec["priority"] as? Int ?? 0,
+                createdBy: "split:\(id)",
+                tenant: args["tenant"] as? String
+            )
+            children.append(task)
+        }
+
+        let parent = try await store.taskOrThrow(id: id, board: board)
+        guard parent.currentRunID == nil else {
+            return "Error: task \(id) has a run in flight — let it close before splitting."
+        }
+        guard parent.status != .archived else {
+            return "Error: task \(id) is archived — it is off the board and cannot be split."
+        }
+        guard parent.status != .done else {
+            return "Error: task \(id) is already done — nothing to split."
+        }
+
+        // All guards passed: create, link, then complete the parent. No run
+        // row is created — the split completion is recorded as an event.
+        var createdIDs: [String] = []
+        for child in children {
+            let created = try await store.createTask(child, board: board)
+            createdIDs.append(created.id)
+            try await store.link(parentID: id, childID: created.id, board: board)
+        }
+        var done = parent
+        done.status = .done
+        done.completedAt = Date()
+        done.currentRunID = nil
+        try await store.saveTask(done, board: board)
+        let rationale = args["summary"] as? String
+        try await store.appendEvent(
+            taskID: id, board: board, runID: nil, kind: "split",
+            payload: rationale ?? "split into \(createdIDs.count) child card\(createdIDs.count == 1 ? "" : "s")")
+        // Children gated on the (now done) parent promote immediately.
+        let promoted = try await store.recomputeReady(board: board)
+        var note = ""
+        if !promoted.isEmpty { note = "\\nPromoted to ready: \(promoted.joined(separator: ", "))" }
+        return """
+        Split \(id) (\(parent.title)) — parent marked done WITHOUT a run (its prompt will not execute).
+        Created \(createdIDs.count) child card\(createdIDs.count == 1 ? "" : "s"): \(createdIDs.joined(separator: ", "))\(note)
+        """
     }
 
     // MARK: Spawn helpers
