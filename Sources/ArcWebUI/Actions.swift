@@ -3333,7 +3333,8 @@ extension Controller {
             apiKey: event.string("mce-apikey") ?? "",
             clearAPIKey: event.string("mce-clear-key") != nil,
             contextLength: Int((event.string("mce-ctx") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)),
-            maxOutputTokens: Int((event.string("mce-maxtok") ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+            maxOutputTokens: Int((event.string("mce-maxtok") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)),
+            compressionBudget: Int((event.string("mce-budget") ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
         )
         if let failure = await self.app.saveModelConfigEdit(originalName: original, draft: draft) {
             _ = await self.app.hint(failure.message, kind: "error")

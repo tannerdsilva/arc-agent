@@ -5851,6 +5851,13 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                           value: formValues["mce-maxtok", default: preset.maxOutputTokens.map(String.init) ?? ""],
                           attributes: [("autocomplete", "off")])
                 }
+                WebUIField(label: "Compress at (optional)", controlID: "mce-budget") {
+                    Input(field: "mce-budget", placeholder: "e.g. 32000",
+                          type: .text,
+                          value: formValues["mce-budget", default: preset.compressionBudget.map(String.init) ?? ""],
+                          attributes: [("autocomplete", "off")])
+                    Small("Auto-compress once the chat exceeds this many tokens.")
+                }
             }
             Div(class: ClassName(.rowActionsMain, .rowActionsFlush)) {
                 ArcButton("Save changes", class: .primaryBtn, type: .submit)

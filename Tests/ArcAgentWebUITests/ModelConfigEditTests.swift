@@ -27,12 +27,13 @@ extension ArcWebUITestRoot {
 
         /// Two user-owned configurations plus an active pick, a chat pin, and the
         /// legacy auxiliary map, so a rename has every pin class to repoint.
-        private static func state(apiKey: String = "") -> AppState {
+        private static func state(apiKey: String = "", compressionBudget: Int? = nil) -> AppState {
             var f = AppState.RenderFixture()
             f.settings.modelConfigs = [
                 ModelConfigPreset(name: "primary", model: "gpt-4o", provider: "openai",
                                   baseURL: "https://api.openai.com/v1", apiKey: apiKey,
-                                  contextLength: 128_000, maxOutputTokens: 32_768, source: "ui"),
+                                  contextLength: 128_000, maxOutputTokens: 32_768,
+                                  compressionBudget: compressionBudget, source: "ui"),
                 ModelConfigPreset(name: "local", model: "llama-3", provider: "ollama",
                                   baseURL: "http://localhost:11434/v1", source: "ui"),
             ]
@@ -66,11 +67,13 @@ extension ArcWebUITestRoot {
             apiKey: String = "",
             clearAPIKey: Bool = false,
             contextLength: Int? = 128_000,
-            maxOutputTokens: Int? = 32_768
+            maxOutputTokens: Int? = 32_768,
+            compressionBudget: Int? = nil
         ) -> ModelConfigDraft {
             ModelConfigDraft(name: name, model: model, provider: provider, baseURL: baseURL,
                              apiKey: apiKey, clearAPIKey: clearAPIKey,
-                             contextLength: contextLength, maxOutputTokens: maxOutputTokens)
+                             contextLength: contextLength, maxOutputTokens: maxOutputTokens,
+                             compressionBudget: compressionBudget)
         }
 
         // MARK: - affordance
@@ -99,7 +102,7 @@ extension ArcWebUITestRoot {
             await app.openModelConfigEdit("primary")
             let html = await app.settingsMain().markup.html
             for field in ["mce-name", "mce-model", "mce-provider", "mce-baseurl",
-                          "mce-apikey", "mce-ctx", "mce-maxtok"] {
+                          "mce-apikey", "mce-ctx", "mce-maxtok", "mce-budget"] {
                 #expect(html.contains("name=\"\(field)\""),
                         "\(field) is a submit payload key the engine builds from `name`")
             }
@@ -107,6 +110,49 @@ extension ArcWebUITestRoot {
             #expect(html.contains("data-component-id=\"modelcfg-edit-form\""))
             #expect(!html.contains("id=\"modelcfg-add-form\""),
                     "both the add form and the edit form rendered at once")
+        }
+
+        @Test("the editor carries the same fields the add form does")
+        func editorCarriesEveryAddField() async {
+            // the add form let a user set a compress threshold from the day it
+            // shipped; the editor did not, so a configuration added with the
+            // wrong one could only be fixed by removing it (which dropped every
+            // pin that named it) and typing it again.
+            //
+            // `effort` is the one field the add form still has and the editor
+            // does not: it is a `Select`, and the typed-vocabulary card owns the
+            // select family (see `FieldFamilyAdoptionTests`). it is named here
+            // rather than filtered out silently, so a second gap shows up as a
+            // failure instead of joining an anonymous exclusion.
+            let addOnly: Set<String> = ["effort"]
+            let app = Self.state()
+
+            func configFieldNames(_ html: String) -> Set<String> {
+                let names = html.components(separatedBy: "name=\"")
+                    .dropFirst()
+                    .compactMap { $0.split(separator: "\"").first.map(String.init) }
+                return Set(names.filter { $0.hasPrefix("mc-") || $0.hasPrefix("mce-") })
+            }
+
+            let idle = configFieldNames(await app.settingsMain().markup.html)
+            await app.openModelConfigEdit("primary")
+            let editing = configFieldNames(await app.settingsMain().markup.html)
+
+            // the add-form keys are `mc-*`, the editor's `mce-*`; the suffix
+            // after the family prefix is the field identity both must carry.
+            func suffixes(_ names: Set<String>) -> Set<String> {
+                Set(names.compactMap { name -> String? in
+                    for prefix in ["mce-", "mc-"] where name.hasPrefix(prefix) {
+                        return String(name.dropFirst(prefix.count))
+                    }
+                    return nil
+                })
+            }
+            let missing = suffixes(idle).subtracting(suffixes(editing)).subtracting(addOnly)
+            #expect(missing.isEmpty,
+                    "the editor cannot amend fields the add form can set: \(missing.sorted())")
+            #expect(suffixes(editing).contains("budget"),
+                    "the compress threshold is the field this editor exists to expose")
         }
 
         @Test("the editor's field identities are disjoint from the add form's")
@@ -138,7 +184,7 @@ extension ArcWebUITestRoot {
 
         @Test("opening the editor pre-fills the form and never renders the stored key")
         func editorPrefillsWithoutLeakingTheKey() async {
-            let app = Self.state(apiKey: "sk-live-secret")
+            let app = Self.state(apiKey: "sk-live-secret", compressionBudget: 96_000)
             await app.openModelConfigEdit("primary")
             let html = await app.settingsMain().markup.html
 
@@ -148,10 +194,73 @@ extension ArcWebUITestRoot {
             #expect(html.contains("value=\"https://api.openai.com/v1\""), "base URL was not pre-filled")
             #expect(html.contains("value=\"128000\""), "context length was not pre-filled")
             #expect(html.contains("value=\"32768\""), "output budget was not pre-filled")
+            #expect(html.contains("value=\"96000\""), "the compress threshold was not pre-filled")
             #expect(!html.contains("sk-live-secret"),
                     "the stored key was rendered into the page — a patch frame would ship it to the browser")
             #expect(html.contains("stored — leave blank to keep it"),
                     "the key field does not say the stored key is kept")
+        }
+
+        @Test("a configuration with no threshold opens with the field empty")
+        func emptyThresholdPrefillsBlank() async {
+            let app = Self.state(compressionBudget: nil)
+            await app.openModelConfigEdit("primary")
+            let html = await app.settingsMain().markup.html
+            #expect(html.contains("name=\"mce-budget\""), "the threshold field is missing from the editor")
+            // a nil budget must render as an empty value, never the "nil" text
+            // or the add form's placeholder echoed as a stored value.
+            #expect(!html.contains("value=\"nil\""))
+        }
+
+        // MARK: - the compress threshold
+
+        @Test("saving the editor writes the compress threshold and clears it when blank")
+        func thresholdRoundTripsThroughTheEditor() async {
+            let app = Self.state(compressionBudget: 32_000)
+
+            let raised = await app.saveModelConfigEdit(
+                originalName: "primary",
+                draft: Self.draft(compressionBudget: 96_000))
+            #expect(raised == nil)
+            #expect(await app.settings.modelConfigs[0].compressionBudget == 96_000,
+                    "an edited threshold did not land on the stored record")
+
+            // a second edit that leaves the field blank removes the override, so
+            // the record falls back to the engine's default ladder.
+            let cleared = await app.saveModelConfigEdit(
+                originalName: "primary",
+                draft: Self.draft(compressionBudget: nil))
+            #expect(cleared == nil)
+            #expect(await app.settings.modelConfigs[0].compressionBudget == nil,
+                    "a blank threshold field must clear the override, not keep it silently")
+        }
+
+        @Test("a refused save leaves the stored threshold alone")
+        func refusedSaveKeepsThreshold() async {
+            let app = Self.state(compressionBudget: 32_000)
+            let failure = await app.saveModelConfigEdit(
+                originalName: "primary",
+                draft: Self.draft(name: "", compressionBudget: 96_000))
+            #expect(failure == .emptyName)
+            #expect(await app.settings.modelConfigs[0].compressionBudget == 32_000,
+                    "a refused save mutated the threshold")
+        }
+
+        @Test("the threshold the editor saves is the one the meter reads")
+        func thresholdFeedsTheCompressionMeter() async {
+            // the editor's value is not cosmetic: `compressionBudget(for:)` is
+            // what the context ring and the compactor consult, so a saved
+            // threshold must be visible there immediately.
+            let app = Self.state(compressionBudget: 32_000)
+            #expect(await app.compressionBudget(for: "sess-a") == 32_000,
+                    "the fixture's stored threshold was not read back")
+
+            let failure = await app.saveModelConfigEdit(
+                originalName: "primary",
+                draft: Self.draft(compressionBudget: 96_000))
+            #expect(failure == nil)
+            #expect(await app.compressionBudget(for: "sess-a") == 96_000,
+                    "the editor's threshold did not reach the compress decision")
         }
 
         @Test("a blank key field keeps the stored secret")
@@ -308,6 +417,29 @@ extension ArcWebUITestRoot {
             #expect(html.contains("The name follows the model."))
         }
 
+        @Test("a threshold set on the managed preset survives the next boot reconcile")
+        func managedThresholdSurvivesReconcile() async {
+            // `config.json`'s model block has no compress field, so the boot
+            // reconciler refreshes every field it owns and must leave this one.
+            // Without that the editor's value would vanish on the next start —
+            // the exact revert the write-through path exists to prevent.
+            let app = Self.managedState()
+            let failure = await app.saveModelConfigEdit(
+                originalName: "nemotron",
+                draft: Self.draft(name: "nemotron", model: "nemotron", provider: "vllm",
+                                  baseURL: "http://old:8000/v1", contextLength: 1_000,
+                                  compressionBudget: 64_000))
+            #expect(failure == nil)
+            var settings = await app.settings
+            #expect(settings.modelConfigs[0].compressionBudget == 64_000)
+
+            let arcConfig = await app.arcConfig
+            ConfigModelReconciler.reconcile(
+                &settings, resolved: .init(arc: arcConfig))
+            #expect(settings.modelConfigs[0].compressionBudget == 64_000,
+                    "the boot reconcile dropped the editor's compress threshold")
+        }
+
         @Test("the add form still renders when nothing is being edited")
         func addFormWhenIdle() async {
             let app = Self.state()
@@ -341,6 +473,7 @@ extension ArcWebUITestRoot {
                     "mce-apikey": .string(""),
                     "mce-ctx": .string("32768"),
                     "mce-maxtok": .string("8192"),
+                    "mce-budget": .string("24576"),
                 ]))
 
             let configs = await app.settings.modelConfigs
@@ -348,6 +481,8 @@ extension ArcWebUITestRoot {
             #expect(configs[1].model == "qwen3", "the submitted model did not land")
             #expect(configs[1].contextLength == 32_768)
             #expect(configs[1].maxOutputTokens == 8_192)
+            #expect(configs[1].compressionBudget == 24_576,
+                    "the submitted compress threshold did not land")
             #expect(await app.editingModelConfig == nil, "the form stayed open after saving")
         }
 

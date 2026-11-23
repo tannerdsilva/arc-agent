@@ -31,6 +31,11 @@ struct ModelConfigDraft: Sendable, Equatable {
     var clearAPIKey: Bool
     var contextLength: Int?
     var maxOutputTokens: Int?
+    /// Auto-compress threshold in tokens. nil = the engine's default ladder
+    /// (half the resolved context window). The editor used to leave this field
+    /// out, so the only way to change a configuration's threshold was to remove
+    /// the record — dropping every pin that named it — and type it again.
+    var compressionBudget: Int?
 }
 
 /// Why an in-place edit was refused. The controller turns one into a toast;
@@ -82,6 +87,7 @@ extension AppState {
         formValues["mce-clear-key"] = nil
         formValues["mce-ctx"] = preset.contextLength.map(String.init) ?? ""
         formValues["mce-maxtok"] = preset.maxOutputTokens.map(String.init) ?? ""
+        formValues["mce-budget"] = preset.compressionBudget.map(String.init) ?? ""
     }
 
     /// Close the edit form and drop its draft (a staged key included).
@@ -102,6 +108,7 @@ extension AppState {
         formValues["mce-clear-key"] = nil
         formValues["mce-ctx"] = nil
         formValues["mce-maxtok"] = nil
+        formValues["mce-budget"] = nil
     }
 
     // MARK: save
@@ -185,6 +192,12 @@ extension AppState {
         preset.apiKey = key
         preset.contextLength = draft.contextLength
         preset.maxOutputTokens = draft.maxOutputTokens
+        // the compress threshold lives on the preset, not in `config.json`'s
+        // model block (which has no such field): `ModelParameterStore` reads it
+        // back from this record for the daemon, and `ConfigModelReconciler`
+        // refreshes every other field from the config but never this one, so it
+        // survives a boot on the managed preset too.
+        preset.compressionBudget = draft.compressionBudget
         preset.source = managed ? ConfigModelReconciler.managedSource : "ui"
         settings.modelConfigs[index] = preset
 
