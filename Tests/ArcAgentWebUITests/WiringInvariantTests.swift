@@ -184,16 +184,16 @@ extension ArcWebUITestRoot {
             #expect(router.hostHandlerCount == 1, "message_actions group registration drifted")
         }
 
-        @Test("wireAll registers exactly 163 handlers (kanban cards wires included)")
-        func wireAllRegistersExactly163() async throws {
+        @Test("wireAll registers exactly 166 handlers (kanban cards wires included)")
+        func wireAllRegistersExactly166() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             await controller.wireAll(router)
 
             let count = router.hostHandlerCount
             #expect(
-                count == 163,
-                "wireAll must register exactly 163 handlers after the cards-tab wire: the remote render-time toast/panel handlers no longer boot-wire, while the 8 kanban-agent wires (new-board form + two close buttons) remain, got \(count)")
+                count == 166,
+                "wireAll must register exactly 166 handlers after the cards-tab wire: the remote render-time toast/panel handlers no longer boot-wire, while the kanban-agent wires (new-board form + two close buttons + the 3 subcard-split wires) remain, got \(count)")
         }
 
         /// A non-listed id has no handler: the router answers empty fragments.
