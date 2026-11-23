@@ -108,8 +108,11 @@ enum KanbanTool {
     // MARK: Argument helpers
 
     static func boardArg(_ args: [String: Any], env: [String: String]?) -> String {
-        if let b = args["board"] as? String, !b.isEmpty { return b }
-        return CardWorker.board(env)
+        // Normalize at the boundary: every board id crossing the tool —
+        // from any caller, in any case or spelling — maps to the registry
+        // slug, so `E2E-Demo`, `e2e demo`, and `e2e-demo` are one namespace.
+        if let b = args["board"] as? String, !b.isEmpty { return CardBoard.slug(b) }
+        return CardBoard.slug(CardWorker.board(env))
     }
 
     static func taskIDArg(_ args: [String: Any], env: [String: String]?) -> String? {

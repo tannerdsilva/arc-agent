@@ -3823,6 +3823,34 @@ extension Controller {
         return await self.changed()
     }
 
+    @Wired("cards-chip", events: [.click])
+    func handleCardsChip(_ event: EventData) async -> HandlerOutcome {
+        // Element ids are cards-chip-<enc(taskID)>; the container is the wire
+        // so the click falls through and targetId names the chip.
+        let tid = event.string("targetId") ?? ""
+        guard tid.hasPrefix("cards-chip-"),
+              let id = dec(String(tid.dropFirst("cards-chip-".count))) else { return .fragments([]) }
+        await self.app.cardsSetDetail(id)
+        return await self.changed()
+    }
+
+    @Wired("cards-detail", events: [.click])
+    func handleCardsDetailClick(_ event: EventData) async -> HandlerOutcome {
+        // The overlay is the wire boundary: a backdrop click (or any click not
+        // landing on an id-bearing descendant) emits NO targetId — close. The
+        // panel carries its own id so text clicks inside it are ignored.
+        let tid = event.string("targetId") ?? ""
+        if tid.hasPrefix("cards-detail-panel") { return .fragments([]) }
+        await self.app.cardsSetDetail(nil)
+        return await self.changed()
+    }
+
+    @Wired("cards-detail-close", events: [.click])
+    func handleCardsDetailClose(_ event: EventData) async -> HandlerOutcome {
+        await self.app.cardsSetDetail(nil)
+        return await self.changed()
+    }
+
     @Wired("kba-lane-form", events: [.submit])
     func handleKbaLaneForm(_ event: EventData) async -> HandlerOutcome {
         let name = event.string("kba-lane-name") ?? ""

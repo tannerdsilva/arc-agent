@@ -133,6 +133,26 @@ struct KanbanBoardToolTests {
         #expect(standalone.contains { $0.status == .ready })
     }
 
+    @Test("mixed-case board name normalizes to the registry slug namespace")
+    func boardArgSlugNormalization() async throws {
+        let store = FileCardStore(arcHome: FileManager.default.temporaryDirectory
+            .appendingPathComponent("boardtool-\\(UUID().uuidString)", isDirectory: true))
+        // Register the canonical slug.
+        try await store.createBoard(CardBoard(id: "e2e-demo", name: "E2E Demo"))
+        // Create via the tool with the raw display name — must land on the slug.
+        _ = try await run(["action": "create", "title": "mixed case probe", "board": "E2E-Demo"], store)
+        let onSlug = try await store.listTasks(board: "e2e-demo", filter: CardListFilter(includeArchived: true))
+        #expect(onSlug.contains { $0.title == "mixed case probe" })
+        // Same for spaces and other spellings — one namespace.
+        _ = try await run(["action": "create", "title": "spaced probe", "board": "e2e demo"], store)
+        let again = try await store.listTasks(board: "e2e-demo", filter: CardListFilter(includeArchived: true))
+        #expect(again.contains { $0.title == "spaced probe" })
+        // The standalone pool keyword passes through unharmed.
+        _ = try await run(["action": "create", "title": "pool probe"], store)
+        let pool = try await store.listTasks(board: "default", filter: CardListFilter(includeArchived: true))
+        #expect(pool.contains { $0.title == "pool probe" })
+    }
+
     @Test("archive action flips a done card")
     func archiveAction() async throws {
         let store = FileCardStore(arcHome: FileManager.default.temporaryDirectory

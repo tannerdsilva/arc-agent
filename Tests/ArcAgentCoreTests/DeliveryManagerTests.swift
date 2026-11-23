@@ -82,6 +82,19 @@ extension ArcCoreTestRoot {
             }
         }
 
+        @Test("send to 'kanban-agent' platform does not throw when no adapter is registered")
+        func sendKanbanAgentLocalNoThrow() async {
+            let dm = DeliveryManager()
+            let target = ChatTarget(platform: "kanban-agent", chatID: "kanban-agent-test")
+            let msg = OutgoingMessage(text: "hello from card worker")
+            // Must NOT throw. Before the fix this threw
+            // `.unknownPlatform("kanban-agent")` on every card-worker turn
+            // (ephemeral sessions in SessionHost.kanbanCardRunner).
+            await #expect(throws: Never.self) {
+                try await dm.send(message: msg, to: target)
+            }
+        }
+
         // MARK: - Push platforms still behave correctly
 
         @Test("registered push platform still routes through its adapter")

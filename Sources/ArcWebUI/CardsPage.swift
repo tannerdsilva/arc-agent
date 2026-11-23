@@ -167,6 +167,10 @@ extension AppState {
                 }
             }
             .data("scroll-key", "cards-main")
+            if let id = _cardDetailID,
+               let task = _cardSnapshot?.flatMap(\.tasks).first(where: { $0.id == id }) {
+                cardsDetailOverlay(task)
+            }
         }
     }
 
@@ -197,10 +201,10 @@ extension AppState {
                 if archived.isEmpty {
                     Element(.p, class: .todoSub) { Text("No completed cards yet — the dispatcher archives settled cards here.") }
                 } else {
-                    ErasedViews(archived.map { cardRow($0) })
+                    Div(class: .ccStack) { ErasedViews(archived.map { cardRow($0) }) }.wire("cards-chip")
                 }
             } else {
-                ErasedViews([cardsLane(board)])
+                Div { ErasedViews([cardsLane(board)]) }.wire("cards-chip")
             }
         }
     }
@@ -212,14 +216,7 @@ extension AppState {
                 guard let status = CardStatus(rawValue: task.status) else { return false }
                 return CardColumn(status: status) == column
             }
-            let chips: [any WebUI.View] = inColumn.map { task in
-                ArcButton(id: "cards-chip-\(enc(task.id))", component: nil, class:
-                    task.status == "running" ? ClassName(.kbCard, .taskRunning) : .kbCard) {
-                    LrName { Text(task.title) }
-                    LrSub { Text("p\(task.priority)\(task.assignee.map { " · \($0)" } ?? "")\(task.currentRun != nil ? " · run live" : "")") }
-                }
-                .attribute("style", "text-align:left")
-            }
+            let chips: [any WebUI.View] = inColumn.map { cardChip($0) }
             return Div(class: .kbCol) {
                 Div(class: .kbColHead) {
                     Span(class: .kbColName) { Text(column.displayName) }
@@ -228,7 +225,7 @@ extension AppState {
                 if chips.isEmpty {
                     Span(class: .chatMeta) { Text("—") }
                 } else {
-                    ErasedViews(chips)
+                    Div(class: .ccStack) { ErasedViews(chips) }
                 }
             }
         }
@@ -254,71 +251,97 @@ extension AppState {
         return Span(class: .chip) { Text(status) }.data("st", st)
     }
 
-    private func metaLine(_ parts: [String?]) -> any WebUI.View {
-        let joined = parts.compactMap { $0 }.joined(separator: " · ")
-        return Div(class: .chatMeta) { Text(joined) }
+    /// The uniform card chip: fixed-height box, thin status banner on top,
+    /// title (ellipsized) + priority/assignee + status tag. Clickable — opens
+    /// the detail panel (which carries runs, comments, attachments, events).
+    private func cardChip(_ task: CardBoardSnapshot.TaskRow) -> any WebUI.View {
+        let running = task.status == "running"
+        let foot: [any WebUI.View] = [
+            Span(class: .ccPriority) {
+                Text("p\(task.priority)\(task.assignee.map { " · \($0)" } ?? "")")
+            },
+            Span(class: running ? ClassName(.ccTag, .ccTagRunning) : .ccTag) { Text(task.status) },
+        ]
+        return ArcButton(id: "cards-chip-\(enc(task.id))", component: nil, class: .ccCard) {
+            Div(class: .ccBanner) {}
+            Div(class: .ccBody) {
+                Div(class: .ccTitle) { Text(task.title) }
+                Div(class: .ccFoot) { ErasedViews(foot) }
+            }
+        }
+        .data("st", task.status)
     }
 
+    /// An archived card rendered like a board chip (same uniform design).
     private func cardRow(_ task: CardBoardSnapshot.TaskRow) -> any WebUI.View {
-        // House pattern: every subview is bound before the builder —
-        // `any View` values cannot be produced *inside* a result builder.
-        let chip: [any WebUI.View] = [statusChip(task.status)]
-        let assignee: [any WebUI.View] = task.assignee.map { a in [Span(class: .chatMeta) { Text("→ \(a)") }] } ?? []
-        let tenant: [any WebUI.View] = task.tenant.map { t in [Span(class: .chatMeta) { Text("(tenant \(t))") }] } ?? []
-        var metaParts: [String] = ["id \(task.id.prefix(8))", "workspace \(task.workspace)"]
-        if let completed = task.completed { metaParts.append("completed \(completed)") }
-        let meta: [any WebUI.View] = [metaLine([metaParts.joined(separator: " · ")])]
-        let skills: [any WebUI.View] = task.skills.isEmpty ? [] : [metaLine(["skills: \(task.skills.joined(separator: ", "))"])]
-        let failLine: [any WebUI.View] = task.lastFailureError.map { [metaLine(["failures \(task.consecutiveFailures): \($0)"])] } ?? []
-        let runRows: [any WebUI.View] = task.runs.map { run in
-            Div(class: .taskHistRow) {
-                Span(class: .taskHistTime) { Text("#\(run.attempt) \(run.id)") }
-                Span(class: .taskHistStatus) { Text("[\(run.status)]\(run.outcome.map { " \($0)" } ?? "")") }
-                if let s = run.summary { Span(class: .chatMeta) { Text(s) } }
-                if let e = run.error { Span(class: .chatMeta) { Text("(error: \(e))") } }
-            }
+        cardChip(task)
+    }
+
+    /// Card detail: an overlay pinned to the main section — chrome and rail
+    /// stay live. Backdrop click and the ✕ both close; clicks inside the
+    /// panel carry the panel id and are ignored by the wire.
+    func cardsDetailOverlay(_ task: CardBoardSnapshot.TaskRow) -> some WebUI.View {
+        var meta: [any View] = []
+        func row(_ key: String, _ value: String) {
+            meta.append(Span(class: .cardsDetailKey) { Text(key) })
+            meta.append(Span(class: .cardsDetailVal) { Text(value) })
         }
-        let runsBlock: [any WebUI.View] = task.runs.isEmpty ? [] : [Div(class: .taskHistCard) {
-            Div(class: .taskCtrlKey) { Text("Runs") }
-            ErasedViews(runRows)
-        }]
-        let commentRows: [any WebUI.View] = task.comments.map { c in
-            Div(class: .chatMeta) { Text("\(c.author): \(c.body)") }
+        row("id", "\(task.id.prefix(8))")
+        row("status", task.status)
+        row("priority", "p\(task.priority)")
+        if let a = task.assignee { row("assignee", a) }
+        if let t = task.tenant { row("tenant", t) }
+        row("workspace", task.workspace)
+        row("created", task.created)
+        if let s = task.started { row("started", s) }
+        if let c = task.completed { row("completed", c) }
+        if let h = task.lastHeartbeat { row("heartbeat", h) }
+        if let r = task.currentRun { row("current run", r) }
+        if let b = task.blockKind { row("blocked", "\(b) × \(task.blockRecurrences)") }
+        if task.consecutiveFailures > 0 { row("failures", "\(task.consecutiveFailures)") }
+        if !task.skills.isEmpty { row("skills", task.skills.joined(separator: ", ")) }
+        if !task.parents.isEmpty { row("parents", task.parents.joined(separator: ", ")) }
+        if !task.children.isEmpty { row("children", task.children.joined(separator: ", ")) }
+        var sections: [any View] = []
+        if let err = task.lastFailureError {
+            sections.append(Div(class: .cardsDetailSec) {
+                Span(class: .cardsDetailKey) { Text("Last failure") }
+                Span(class: .cardsDetailVal) { Text(err) }
+            })
         }
-        let commentBlock: [any WebUI.View] = task.comments.isEmpty ? [] : [Div(class: .taskCtrlCard) {
-            Div(class: .taskCtrlKey) { Text("Comments") }
-            ErasedViews(commentRows)
-        }]
-        let attRows: [any WebUI.View] = task.attachments.map { a in
-            Div(class: .chatMeta) { Text(a) }
+        if !task.runs.isEmpty {
+            sections.append(Div(class: .cardsDetailSec) {
+                Span(class: .cardsDetailKey) { Text("Runs") }
+                ErasedViews(task.runs.map { run in
+                    Div(class: .chatMeta) {
+                        Text("#\(run.attempt) \(run.id) [\(run.status)]\(run.outcome.map { " \($0)" } ?? "")")
+                    }
+                })
+            })
         }
-        let attBlock: [any WebUI.View] = task.attachments.isEmpty ? [] : [Div(class: .taskCtrlCard) {
-            Div(class: .taskCtrlKey) { Text("Attachments") }
-            ErasedViews(attRows)
-        }]
-        let eventRows: [any WebUI.View] = task.events.map { e in
-            Div(class: .chatMeta) { Text(e) }
+        for (title, lines) in [("Comments", task.comments.map { "\($0.author): \($0.body)" }),
+                               ("Attachments", task.attachments),
+                               ("Events", task.events)] where !lines.isEmpty {
+            sections.append(Div(class: .cardsDetailSec) {
+                Span(class: .cardsDetailKey) { Text(title) }
+                ErasedViews(lines.map { line in Div(class: .chatMeta) { Text(line) } })
+            })
         }
-        let eventBlock: [any WebUI.View] = task.events.isEmpty ? [] : [Div(class: .taskCtrlCard) {
-            Div(class: .taskCtrlKey) { Text("Events") }
-            ErasedViews(eventRows)
-        }]
-        return Div(class: .taskCtrlCard) {
-            Div(class: .taskCtrlHead) {
-                Div(class: .taskCtrlName) { Text("\(task.title)  ·  p\(task.priority)") }
-                Div(class: .taskCtrlMeta) {
-                    chip
-                    assignee
-                    tenant
+        let chip: [any View] = [statusChip(task.status)]
+        return Div(id: "cards-detail-overlay", class: .cardsDetailOverlay) {
+            Div(id: "cards-detail-panel", class: .cardsDetailPanel) {
+                Div(class: .cardsDetailHead) {
+                    Span(class: .cardsDetailTitle) { Text(task.title) }
+                    ErasedViews(chip)
+                    ArcButton(id: "cards-detail-close", component: "cards-detail-close", class: ClassName(.cardsDetailClose, .iconMini)) {
+                        WebUIIcon(.x, size: .small)
+                    }
+                    .title("Close")
                 }
+                Div(class: .cardsDetailGrid) { ErasedViews(meta) }
+                ErasedViews(sections)
             }
-            skills
-            meta
-            failLine
-            runsBlock
-            commentBlock
-            attBlock
-            eventBlock
         }
+        .wire("cards-detail")
     }
 }

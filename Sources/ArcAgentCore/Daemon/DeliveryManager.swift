@@ -33,7 +33,11 @@ public actor DeliveryManager {
     /// "webui", no adapter was registered, `unknownPlatform` was thrown, and
     /// `SessionAgent`'s catch block removed the session and shut down its HTTP
     /// client — wiping conversation context on every turn.
-    private let localPlatforms: Set<String> = ["api", "webui"]
+    ///
+    /// `kanban-agent` — ephemeral card-worker sessions (SessionHost's
+    /// kanbanCardRunner) — is the same shape: request/response over the
+    /// caller's continuation, never a push adapter.
+    private let localPlatforms: Set<String> = ["api", "webui", "kanban-agent"]
 
     /// Response-silence convention (reference stream-consumer silence): a
     /// final assistant response that is exactly `NO_REPLY` or `[SILENT]`

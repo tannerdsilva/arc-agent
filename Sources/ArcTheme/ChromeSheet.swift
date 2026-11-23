@@ -739,7 +739,7 @@ public static let css: String = """
     .tool-group { font-size: 0.84em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 12px 10px 4px; }
 
     /* ─── Main content ────────────────────────────────────────── */
-    .main-view { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 22px clamp(20px, 7vw, 88px) 12px; }
+    .main-view { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; padding: 22px clamp(20px, 7vw, 88px) 12px; }
     .main-scroll { flex: 1; overflow-y: auto; }
     .main-scroll::-webkit-scrollbar { width: 8px; }
     .main-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -3031,10 +3031,16 @@ public static let css: String = """
     .kb-card {
       display: flex; flex-direction: column; gap: 7px;
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius-sm); padding: 8px 9px;
+      border-radius: var(--radius-md); padding: 8px 9px;
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+      cursor: pointer; text-align: left;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
     }
-    .kb-card:hover { border-color: var(--border-strong); }
+    .kb-card:hover, .kb-card:focus-visible {
+      background: var(--surface-2); border-color: var(--accent-border);
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+      outline: none;
+    }
     .kb-card-title { font-size: 0.88em; color: var(--text); line-height: 1.35; word-break: break-word; }
     .kb-card-actions { justify-content: flex-end; opacity: 0; transition: opacity 0.15s; }
     /* Card actions stay in the DOM (keyboard reachable) but only surface while
@@ -3043,6 +3049,85 @@ public static let css: String = """
     .kb-card:hover .kb-card-actions,
     .kb-card:focus-within .kb-card-actions { opacity: 1; }
     @media (hover: none) { .kb-card-actions { opacity: 1; } }
+    /* Uniform card chip (Cards page): fixed-height box so every card is the
+       same size; long titles ellipsize. Thin status banner on top; status tag
+       in the foot — the running tag pulses its glow. */
+    .ccard-stack {
+      display: flex; flex-direction: column; gap: 8px;
+      padding: 10px; min-width: 0;
+    }
+    .ccard {
+      display: flex; flex-direction: column; height: 62px; padding: 0;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-md); overflow: hidden;
+      cursor: pointer; text-align: left; min-width: 0;
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+    }
+    .ccard:hover, .ccard:focus-visible {
+      background: var(--surface-2); border-color: var(--accent-border);
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+    }
+    .ccard-banner { flex: none; height: 3px; background: var(--border); }
+    .ccard[data-st="todo"] .ccard-banner, .ccard[data-st="triage"] .ccard-banner { background: var(--muted); }
+    .ccard[data-st="ready"] .ccard-banner { background: var(--accent, #58a6ff); }
+    .ccard[data-st="running"] .ccard-banner { background: var(--success); }
+    .ccard[data-st="blocked"] .ccard-banner { background: var(--warning, #d29922); }
+    .ccard[data-st="done"] .ccard-banner, .ccard[data-st="archived"] .ccard-banner { background: var(--success); opacity: 0.55; }
+    .ccard-body {
+      flex: 1; min-width: 0; display: flex; flex-direction: column;
+      justify-content: space-between; gap: 4px; padding: 7px 9px 6px;
+    }
+    .ccard-title {
+      font-size: 0.88em; color: var(--text); line-height: 1.3;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .ccard-foot { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .ccard-priority {
+      flex: 1 1 auto; min-width: 0; font-size: 0.72em; color: var(--muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .ccard-tag {
+      margin-left: auto; flex: none; font-size: 0.7em; color: var(--muted);
+      padding: 1px 8px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--surface-2);
+      white-space: nowrap;
+    }
+    .ccard-tag-running {
+      color: var(--success); border-color: var(--success);
+      animation: ccard-glow 1.6s ease-in-out infinite;
+    }
+    @keyframes ccard-glow {
+      0%, 100% { box-shadow: 0 0 0 0 transparent; }
+      50% { box-shadow: 0 0 7px 0 var(--success); }
+    }
+    @media (prefers-reduced-motion: reduce) { .ccard-tag-running { animation: none; } }
+    /* Card detail: an overlay pinned to the main section (.main-view is the
+       containing block), not the whole page — chrome and rail stay live. */
+    .cards-detail-overlay {
+      position: absolute; inset: 0; z-index: 60;
+      display: flex; align-items: flex-start; justify-content: center;
+      padding: 26px 18px 18px; overflow-y: auto;
+      background: color-mix(in srgb, var(--bg) 55%, transparent);
+      backdrop-filter: blur(2px);
+    }
+    .cards-detail-panel {
+      width: min(680px, 100%); max-height: 100%;
+      display: flex; flex-direction: column; gap: 12px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); padding: 16px 18px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+      overflow-y: auto;
+    }
+    .cards-detail-head { display: flex; align-items: flex-start; gap: 10px; }
+    .cards-detail-close { flex: none; }
+    .cards-detail-title { flex: 1; min-width: 0; font-size: 1.02em; font-weight: 600; color: var(--text); word-break: break-word; }
+    .cards-detail-grid { display: grid; grid-template-columns: minmax(90px, max-content) 1fr; gap: 4px 14px; font-size: 0.88em; }
+    .cards-detail-key { color: var(--muted); }
+    .cards-detail-val { color: var(--text); word-break: break-word; }
+    .cards-detail-sec {
+      border-top: 1px solid var(--border); padding-top: 10px;
+      display: flex; flex-direction: column; gap: 5px; font-size: 0.86em;
+    }
     .kb-empty { color: var(--muted); font-size: 0.86em; text-align: center; padding: 10px 0; }
     .kb-addcard {
       border: 1px dashed var(--border-strong); background: transparent;

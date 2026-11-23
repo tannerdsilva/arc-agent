@@ -267,6 +267,24 @@ extension ClassName {
 	public static var kbAddcard: ClassName { ClassName(ArcClass.kbAddcard.token) }
 	public static var kbAddcardForm: ClassName { ClassName(ArcClass.kbAddcardForm.token) }
 	public static var kbCard: ClassName { ClassName(ArcClass.kbCard.token) }
+	public static var ccCard: ClassName { ClassName(ArcClass.ccCard.token) }
+	public static var ccBanner: ClassName { ClassName(ArcClass.ccBanner.token) }
+	public static var ccBody: ClassName { ClassName(ArcClass.ccBody.token) }
+	public static var ccTitle: ClassName { ClassName(ArcClass.ccTitle.token) }
+	public static var ccFoot: ClassName { ClassName(ArcClass.ccFoot.token) }
+	public static var ccPriority: ClassName { ClassName(ArcClass.ccPriority.token) }
+	public static var ccTag: ClassName { ClassName(ArcClass.ccTag.token) }
+	public static var ccTagRunning: ClassName { ClassName(ArcClass.ccTagRunning.token) }
+	public static var ccStack: ClassName { ClassName(ArcClass.ccStack.token) }
+	public static var cardsDetailOverlay: ClassName { ClassName(ArcClass.cardsDetailOverlay.token) }
+	public static var cardsDetailPanel: ClassName { ClassName(ArcClass.cardsDetailPanel.token) }
+	public static var cardsDetailHead: ClassName { ClassName(ArcClass.cardsDetailHead.token) }
+	public static var cardsDetailTitle: ClassName { ClassName(ArcClass.cardsDetailTitle.token) }
+	public static var cardsDetailClose: ClassName { ClassName(ArcClass.cardsDetailClose.token) }
+	public static var cardsDetailGrid: ClassName { ClassName(ArcClass.cardsDetailGrid.token) }
+	public static var cardsDetailKey: ClassName { ClassName(ArcClass.cardsDetailKey.token) }
+	public static var cardsDetailVal: ClassName { ClassName(ArcClass.cardsDetailVal.token) }
+	public static var cardsDetailSec: ClassName { ClassName(ArcClass.cardsDetailSec.token) }
 	public static var kbCardActions: ClassName { ClassName(ArcClass.kbCardActions.token) }
 	public static var kbCardTitle: ClassName { ClassName(ArcClass.kbCardTitle.token) }
 	public static var kbCards: ClassName { ClassName(ArcClass.kbCards.token) }

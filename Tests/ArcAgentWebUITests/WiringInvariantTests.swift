@@ -192,8 +192,8 @@ extension ArcWebUITestRoot {
 
             let count = router.hostHandlerCount
             #expect(
-                count == 161,
-                                "wireAll must register exactly 161 handlers after the cards-tab wire: the remote\\\n\\\t\\\t\\\trender-time toast/panel handlers no longer boot-wire, while the 8\\\n\\\t\\\t\\\tkanban-agent wires (new-board form + two close buttons) remain, got \(count)")
+                count == 164,
+                                "wireAll must register exactly 164 handlers after the cards-chip/cards-detail wires: the remote\\\n\\\t\\\t\\\trender-time toast/panel handlers no longer boot-wire, while the 8\\\n\\\t\\\t\\\tkanban-agent wires (new-board form + two close buttons) remain, got \(count)")
         }
 
         /// A non-listed id has no handler: the router answers empty fragments.

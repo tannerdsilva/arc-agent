@@ -781,6 +781,13 @@ actor AppState {
     /// Cards page per-board tab ("board" | "completed"); "board" default.
     var cardTabs: [String: String] = [:]
 
+    /// Cards page detail overlay: the task id whose card is open, nil = closed.
+    var _cardDetailID: String?
+
+    func cardsSetDetail(_ id: String?) {
+        _cardDetailID = id
+    }
+
     func setCardTab(_ tab: String, for board: String) {
         cardTabs[board] = tab
     }
