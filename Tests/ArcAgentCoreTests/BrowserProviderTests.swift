@@ -38,7 +38,11 @@ extension ArcCoreTestRoot {
             // identity, not count: `register` is keyed by name, so a provider
             // re-created per read would replace the entry and still leave one
             // key. `===` is the assertion that the read reused the instance.
-            #expect((first as AnyObject) === (second as AnyObject))
+            //
+            // identity via `ObjectIdentifier`, not `as AnyObject`: swift 6.4's
+            // SILGen aborts (`useConformance at SILGenLazyConformance.cpp:57`)
+            // emitting the existential-to-AnyObject bridge for this comparison.
+            #expect(ObjectIdentifier(first as AnyObject) == ObjectIdentifier(second as AnyObject))
 
             let names = await registry.available()
             #expect(names == ["cdp"])
