@@ -67,8 +67,19 @@ let package = Package(
             url: "https://github.com/tannerdsilva/no-webui.git",
             revision: "248c632cb4b630ef845868004255b5bc1fe25060"
         ),
+        // rawdog was already in the graph transitively (tessera + no-webui). it is
+        // declared directly from 22.1.0 for the config-share envelope: argon2id is
+        // the only passphrase KDF in the tree (swift-crypto has none), and xchacha20-
+        // poly1305 is the 24-byte-nonce AEAD the envelope needs — swift-crypto's
+        // `ChaChaPoly` is the 12-byte-nonce variant, which would force counter
+        // management instead of a random nonce. `RAW_base64` is the strict codec
+        // behind the wire form. keep the range pinned to the major the siblings use.
+        .package(
+            url: "https://github.com/tannerdsilva/rawdog.git",
+            "22.0.0"..<"23.0.0"
+        ),
 		.package(path: "Plugins/ArcSidebarTabs"),
-	],
+    ],
 
     targets: [
         // ── Theme (shared with the asset tool) ────────────────────
@@ -141,6 +152,15 @@ let package = Package(
                 // `WebUI/Utilities.swift`'s shared renderer emits HTML and now uses
                 // the framework's `htmlEscape` instead of a second copy.
                 .product(name: "WebUIIslandWire", package: "no-webui"),
+                // the config-share envelope (`Config/ConfigShareCodec.swift`): the
+                // passphrase KDF, the AEAD and the strict wire codec. `RAW` carries
+                // the `RAW_staticbuff`/`RAW_accessible` protocols the key and nonce
+                // types are built on. see the package declaration for why rawdog
+                // rather than `Crypto` (no Argon2, no 24-byte-nonce ChaCha there).
+                .product(name: "RAW", package: "rawdog"),
+                .product(name: "RAW_base64", package: "rawdog"),
+                .product(name: "RAW_argon2", package: "rawdog"),
+                .product(name: "RAW_xchachapoly", package: "rawdog"),
             ],
             exclude: [
             ],
@@ -253,6 +273,9 @@ let package = Package(
                 // HTMLEscapeTests compares arc's escaping against the framework's
                 // (and, after the swap, pins the framework's output as a golden).
                 .product(name: "WebUIIslandWire", package: "no-webui"),
+                // ConfigShareCodecTests re-encodes tampered envelopes, so it speaks
+                // the same base64 the codec does.
+                .product(name: "RAW_base64", package: "rawdog"),
             ],
         ),
 
