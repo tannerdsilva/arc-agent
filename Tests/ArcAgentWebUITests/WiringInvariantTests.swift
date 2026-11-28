@@ -79,7 +79,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_settings_admin(router)
-            #expect(router.hostHandlerCount == 40, "settings_admin group registration drifted")
+            #expect(router.hostHandlerCount == 41, "settings_admin group registration drifted")
         }
 
         @Test("every skills handler is registered after wireGroup_skills")
@@ -192,8 +192,8 @@ extension ArcWebUITestRoot {
 
             let count = router.hostHandlerCount
             #expect(
-                count == 166,
-                "wireAll must register exactly 166 handlers after the cards-tab wire: the remote render-time toast/panel handlers no longer boot-wire, while the kanban-agent wires (new-board form + two close buttons + the 3 subcard-split wires) remain, got \(count)")
+                count == 167,
+                "wireAll must register exactly 167 handlers after the cards-tab wire and the modelcfg-import-form wire: the remote render-time toast/panel handlers no longer boot-wire, while the kanban-agent wires (new-board form + two close buttons + the 3 subcard-split wires) remain, got \(count)")
         }
 
         /// A non-listed id has no handler: the router answers empty fragments.

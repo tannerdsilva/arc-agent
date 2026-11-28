@@ -58,6 +58,10 @@ extension ArcWebUITestRoot {
 			// the same shape as `cat-rename-input` above, one row up.
 			"rename-name", "rename-id",
 			"mce-clear-key",
+			// the config-share reveal's blob readout: a read-only display of the
+			// sealed value beside its Copy control, not an editable form field —
+			// `WebUIField` would wrap it in a label row it does not want.
+			"mc-share-blob",
 		]
 
 		private static func regex(_ pattern: String) throws -> NSRegularExpression {

@@ -3350,6 +3350,24 @@ extension Controller {
         return await self.changed()
     }
 
+    /// The import form's submit: record what was typed, then verify the
+    /// passphrase. Verification is the expensive step (~0.8 s off-pool), so the
+    /// handler records the input first — a re-render on failure must still show
+    /// the blob and passphrase the user pasted.
+    @Wired("modelcfg-import-form", events: [.submit])
+    func handleModelCfgImportForm(_ event: EventData) async -> HandlerOutcome {
+        // start from an open panel even if nothing was staged yet.
+        if await self.app.pendingConfigShare == nil {
+            await self.app.beginConfigShareImport()
+        }
+        await self.app.updatePendingConfigShare(
+            blob: event.string("mci-blob") ?? "",
+            passphrase: event.string("mci-pass") ?? ""
+        )
+        await self.app.unlockConfigShare()
+        return await self.changed()
+    }
+
     @Wired("kanban", events: [.click, .submit])
     func handleKanban(_ event: EventData) async -> HandlerOutcome {
         if event.event == "submit" {
@@ -3722,6 +3740,22 @@ extension Controller {
     private func modelConfigAction(_ tid: String) async -> HandlerOutcome {
         if tid.hasPrefix("mc-edit-"), let name = dec(String(tid.dropFirst("mc-edit-".count))) {
             await self.app.openModelConfigEdit(name)
+        } else if tid.hasPrefix("mc-share-"), let name = dec(String(tid.dropFirst("mc-share-".count))) {
+            // the derivation takes ~0.8 s and runs off the cooperative pool
+            // (see ConfigShareExecutor); the reveal panel appears when it lands.
+            if await self.app.shareModelConfig(name) != nil {
+                _ = await self.app.hint("Configuration encoded. Send the passphrase separately.")
+            }
+        } else if tid == "mc-share-done" {
+            await self.app.clearConfigShare()
+        } else if tid == "mc-share-import" {
+            await self.app.beginConfigShareImport()
+        } else if tid == "mci-commit" {
+            if let name = await self.app.commitConfigShareImport() {
+                _ = await self.app.hint("Imported configuration '\(name)'.")
+            }
+        } else if tid == "mci-cancel" {
+            await self.app.cancelConfigShareImport()
         } else if tid.hasPrefix("mc-del-") {
             if let name = dec(String(tid.dropFirst("mc-del-".count))) {
                 await self.app.removeModelConfig(name)

@@ -5626,6 +5626,8 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                                 Div(class: ClassName(.rowActionsMain, .rowActionsFlush)) {
                                     ArcButton("Edit", id: "mc-edit-\(encName)",
                                               class: ClassName(.ghostBtn, .btnSm))
+                                    ArcButton("Share encoded", id: "mc-share-\(encName)",
+                                              class: ClassName(.ghostBtn, .btnSm))
                                     ArcButton("Remove", id: "mc-del-\(encName)",
                                               class: ClassName(.dangerBtn, .btnSm))
                                 }
@@ -5634,6 +5636,10 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                     }
                 }
                 .wire("modelcfg-list")
+                ArcButton("Import encoded", id: "mc-share-import",
+                          class: ClassName(.ghostBtn, .btnSm))
+                configShareReveal()
+                configShareImportPanel()
                 modelConfigForm()
             }
             DetailCard(class: .cardStack) {
@@ -5656,6 +5662,154 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                     }
                 }
             }
+        }
+    }
+
+    /// The revealed share: passphrase and blob, each with a copy control.
+    ///
+    /// Rendered only while ``AppState/configShare`` is set, which is transient —
+    /// clearing it removes the panel and the secret with it. The out-of-band
+    /// warning is not decoration: the encryption is only meaningful if the
+    /// passphrase travels separately from the blob, and a user who pastes both
+    /// into one message has protected nothing.
+    @ElementBuilder
+    func configShareReveal() -> some WebUI.View {
+        Group {
+            if let share = configShare {
+            DetailCard(class: .cardStack) {
+                Heading("Share \(share.presetName)", level: .h3, class: .cardH3)
+                Div(class: ClassName(.detailSub, .cardSub)) {
+                    Text("Send the encoded configuration to another arc instance, then give the passphrase out of band.")
+                }
+                Div(class: .shareBlock) {
+                    Div(class: .shareRow) {
+                        Span(class: .shareLabel) { Text("Passphrase") }
+                        Div(class: .shareValue) {
+                            InlineCode(share.passphrase)
+                        }
+                        ArcButton(id: "mc-share-copy-pass", component: nil,
+                                  class: ClassName(.ghostBtn, .btnSm),
+                                  extraAttributes: Clipboard(text: share.passphrase).attribute().attributeText) {
+                            Text("Copy")
+                        }
+                    }
+                    Div(class: .shareRow) {
+                        Span(class: .shareLabel) { Text("Encoded") }
+                        Div(class: .shareValue) {
+                            Input(field: "mc-share-blob", placeholder: "",
+                                  type: .text,
+                                  value: share.blob,
+                                  attributes: [("readonly", ""),
+                                               ("autocomplete", "off"),
+                                               ("spellcheck", "false")])
+                        }
+                        ArcButton(id: "mc-share-copy-blob", component: nil,
+                                  class: ClassName(.ghostBtn, .btnSm),
+                                  extraAttributes: Clipboard(text: share.blob).attribute().attributeText) {
+                            Text("Copy")
+                        }
+                    }
+                }
+                Div(class: .shareWarn) {
+                    Text("This blob contains the API key for this configuration. The passphrase must be shared separately — sending both in the same message leaves it readable to anyone in that channel.")
+                }
+                Div(class: ClassName(.rowActionsMain, .rowActionsFlush)) {
+                    ArcButton("Done", id: "mc-share-done",
+                              class: ClassName(.ghostBtn, .btnSm))
+                }
+            }
+        }
+        }
+    }
+
+    /// The import panel: paste a blob, type the passphrase, unlock, review, commit.
+    ///
+    /// Three states share one card so the user never loses the pasted values:
+    /// the form, the error line, and — once the passphrase verified — a preview
+    /// of exactly what would be added.
+    @ElementBuilder
+    func configShareImportPanel() -> some WebUI.View {
+        Group {
+            if let pending = pendingConfigShare {
+            DetailCard(class: .cardStack) {
+                Heading("Import an encoded configuration", level: .h3, class: .cardH3)
+                Div(class: ClassName(.detailSub, .cardSub)) {
+                    Text("Paste an arc1e. blob and the passphrase that came with it.")
+                }
+                Form(method: nil, id: "modelcfg-import-form", class: ClassName(.formGrid, .formSep)) {
+                    WebUIField(label: "Encoded configuration", controlID: "mci-blob") {
+                        Input(field: "mci-blob",
+                              placeholder: "arc1e.…",
+                              type: .text,
+                              value: pending.blob,
+                              attributes: [("autocomplete", "off"), ("spellcheck", "false")])
+                    }
+                    WebUIField(label: "Passphrase", controlID: "mci-pass") {
+                        Input(field: "mci-pass",
+                              placeholder: "the passphrase that came with the blob",
+                              type: .text,
+                              value: pending.passphrase,
+                              attributes: [("autocomplete", "off"), ("spellcheck", "false")])
+                    }
+                    if let error = pending.error {
+                        Small(error)
+                    }
+                    Div(class: ClassName(.rowActionsMain, .rowActionsFlush)) {
+                        ArcButton("Unlock", class: .primaryBtn, type: .submit)
+                        ArcButton("Cancel", id: "mci-cancel",
+                                  class: ClassName(.ghostBtn, .btnSm))
+                    }
+                }
+                .data("component-id", "modelcfg-import-form")
+
+                if let opened = pending.opened {
+                    configSharePreview(opened)
+                }
+            }
+            }
+        }
+    }
+
+    /// What the unlocked blob would add, and the button that commits it.
+    @ElementBuilder
+    func configSharePreview(_ opened: ConfigSharePayload) -> some WebUI.View {
+        let p = opened.preset
+        Group {
+        Div(class: .shareBlock) {
+            Div(class: .shareRow) {
+                Span(class: .shareLabel) { Text("Name") }
+                Div(class: .shareValue) { InlineCode(p.name) }
+            }
+            Div(class: .shareRow) {
+                Span(class: .shareLabel) { Text("Model") }
+                Div(class: .shareValue) { Text("\(p.model) · \(p.provider)") }
+            }
+            Div(class: .shareRow) {
+                Span(class: .shareLabel) { Text("Endpoint") }
+                Div(class: .shareValue) { InlineCode(p.baseURL) }
+            }
+            Div(class: .shareRow) {
+                Span(class: .shareLabel) { Text("API key") }
+                Div(class: .shareValue) {
+                    // never re-render the key itself: the presence of one is all
+                    // the user needs to know, and a rendered secret travels in a
+                    // patch frame.
+                    Text(p.apiKey.isEmpty ? "none included" : "included")
+                }
+            }
+            if let contextLength = p.contextLength {
+                Div(class: .shareRow) {
+                    Span(class: .shareLabel) { Text("Context") }
+                    Div(class: .shareValue) { Text(String(contextLength)) }
+                }
+            }
+        }
+        Div(class: .shareWarn) {
+            Text("Importing adds this as a new configuration. An existing configuration with the same name is kept; the import gets a numbered name instead.")
+        }
+        Div(class: ClassName(.rowActionsMain, .rowActionsFlush)) {
+            ArcButton("Add configuration", id: "mci-commit", class: .primaryBtn)
+        }
         }
     }
 

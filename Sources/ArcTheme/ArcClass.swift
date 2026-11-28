@@ -520,6 +520,13 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case scrollToBottomBtn = "scroll-to-bottom-btn"
 	case seg = "seg"
 	case sel = "sel"
+	/// the config-share reveal and import preview: label + value + copy rows,
+	/// the warning line, and the block that stacks them.
+	case shareBlock = "share-block"
+	case shareLabel = "share-label"
+	case shareRow = "share-row"
+	case shareValue = "share-value"
+	case shareWarn = "share-warn"
 	case selOpen = "sel-open"
 	case selectionChipsWrap = "selection-chips-wrap"
 	case selectionContextAccent = "selection-context-accent"

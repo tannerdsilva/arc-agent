@@ -71,6 +71,15 @@ extension ClassName {
 	public static var cardLead: ClassName { ClassName(ArcClass.cardLead.token) }
 	public static var cardStack: ClassName { ClassName(ArcClass.cardStack.token) }
 	public static var cardSub: ClassName { ClassName(ArcClass.cardSub.token) }
+	public static var cardsDetailClose: ClassName { ClassName(ArcClass.cardsDetailClose.token) }
+	public static var cardsDetailGrid: ClassName { ClassName(ArcClass.cardsDetailGrid.token) }
+	public static var cardsDetailHead: ClassName { ClassName(ArcClass.cardsDetailHead.token) }
+	public static var cardsDetailKey: ClassName { ClassName(ArcClass.cardsDetailKey.token) }
+	public static var cardsDetailOverlay: ClassName { ClassName(ArcClass.cardsDetailOverlay.token) }
+	public static var cardsDetailPanel: ClassName { ClassName(ArcClass.cardsDetailPanel.token) }
+	public static var cardsDetailSec: ClassName { ClassName(ArcClass.cardsDetailSec.token) }
+	public static var cardsDetailTitle: ClassName { ClassName(ArcClass.cardsDetailTitle.token) }
+	public static var cardsDetailVal: ClassName { ClassName(ArcClass.cardsDetailVal.token) }
 	public static var catAdd: ClassName { ClassName(ArcClass.catAdd.token) }
 	public static var catAddActions: ClassName { ClassName(ArcClass.catAddActions.token) }
 	public static var catAddForm: ClassName { ClassName(ArcClass.catAddForm.token) }
@@ -267,6 +276,9 @@ extension ClassName {
 	public static var kbAddcard: ClassName { ClassName(ArcClass.kbAddcard.token) }
 	public static var kbAddcardForm: ClassName { ClassName(ArcClass.kbAddcardForm.token) }
 	public static var kbCard: ClassName { ClassName(ArcClass.kbCard.token) }
+	public static var kbCardActions: ClassName { ClassName(ArcClass.kbCardActions.token) }
+	public static var kbCardTitle: ClassName { ClassName(ArcClass.kbCardTitle.token) }
+	public static var kbCards: ClassName { ClassName(ArcClass.kbCards.token) }
 	public static var ccCard: ClassName { ClassName(ArcClass.ccCard.token) }
 	public static var ccBanner: ClassName { ClassName(ArcClass.ccBanner.token) }
 	public static var ccBody: ClassName { ClassName(ArcClass.ccBody.token) }
@@ -276,18 +288,6 @@ extension ClassName {
 	public static var ccTag: ClassName { ClassName(ArcClass.ccTag.token) }
 	public static var ccTagRunning: ClassName { ClassName(ArcClass.ccTagRunning.token) }
 	public static var ccStack: ClassName { ClassName(ArcClass.ccStack.token) }
-	public static var cardsDetailOverlay: ClassName { ClassName(ArcClass.cardsDetailOverlay.token) }
-	public static var cardsDetailPanel: ClassName { ClassName(ArcClass.cardsDetailPanel.token) }
-	public static var cardsDetailHead: ClassName { ClassName(ArcClass.cardsDetailHead.token) }
-	public static var cardsDetailTitle: ClassName { ClassName(ArcClass.cardsDetailTitle.token) }
-	public static var cardsDetailClose: ClassName { ClassName(ArcClass.cardsDetailClose.token) }
-	public static var cardsDetailGrid: ClassName { ClassName(ArcClass.cardsDetailGrid.token) }
-	public static var cardsDetailKey: ClassName { ClassName(ArcClass.cardsDetailKey.token) }
-	public static var cardsDetailVal: ClassName { ClassName(ArcClass.cardsDetailVal.token) }
-	public static var cardsDetailSec: ClassName { ClassName(ArcClass.cardsDetailSec.token) }
-	public static var kbCardActions: ClassName { ClassName(ArcClass.kbCardActions.token) }
-	public static var kbCardTitle: ClassName { ClassName(ArcClass.kbCardTitle.token) }
-	public static var kbCards: ClassName { ClassName(ArcClass.kbCards.token) }
 	public static var kbCol: ClassName { ClassName(ArcClass.kbCol.token) }
 	public static var kbColActions: ClassName { ClassName(ArcClass.kbColActions.token) }
 	public static var kbColCount: ClassName { ClassName(ArcClass.kbColCount.token) }
@@ -497,6 +497,11 @@ extension ClassName {
 	public static var scrollToBottomBtn: ClassName { ClassName(ArcClass.scrollToBottomBtn.token) }
 	public static var seg: ClassName { ClassName(ArcClass.seg.token) }
 	public static var sel: ClassName { ClassName(ArcClass.sel.token) }
+	public static var shareBlock: ClassName { ClassName(ArcClass.shareBlock.token) }
+	public static var shareLabel: ClassName { ClassName(ArcClass.shareLabel.token) }
+	public static var shareRow: ClassName { ClassName(ArcClass.shareRow.token) }
+	public static var shareValue: ClassName { ClassName(ArcClass.shareValue.token) }
+	public static var shareWarn: ClassName { ClassName(ArcClass.shareWarn.token) }
 	public static var selOpen: ClassName { ClassName(ArcClass.selOpen.token) }
 	public static var selectionChipsWrap: ClassName { ClassName(ArcClass.selectionChipsWrap.token) }
 	public static var selectionContextAccent: ClassName { ClassName(ArcClass.selectionContextAccent.token) }
@@ -511,8 +516,8 @@ extension ClassName {
 	public static var sessConfirm: ClassName { ClassName(ArcClass.sessConfirm.token) }
 	public static var iconMiniDanger: ClassName { ClassName(ArcClass.iconMiniDanger.token) }
 	public static var kbPopAnchor: ClassName { ClassName(ArcClass.kbPopAnchor.token) }
-	public static var kbErrorBanner: ClassName { ClassName(ArcClass.kbErrorBanner.token) }
 	public static var kbPop: ClassName { ClassName(ArcClass.kbPop.token) }
+	public static var kbErrorBanner: ClassName { ClassName(ArcClass.kbErrorBanner.token) }
 	public static var kbTopbarActions: ClassName { ClassName(ArcClass.kbTopbarActions.token) }
 	public static var sessGroup: ClassName { ClassName(ArcClass.sessGroup.token) }
 	public static var sessGroupHead: ClassName { ClassName(ArcClass.sessGroupHead.token) }

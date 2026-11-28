@@ -54,7 +54,10 @@ extension ArcWebUITestRoot {
 		/// this literal is not the guard by itself: `sheetStillMatchesTheMeasurement`
 		/// re-counts the live sheet, so a sheet edit fails there with the difference
 		/// rather than quietly redefining what the enum was built from.
-		static let declaredTokenCount = 695
+		///
+		/// 700 after the config-share rules (share-block, share-label, share-row,
+		/// share-value, share-warn) landed in the chrome sheet.
+		static let declaredTokenCount = 700
 
 		// MARK: - both directions
 

@@ -898,6 +898,16 @@ public static let css: String = """
     .form-hint { color: var(--muted); font-size: 0.75em; }
     /* skills pane (phase 6.4b) */
     .skill-form { max-width: 720px; }
+    /* config share (Settings → Model configurations): the reveal and the import
+       preview share one row shape — a fixed label column, the value, a copy
+       control. the warning line is deliberate chrome, not decoration: the
+       encryption is only meaningful when the passphrase travels separately. */
+    .share-block { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; max-width: 760px; }
+    .share-row { display: grid; grid-template-columns: 96px 1fr auto; gap: 10px; align-items: center; }
+    .share-label { color: var(--muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; }
+    .share-value { min-width: 0; overflow-wrap: anywhere; }
+    .share-value input { width: 100%; font-family: var(--mono, ui-monospace, monospace); font-size: 0.85em; }
+    .share-warn { color: var(--warning-strong, #b54708); font-size: 0.82em; margin: 8px 0; max-width: 760px; }
     .skill-desc { color: var(--text); font-size: 0.98em; margin: 0 0 12px; }
     .detail-body-lead { margin-top: 14px; }
     .mem-head-title { margin: 0; }

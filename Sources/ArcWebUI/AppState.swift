@@ -1412,6 +1412,42 @@ actor AppState {
     /// a patch frame back to the client.
     var stagedModelConfigAPIKey: String?
 
+    // MARK: Config share (Settings → Model configurations)
+
+    /// The result of the last "Share encoded" action: the sealed blob and the
+    /// passphrase that opens it.
+    ///
+    /// **Transient by construction.** This is deliberately a separate property
+    /// rather than an `AppSettings` field: `AppSettings` is what `SettingsStore`
+    /// serializes to `settings.json`, so anything stored there is written to
+    /// disk. The blob carries the preset's API key and the passphrase decrypts
+    /// it, so persisting either would put a credential and its key in a file
+    /// that outlives the session. This value dies with the process, and is
+    /// cleared as soon as the section is left or another share replaces it.
+    var configShare: ConfigShare?
+    /// The share the user is importing: the blob they pasted and the passphrase
+    /// they typed. Also transient, for the same reason — a pasted blob is a
+    /// credential in transit.
+    var pendingConfigShare: PendingConfigShare?
+
+    /// A sealed configuration share plus the passphrase that opens it.
+    struct ConfigShare: Equatable, Sendable {
+        var presetName: String
+        var blob: String
+        var passphrase: String
+    }
+
+    /// An in-flight import: what the user pasted, and the outcome so far.
+    struct PendingConfigShare: Equatable, Sendable {
+        var blob: String = ""
+        var passphrase: String = ""
+        /// Why the last unlock attempt failed, or nil when it has not been tried.
+        var error: String?
+        /// The opened payload, once the passphrase verified. Non-nil means the
+        /// preview is showing and the import awaits confirmation.
+        var opened: ConfigSharePayload?
+    }
+
     // MARK: MCP server presets (Settings → MCP servers)
 
     /// The add/edit form is open (either adding a new server or editing the
